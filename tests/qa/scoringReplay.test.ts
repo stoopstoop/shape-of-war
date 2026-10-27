@@ -7,9 +7,10 @@
 // The expected score and multiplier after every event were worked out by hand from SPEC 3.6
 // (multiplier starts at 1, +1 per geom, reset to 1 on death, kill = base x multiplier). They were not
 // produced by running the code under test.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { bus } from '../../src/core/events';
 import { killEnemy, countsForDestroy } from '../../src/game/combat';
-import { createGame, gameState } from '../../src/game/game';
+import { createGame, gameState, stepGame } from '../../src/game/game';
 import { collectGeom as simCollectGeom } from '../../src/game/geoms';
 import { killShip } from '../../src/game/player';
 import { respawnShip } from '../../src/game/ship';
@@ -29,6 +30,7 @@ import { MULTIPLIER_CAP as SWARM_MULTIPLIER_CAP, defaultScoring, scoreBase } fro
 import type { ScoringPort } from '../../src/game/state';
 import { Kind, createWorld, inlineRectLevel, spawn } from '../../src/game/world';
 import type { World } from '../../src/game/world';
+import type { InputState } from '../../src/input/types';
 
 const K = (kind: Kind): GameEvent => ({ type: 'kill', kind });
 const G = (count: number): GameEvent => ({ type: 'geom', count });
@@ -264,5 +266,44 @@ describe('scoring rules agree between Swarm (state.ts, combat.ts) and Ledger (sc
       expect(gameState(w).kills).toBe(0);
       expect(w.alive[id]).toBe(0);
     }
+  });
+});
+
+const IDLE: InputState = {
+  move: { active: false, x: 0, y: 0 },
+  aim: { active: false, x: 0, y: 0 },
+  bomb: false,
+  superPressed: false,
+  pause: false,
+};
+
+/** Multipliers carried by every hud:score the sim emits over 0.5 s of stepping, after 5 geoms were picked up. */
+function hudMultipliersAfterFiveGeoms(port?: ScoringPort): { emitted: number[]; world: World } {
+  const w = freshWorld(port);
+  for (let i = 0; i < 5; i++) simCollectGeom(w, spawn(w, Kind.Geom, 0, 0));
+  const emitted: number[] = [];
+  bus.on('hud:score', (p) => emitted.push(p.multiplier));
+  for (let i = 0; i < 60; i++) stepGame(w, 1 / 120, IDLE);
+  return { emitted, world: w };
+}
+
+describe('hud:score emitted by the sim', () => {
+  afterEach(() => bus.clear());
+
+  it('with the default port, carries the true multiplier', () => {
+    const { emitted } = hudMultipliersAfterFiveGeoms();
+    expect(emitted.length).toBeGreaterThan(0);
+    for (const m of emitted) expect(m).toBe(6);
+  });
+
+  // Finding QA-003 (docs/qa/bugs.md): stepGame's emitHud (src/game/game.ts:58-71) sends Swarm's own
+  // g.multiplier, which stays 1 when Ledger's port is wired, while main.ts sends Ledger's value on the
+  // same 'hud:score' channel. `it.fails` keeps the suite green while the defect exists and turns red
+  // the day it is fixed: then change it.fails to it.
+  it.fails('with Ledger port, carries the multiplier Ledger shows (QA-003: sim emits a stale x1)', () => {
+    const { emitted, world } = hudMultipliersAfterFiveGeoms(LEDGER_PORT);
+    expect(scoreOf(world).multiplier).toBe(6);
+    expect(emitted.length).toBeGreaterThan(0);
+    for (const m of emitted) expect(m).toBe(6);
   });
 });
