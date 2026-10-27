@@ -7,7 +7,8 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 1. The G3 paste and bugs B5 to B7 that the W4 brief points at are not in the repo. `docs/STATUS.md` at this head says G3 is pending with an empty evidence column and lists open bugs B1 to B4 only. A whole word search for B5, B6 and B7 over the whole worktree (excluding `node_modules`, `dist` and `.git`) finds nothing but stray bytes inside a PNG, and no commit on any branch touched STATUS.md after 3bfc410. The brief says all G3 items passed; this file cannot confirm that and does not record it as a result. B5 to B7 are listed below as untriaged. Fable: paste the G3 line and the three bug texts into the next brief, or into STATUS.md, and Proctor will triage them.
 2. Nothing in B1 to B4 is device verified. All four have fix code merged, so each is "fixed in code, open until Ryan looks at the screen". The only things this file can prove are node side: the suite is green and the build is clean.
 3. Two spec questions are waiting on Fable and affect the typed seed screen: QA-001 (adjacent run seeds repeat levels shifted by one) and QA-006 (Reset progress leaves the run seed and the Endless table, while docs/02 says the seed is reset only by Reset progress).
-4. No P0 is known to this file. The P1 items are B1, B3 and B4, each fixed in code and unverified.
+4. The Endless high score table cannot be seen anywhere in the app (QA-012). Scores are stored, but only a rank badge and a "Best" line reach the screen, so checklist E1 to E3 can only be judged from those. Fable decides whether a read only table view is wanted for v1.
+5. No P0 is known to this file. The P1 items are B1, B3 and B4, each fixed in code and unverified.
 
 ## Source conflict between the brief and the repo
 
@@ -35,6 +36,7 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 | QA-007 | info | Open, doc drift | `docs/07-install-runbook.md` line 490 | Fable |
 | QA-009 | info | Open | `src/render/devpanel.ts` lines 158, 175 to 177 | Glow |
 | QA-011 | info | New, doc drift | `docs/06-test-and-acceptance.md` | Fable |
+| QA-012 | P2 | New, decision needed | `src/ui/results.ts`, `src/ui/menu.ts`, `src/main.ts` line 458 | Ledger, Fable decides |
 
 ## Details
 
@@ -51,6 +53,7 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 - Origin: STATUS.md. No further repro text exists, so this is the known part only.
 - Repro: open the site in a Chrome tab (not the installed icon) on the cover screen and see whether the game renders in portrait.
 - Fix in code: `src/main.ts` line 693 calls `screen.orientation.lock('landscape')` after `requestFullscreen` on the first `pointerup`. The installed PWA is separately covered by `orientation: landscape` in `public/manifest.webmanifest`.
+- docs/04 "Bad news first" item 3 confirms the lock only works while in fullscreen and throws otherwise.
 - Risk, inferred from the code and not seen on device: the call is one shot (the listener removes itself) and the catch is silent, so a refusal leaves the tab in portrait with no retry.
 - Retest on device: F1 and F4 from the installed icon, plus one launch from a browser tab to see whether the lock took.
 - Owner: Ledger was asked in W3. The call site is glue in `src/main.ts`, so Fable owns any follow-up.
@@ -115,6 +118,13 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 
 - docs/06 P1 says `?debug=1&stress=400`. `?debug=1` no longer opens the dev panel (`src/render/devpanelState.ts` line 155). `?stress=400` still starts the stress scene (`src/main.ts` line 607), and Settings has a hidden stress button: tap the build label at the bottom of Settings 5 times within 3 seconds, then "Stress: 400 entities, 2000 particles" appears (`src/ui/settings.ts` lines 140 to 153 and 265 to 276). `docs/device-checklist.md` uses these.
 - docs/06 U2 and U3 do not mention that a fold or unfold auto-pauses the game (docs/01 section 10, `src/main.ts` line 639). The checklist says to tap Resume after each fold.
+
+### QA-012 (P2): the Endless high score table is stored but never shown
+
+- SPEC 3.2 and docs/01 line 48 call for a local top 10 high score table. `recordEndlessScore` stores it (`src/main.ts` line 458, `src/core/settings.ts`), and `tests/settings/endless.test.ts` covers insert in score order, the cap at 10, reload and corrupt data. No code reads the table back for display: the only readers of `loadEndlessScores` are tests, and the results screen shows a rank badge (`New high score` or `Top 10: #N`, `src/ui/results.ts` lines 14 to 21) and one `Best` line.
+- Repro: Menu, Endless, play to death. The Game over screen shows the score, a badge when the run made the top 10, and `Best <n>`. There is no screen that lists the ten entries.
+- Effect on the device checklist: docs/06 E1 to E3 say "score appears in the table", "table unchanged" and "table sorted descending, at most 10 entries". Ryan cannot see a table, so `docs/device-checklist.md` words E1 to E3 against the badge and Best line and says so. Sorting and the 10 entry cap stay proven by the unit tests only, not on a device.
+- Fable decides: add a read only table view (Ledger, a few lines of DOM, would need a docs/01 line since the screens list has none) or accept the badge as the v1 table and edit docs/06 E1 to E3. Not a feature this branch can add.
 
 ## Resolved or superseded since the last triage
 
