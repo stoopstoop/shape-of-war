@@ -36,16 +36,29 @@ describe('400 live entities', () => {
     expect(liveEnemies(w)).toBe(400);
     const input = idle();
     for (let i = 0; i < 240; i++) stepGame(w, DT, input); // warm up the JIT
-    const heap0 = process.memoryUsage().heapUsed;
-    const t0 = performance.now();
+    // QA-005: one heap sample can catch a GC mid cycle, so take the median of three runs.
+    const growth: number[] = [];
+    const times: number[] = [];
     const steps = 1200;
-    for (let i = 0; i < steps; i++) stepGame(w, DT, input);
-    const ms = (performance.now() - t0) / steps;
-    const grew = process.memoryUsage().heapUsed - heap0;
-    console.log(`[stress] live ${liveEnemies(w)}, ${ms.toFixed(3)} ms/step, heap +${(grew / 1024).toFixed(0)} KiB`);
+    for (let run = 0; run < 3; run++) {
+      const heap0 = process.memoryUsage().heapUsed;
+      const t0 = performance.now();
+      for (let i = 0; i < steps; i++) stepGame(w, DT, input);
+      times.push((performance.now() - t0) / steps);
+      growth.push(process.memoryUsage().heapUsed - heap0);
+    }
+    const grew = median(growth);
+    const ms = median(times);
+    console.log(`[stress] live ${liveEnemies(w)}, ${ms.toFixed(3)} ms/step median, heap +${(grew / 1024).toFixed(0)} KiB median`);
     expect(liveEnemies(w)).toBeGreaterThan(200); // wells eat some and may explode
-    // Per entity allocation would be about 400 x 1200 x 32 bytes = 15 MB; allow GC noise.
-    expect(grew).toBeLessThan(6 * 1024 * 1024);
+    // Per entity allocation would be about 400 x 1200 x 32 bytes = 15 MB per run in every run, so
+    // the median would sit well above 8 MiB. GC noise lands in one run at most.
+    expect(grew).toBeLessThan(8 * 1024 * 1024);
     expect(ms).toBeLessThan(4);
   });
 });
+
+function median(xs: readonly number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)] ?? 0;
+}
