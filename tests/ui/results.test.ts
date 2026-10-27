@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LevelResult } from '../../src/ui/flow';
-import { GAME_TITLE, SHOW_ENDLESS } from '../../src/ui/menu';
-import { resultLines } from '../../src/ui/results';
+import { continueLabel, GAME_TITLE, SHOW_ENDLESS } from '../../src/ui/menu';
+import { badgeText, resultLines } from '../../src/ui/results';
 
 const base: LevelResult = {
   mode: 'adventure',
@@ -32,9 +32,33 @@ describe('results screen text', () => {
   });
 });
 
+describe('Endless results', () => {
+  const endless: LevelResult = { ...base, mode: 'endless', success: false, stars: 0, par: 0, score: 12000, best: 12000, rank: 1, seed: 99 };
+  it('new high score badge, seed, no stars', () => {
+    const t = resultLines(endless);
+    expect(t.title).toBe('Game over');
+    expect(t.badge).toBe('New high score');
+    expect(t.stars).toBe('');
+    expect(t.detail).toBe('Best 12,000\nEndless seed 99');
+  });
+  it('lower ranks and misses', () => {
+    expect(badgeText({ ...endless, rank: 4 })).toBe('Top 10: #4');
+    expect(badgeText({ ...endless, rank: 0 })).toBe('');
+    expect(badgeText({ ...base, rank: 1 })).toBe('');
+  });
+  it('adventure keeps stars and no badge', () => {
+    expect(resultLines(base).badge).toBe('');
+    expect(resultLines(base).stars).toBe('★★★');
+  });
+});
+
 describe('menu', () => {
-  it('title is Shape of War and Endless is hidden until W3', () => {
+  it('title is Shape of War and Endless is shown', () => {
     expect(GAME_TITLE).toBe('Shape of War');
-    expect(SHOW_ENDLESS).toBe(false);
+    expect(SHOW_ENDLESS).toBe(true);
+  });
+  it('continue label names the highest unlocked level', () => {
+    expect(continueLabel(1)).toBe('Adventure');
+    expect(continueLabel(4)).toBe('Continue  L4');
   });
 });

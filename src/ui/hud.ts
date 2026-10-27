@@ -112,6 +112,8 @@ export interface Hud {
   hide(): void;
   update(p: HudScore): void;
   setLevel(levelIndex: number, par: number, hash: string): void;
+  /** Free text in the level line slot (Endless seed and clock). */
+  setLine(text: string): void;
   setObjective(p: ObjectiveProgress): void;
   /** Re-anchor on resize, fold and unfold. `rects` are Thumbs' button hit rects, if any. */
   layout(cssW: number, cssH: number, rects: ButtonRects | null): void;
@@ -178,6 +180,9 @@ export function createHud(parent: HTMLElement): Hud {
     },
     setLevel(levelIndex, parScore, hash) {
       par.textContent = levelLine(levelIndex, parScore, hash);
+    },
+    setLine(text) {
+      par.textContent = text;
     },
     setObjective(p) {
       objLabel.textContent = p.label;

@@ -12,17 +12,22 @@ import { createLoop, type Loop } from './core/loop';
 import { initialDivisorState, nextDivisor, type DivisorState } from './core/perf';
 import { freshSeed, hash01 } from './core/rng';
 import {
+  ensureSchema,
+  loadAdventureScores,
   loadRunSeed,
   loadSettings,
   loadUnlocked,
   recordAdventureScore,
+  recordEndlessScore,
+  resetProgress,
   saveSetting,
+  unlockAfter,
   unlockLevel,
 } from './core/settings';
 import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { createGame, stepGame } from './game/game';
-import { clearEntities, Kind, liveEnemies, spawn, type World } from './game/world';
+import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
 // Glue: Ledger's scoring behind Swarm's ScoringPort.
 const scoringPort = { awardKill, collectGeom: (w: World): void => { collectGeom(w); }, resetMultiplier: shipDied };
@@ -30,15 +35,20 @@ import { installHistoryGuard } from './input/history';
 import type { InputState } from './input/types';
 import { VALID_FIXTURES } from './levelgen/fixtures';
 import type { LevelDef } from './levelgen/leveldef';
+import { generateEndless, generateEndlessSegment, levelHash } from './levelgen/generator';
 import { installDevPanel, setGlowPath, setShowFps } from './render/devpanel';
-import { applyNeon } from './render/neon';
+import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
 import { createUiRoot } from './ui/dom';
 import { initialFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
 import { aspectClass, createHud, due, playRect, type AspectClass } from './ui/hud';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
-import { createMenuScreen } from './ui/menu';
+import { resolveAudio } from './ui/audioPort';
+import { endlessLevel, endlessLine } from './ui/endless';
+import { createLevelSelect } from './ui/levelSelect';
+import { continueLabel, createMenuScreen } from './ui/menu';
+import { createPreviewWorld, previewRect, stepPreview } from './ui/preview';
 import { goalMet, objectiveProgress, objectiveStatus, type ObjectiveSnapshot } from './ui/objective';
 import { createPauseScreen } from './ui/pause';
 import { createResultsScreen } from './ui/results';
@@ -48,6 +58,10 @@ import { createSettingsModel, createSettingsScreen } from './ui/settings';
 // resolves to an empty record when the file is absent, so this builds either way.
 const generatorModules = import.meta.glob<GeneratorModule>('./levelgen/generator.ts', { eager: true });
 const generator: GeneratorModule | null = Object.values(generatorModules)[0] ?? null;
+
+// Glow's synth, if src/audio/synth.ts exists at build time; otherwise unlock and volume are no-ops.
+const audioModules = import.meta.glob<Record<string, unknown>>('./audio/synth.ts', { eager: true });
+const audio = resolveAudio(Object.values(audioModules)[0] ?? null);
 
 // ---------------------------------------------------------------------------------------
 // Viewport
@@ -204,9 +218,14 @@ async function boot(): Promise<void> {
   paintLabel(); // label works even if everything below fails
 
   // 1. Settings and progress. ?seed overrides the stored run seed for this session only.
+  // A typed seed (Settings "Play seed") or ?seed is session only: it does not touch the stored
+  // run seed, unlocks or the Adventure table.
+  ensureSchema(); // sow.schema = 1 on first launch
   const settings = loadSettings();
   const levelQuery = parseLevelQuery(window.location.search);
-  const runSeed = levelQuery.seed ?? loadRunSeed(freshSeed);
+  const storedSeed = loadRunSeed(freshSeed); // created once from crypto.getRandomValues
+  let runSeed = levelQuery.seed ?? storedSeed;
+  let customSeed = levelQuery.seed !== null && levelQuery.seed !== storedSeed;
 
   // 2. Renderer.
   let renderer: GameRenderer | null = null;
@@ -219,11 +238,6 @@ async function boot(): Promise<void> {
     console.error('[sow] renderer failed', err);
   }
   showLabel();
-  try {
-    applyNeon(settings.neon);
-  } catch (err) {
-    console.warn('[sow] applyNeon unavailable', describeError(err));
-  }
   let bloomOn = renderer !== null && !query.sprite;
   if (renderer !== null && query.sprite) renderer.setBloomEnabled(false);
 
@@ -232,7 +246,12 @@ async function boot(): Promise<void> {
   let pick: LevelPick = pickLevel(generator, runSeed, menuLevel(), VALID_FIXTURES);
   let level: LevelDef = pick.def;
   let world: World = createGame(level, { scoring: scoringPort });
+  let endlessSeed = 0;
   renderer?.setArena(level);
+  // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
+  const previewLevel: LevelDef = inlineRectLevel(1);
+  let preview: World | null = null;
+  let lastPreviewMs = 0;
 
   // 4. Input. Thumbs reads the safe area insets on attach and on every reanchor.
   const touch: TouchHandle | null = renderer !== null ? attachTouch(renderer.app.canvas, { insets: readInsets }) : null;
@@ -263,26 +282,78 @@ async function boot(): Promise<void> {
       bombs: simNumber(world, 'bombs') ?? level.bombs,
       superCharge: simNumber(world, 'superCharge') ?? 0,
     });
-    hud.setObjective(objectiveProgress(level.objective, snapshotOf(world)));
+    if (flow.mode === 'endless') {
+      hud.setLine(endlessLine(endlessSeed, world.time));
+      hud.setObjective({ label: 'Endless', fraction: 0 });
+    } else {
+      hud.setObjective(objectiveProgress(level.objective, snapshotOf(world)));
+    }
   };
 
   /** Build a fresh world for the flow's current level (start, Next, Retry, Restart). */
-  const startLevel = (index: number): void => {
-    pick = pickLevel(generator, runSeed, index, VALID_FIXTURES);
-    level = pick.def;
-    world = createGame(level, { scoring: scoringPort });
+  const startLevel = (mode: 'adventure' | 'endless', index: number): void => {
+    if (mode === 'endless') {
+      endlessSeed = freshSeed(); // every Endless game gets a fresh seed (docs/01 section 2.2)
+      level = endlessLevel({ generateEndless, generateEndlessSegment }, endlessSeed);
+      pick = { def: level, source: 'generator', hash: levelHash(generateEndless(endlessSeed)) };
+      world = createGame(level, { scoring: scoringPort, mode: 'endless' });
+    } else {
+      pick = pickLevel(generator, runSeed, index, VALID_FIXTURES);
+      level = pick.def;
+      world = createGame(level, { scoring: scoringPort });
+      hud.setLevel(index, level.par, pick.hash);
+    }
     resetScore(world);
+    endCheck = true;
     renderer?.setArena(level);
-    hud.setLevel(index, level.par, pick.hash);
+    sceneWorld = world;
+    syncScene();
     lastHudMs = Number.NEGATIVE_INFINITY;
     emitHud();
-    console.info(`[sow] level ${index} ${pick.source} seed ${runSeed} hash ${pick.hash}`);
+    console.info(`[sow] ${mode} level ${index} ${pick.source} seed ${mode === 'endless' ? endlessSeed : runSeed} hash ${pick.hash}`);
   };
 
+  /**
+   * Which world the renderer shows and where. The settings screen opened from the menu shows the
+   * preview arena; while settings is open the arena moves right of the panel so it stays visible.
+   */
+  let sceneWorld: World = world;
+  const syncScene = (): void => {
+    const settingsOpen = flow.screen === 'settings';
+    const wantPreview = settingsOpen && flow.settingsFrom === 'menu';
+    if (wantPreview && preview === null) {
+      preview = createPreviewWorld(previewLevel);
+      lastPreviewMs = 0;
+    }
+    if (!wantPreview) preview = null;
+    const next = wantPreview && preview !== null ? preview : world;
+    // setArena clears particles, so only call it when the shown world actually changes.
+    if (next !== sceneWorld) renderer?.setArena(next.level);
+    sceneWorld = next;
+    const insets = readInsets();
+    renderer?.setPlayRect(
+      settingsOpen ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, aspectClass(last.cssW, last.cssH)),
+    );
+  };
+
+  /** Adventure entry point: the highest unlocked level of the stored seed, or level 1 of a typed seed. */
+  const adventureLevel = (): number => (customSeed ? 1 : menuLevel());
+
   const menu = createMenuScreen(uiRoot, {
-    adventure: () => bus.emit('game:start', { mode: 'adventure', levelIndex: menuLevel() }),
-    endless: () => undefined, // W3
+    adventure: () => bus.emit('game:start', { mode: 'adventure', levelIndex: adventureLevel() }),
+    levels: () => dispatch({ type: 'openLevels' }),
+    endless: () => bus.emit('game:start', { mode: 'endless', levelIndex: 1 }),
     settings: () => dispatch({ type: 'openSettings' }),
+  });
+  const levelSelect = createLevelSelect(uiRoot, {
+    play: (index) => {
+      if (customSeed) {
+        customSeed = false; // level select always plays the stored run seed
+        runSeed = storedSeed;
+      }
+      bus.emit('game:start', { mode: 'adventure', levelIndex: index });
+    },
+    back: () => dispatch({ type: 'closeLevels' }),
   });
   const pauseScreen = createPauseScreen(uiRoot, {
     resume: () => bus.emit('game:resume'),
@@ -295,17 +366,61 @@ async function boot(): Promise<void> {
     retry: () => dispatch({ type: 'retry' }),
     menu: () => dispatch({ type: 'menu' }),
   });
-  // Show FPS and glow path go through Glow's exported functions only.
-  const settingsModel = createSettingsModel({ setShowFps, setGlowPath });
-  const settingsScreen = createSettingsScreen(uiRoot, settingsModel, () => dispatch({ type: 'closeSettings' }));
+  // Neon goes only through applyNeon; Show FPS and glow path through Glow's exported functions.
+  const settingsModel = createSettingsModel({
+    setShowFps,
+    setGlowPath,
+    applyNeon: (n) => {
+      try {
+        applyNeon(n);
+      } catch (err) {
+        console.warn('[sow] applyNeon failed', describeError(err));
+      }
+    },
+    setVolume: (v) => audio.setVolume(v),
+    requestFrame: (cb) => {
+      window.requestAnimationFrame(() => cb());
+    },
+  });
+  /** Leave settings back to a running state: the menu, or resume a paused game. */
+  const leaveSettings = (): void => {
+    dispatch({ type: 'closeSettings' });
+    if (flow.screen === 'paused') dispatch({ type: 'quit' });
+  };
+  const settingsScreen = createSettingsScreen(uiRoot, settingsModel, {
+    back: () => dispatch({ type: 'closeSettings' }),
+    playSeed: (seed) => {
+      leaveSettings();
+      runSeed = seed >>> 0;
+      customSeed = runSeed !== storedSeed;
+      bus.emit('game:start', { mode: 'adventure', levelIndex: 1 });
+    },
+    seedHash: (seed) => (generator === null ? null : pickLevel(generator, seed, 1, VALID_FIXTURES).hash),
+    resetProgress: () => {
+      resetProgress();
+    },
+    stress: () => {
+      dispatch({ type: 'closeSettings' });
+      if (flow.screen === 'paused') dispatch({ type: 'resume' });
+      window.sowDebug?.stress(400, 2000);
+    },
+    currentNeon: () => currentNeon,
+    buildId: __BUILD_ID__,
+  });
 
   const paintScreens = (): void => {
-    for (const s of [menu, pauseScreen, results, settingsScreen]) s.hide();
+    for (const s of [menu, levelSelect, pauseScreen, results, settingsScreen]) s.hide();
     hud.hide();
     switch (flow.screen) {
-      case 'menu':
-        menu.setInfo(`Level ${menuLevel()}  Seed ${runSeed}${generator === null ? '  (fixture levels)' : ''}`);
+      case 'menu': {
+        const seedNote = customSeed ? `Seed ${runSeed} (typed)` : `Seed ${runSeed}`;
+        menu.setContinue(customSeed ? 'Play typed seed' : continueLabel(menuLevel()));
+        menu.setInfo(`Level ${adventureLevel()}  ${seedNote}${generator === null ? '  (fixture levels)' : ''}`);
         menu.show();
+        break;
+      }
+      case 'levels':
+        levelSelect.open(loadUnlocked(), loadAdventureScores());
         break;
       case 'playing':
         hud.show();
@@ -328,7 +443,8 @@ async function boot(): Promise<void> {
     const next = reduceFlow(prev, a);
     if (next === prev) return;
     flow = next;
-    if (next.run !== prev.run) startLevel(next.levelIndex);
+    if (next.run !== prev.run) startLevel(next.mode, next.levelIndex);
+    else if (next.screen !== prev.screen) syncScene();
     if (!simRunning(next)) renderer?.setSticks([]);
     paintScreens();
   }
@@ -337,12 +453,33 @@ async function boot(): Promise<void> {
   const onGameOver = (p: { score: number; stars: 0 | 1 | 2 | 3; levelIndex: number; mode: 'adventure' | 'endless' }): void => {
     if (flow.screen !== 'playing' && flow.screen !== 'paused') return;
     emitHud();
-    const success = p.mode === 'adventure' && goalMet(level.objective, snapshotOf(world));
     const index = flow.levelIndex;
-    const rec = recordAdventureScore(index, p.score, p.stars);
-    if (success) unlockLevel(index + 1);
+    if (flow.mode === 'endless') {
+      const rec = recordEndlessScore(p.score, Date.now());
+      dispatch({
+        type: 'over',
+        result: {
+          mode: 'endless',
+          levelIndex: index,
+          score: p.score,
+          stars: 0,
+          success: false,
+          par: 0,
+          best: rec.best,
+          newBest: rec.rank === 1,
+          hash: pick.hash,
+          rank: rec.rank,
+          seed: endlessSeed,
+        },
+      });
+      return;
+    }
+    const success = goalMet(level.objective, snapshotOf(world));
+    // A typed seed is a session only run: no unlocks and no Adventure table entries.
+    const rec = customSeed ? { best: p.score, newBest: false } : recordAdventureScore(index, p.score, p.stars);
+    if (!customSeed && success) unlockLevel(unlockAfter(loadUnlocked(), index, success));
     const result: LevelResult = {
-      mode: p.mode,
+      mode: 'adventure',
       levelIndex: index,
       score: p.score,
       stars: p.stars,
@@ -377,10 +514,16 @@ async function boot(): Promise<void> {
       stepGame(world, dt, input);
       if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
         const score = scoreOf(world).score;
-        bus.emit('game:over', { score, stars: stars(score, level.par), levelIndex: flow.levelIndex, mode: flow.mode });
+        const st = flow.mode === 'endless' ? 0 : stars(score, level.par);
+        bus.emit('game:over', { score, stars: st, levelIndex: flow.levelIndex, mode: flow.mode });
       }
     },
     render(alpha) {
+      if (preview !== null && sceneWorld === preview) {
+        const now = performance.now();
+        stepPreview(preview, lastPreviewMs > 0 ? (now - lastPreviewMs) / 1000 : 0);
+        lastPreviewMs = now;
+      }
       if (simRunning(flow)) {
         const now = performance.now();
         if (due(lastHudMs, now)) {
@@ -390,7 +533,7 @@ async function boot(): Promise<void> {
       }
       if (renderer === null) return;
       if (touch !== null && simRunning(flow)) renderer.setSticks(stickCircles(touch));
-      renderer.draw(world, alpha);
+      renderer.draw(sceneWorld, alpha);
       renderer.app.render();
       // Divisor policy (docs/04 section 13), evaluated every 15 rendered frames.
       if (++frameCount % 15 === 0) {
@@ -439,8 +582,11 @@ async function boot(): Promise<void> {
       settingsModel.syncShowFps(s.showFps);
       if (!query.sprite) settingsModel.syncGlowPath(s.glowPath);
     });
+    // The real neon slider lives on the Settings screen now (W3 item 4): ?debug no longer opens
+    // Glow's panel and its slider. The panel stays installed for the FPS label it drives.
+    panel.close();
   }
-  settingsModel.applyBoot();
+  settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 
   window.sowDebug = {
@@ -448,6 +594,7 @@ async function boot(): Promise<void> {
       // The stress scene needs a stepping sim: start a level from the menu, skip the end check.
       endCheck = false;
       if (flow.screen === 'menu') dispatch({ type: 'start', mode: 'adventure', levelIndex: menuLevel() });
+      endCheck = false; // startLevel re-arms the end check; the stress scene keeps it off
       const n = stressEntities(world, Math.max(0, Math.floor(entities)));
       const p = particles > 0 && runParticleStress(Math.floor(particles));
       const msg = `[sow] stress ${n} entities, particles ${particles > 0 ? (p ? particles : 'no hook') : 0}`;
@@ -484,7 +631,7 @@ async function boot(): Promise<void> {
     const fit = fitArena(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
     const cls = aspectClass(last.cssW, last.cssH);
     renderer?.resize(last.cssW, last.cssH, last.renderDpr);
-    renderer?.setPlayRect(playRect(last.cssW, last.cssH, insets, cls));
+    renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, cls));
     touch?.reanchor(insets);
     hud.layout(last.cssW, last.cssH, touch !== null ? touch.buttonRects() : null);
     // Auto pause on aspect class change, that is a fold or unfold (docs/01 section 10).
@@ -529,8 +676,11 @@ async function boot(): Promise<void> {
   applyViewport(); // first fit now, synchronously, so the first frame is placed correctly
 
   // Fullscreen needs a user activation; pointerup is the reliable one in Chrome (docs/04 section 6).
+  // The same gesture unlocks audio (docs/04 section 12). unlockAudio runs first and synchronously,
+  // before any await, so it is still inside the user activation.
   const onFirstPointerUp = async (): Promise<void> => {
     window.removeEventListener('pointerup', onFirstPointerUp, true);
+    audio.unlock();
     try {
       if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -541,7 +691,7 @@ async function boot(): Promise<void> {
     try {
       await (screen.orientation as ScreenOrientation & { lock(o: string): Promise<void> }).lock('landscape');
     } catch {
-      // Not fullscreen or not supported: ignore.
+      // Refused (not fullscreen, desktop, or not supported): the game stays playable in portrait.
     }
     scheduleResize();
   };

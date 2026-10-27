@@ -98,4 +98,25 @@ describe('flow state machine', () => {
   it('clamps the start level to at least 1', () => {
     expect(run(initialFlow(), { type: 'start', mode: 'adventure', levelIndex: -4 }).levelIndex).toBe(1);
   });
+
+  it('menu to level select and back, or start from it', () => {
+    const levels = run(initialFlow(), { type: 'openLevels' });
+    expect(levels.screen).toBe('levels');
+    expect(simRunning(levels)).toBe(false);
+    expect(reduceFlow(levels, { type: 'closeLevels' }).screen).toBe('menu');
+    const s = reduceFlow(levels, { type: 'start', mode: 'adventure', levelIndex: 4 });
+    expect(s.screen).toBe('playing');
+    expect(s.levelIndex).toBe(4);
+    expect(reduceFlow(s, { type: 'openLevels' })).toBe(s);
+  });
+
+  it('endless: start, game over, retry builds a new run, no Next', () => {
+    let s = run(initialFlow(), { type: 'start', mode: 'endless', levelIndex: 1 });
+    expect(s.mode).toBe('endless');
+    s = reduceFlow(s, { type: 'over', result: { ...result(false), mode: 'endless', rank: 1, seed: 5 } });
+    expect(reduceFlow(s, { type: 'next' })).toBe(s);
+    const again = reduceFlow(s, { type: 'retry' });
+    expect(again.run).toBe(s.run + 1);
+    expect(again.mode).toBe('endless');
+  });
 });

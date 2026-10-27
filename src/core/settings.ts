@@ -223,3 +223,108 @@ export function recordAdventureScore(
   writeRaw(storage, ADVENTURE_SCORES_KEY, JSON.stringify(merged.scores));
   return { best: merged.best, newBest: merged.newBest };
 }
+
+// Endless high scores (docs/03 section 8): top 10, sorted by score descending.
+
+export const ENDLESS_SCORES_KEY = 'sow.scores.endless';
+export const ENDLESS_TOP = 10;
+
+export interface EndlessEntry {
+  score: number;
+  /** Epoch ms when the game ended. */
+  at: number;
+}
+
+/** Pure: highest score first; equal scores keep the earlier game first. Sorts in place. */
+function sortEndless(rows: EndlessEntry[]): EndlessEntry[] {
+  return rows.sort((a, b) => b.score - a.score || a.at - b.at);
+}
+
+/** Pure: parse the stored table, dropping malformed rows, then sort and cap. */
+export function parseEndlessScores(raw: string | null): EndlessEntry[] {
+  if (raw === null) return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const out: EndlessEntry[] = [];
+  for (const row of data) {
+    if (typeof row !== 'object' || row === null) continue;
+    const score: unknown = 'score' in row ? row.score : undefined;
+    const at: unknown = 'at' in row ? row.at : undefined;
+    if (typeof score !== 'number' || !Number.isFinite(score) || score < 0) continue;
+    out.push({ score: Math.floor(score), at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
+  }
+  return sortEndless(out).slice(0, ENDLESS_TOP);
+}
+
+/**
+ * Pure: insert one result. Returns the new table and the 1 based rank of the new row, or 0 if it
+ * did not make the top 10. A tie with an existing score ranks below it.
+ */
+export function insertEndlessScore(
+  table: readonly EndlessEntry[],
+  entry: EndlessEntry,
+): { table: EndlessEntry[]; rank: number } {
+  const row: EndlessEntry = { score: Math.max(0, Math.floor(entry.score)), at: entry.at };
+  const sorted = sortEndless([...table]);
+  let i = 0;
+  while (i < sorted.length && (sorted[i]?.score ?? 0) >= row.score) i++;
+  sorted.splice(i, 0, row);
+  return { table: sorted.slice(0, ENDLESS_TOP), rank: i < ENDLESS_TOP ? i + 1 : 0 };
+}
+
+export function loadEndlessScores(storage: StorageLike | null = defaultStorage()): EndlessEntry[] {
+  return parseEndlessScores(readRaw(storage, ENDLESS_SCORES_KEY));
+}
+
+/** Record a finished Endless game. Returns its rank (0 if outside the top 10) and the best score. */
+export function recordEndlessScore(
+  score: number,
+  at: number,
+  storage: StorageLike | null = defaultStorage(),
+): { rank: number; best: number } {
+  const r = insertEndlessScore(loadEndlessScores(storage), { score, at });
+  writeRaw(storage, ENDLESS_SCORES_KEY, JSON.stringify(r.table));
+  return { rank: r.rank, best: r.table[0]?.score ?? 0 };
+}
+
+// Schema version (docs/03 section 8).
+
+export const SCHEMA_KEY = 'sow.schema';
+export const SCHEMA_VERSION = 1;
+
+/** Write sow.schema on first launch. Returns the stored version (1 today). */
+export function ensureSchema(storage: StorageLike | null = defaultStorage()): number {
+  const v = parseUint32(readRaw(storage, SCHEMA_KEY));
+  if (v !== null) return v;
+  writeRaw(storage, SCHEMA_KEY, String(SCHEMA_VERSION));
+  return SCHEMA_VERSION;
+}
+
+/** Settings screen "Reset progress": unlocked back to 1 and the Adventure table cleared. */
+export function resetProgress(storage: StorageLike | null = defaultStorage()): void {
+  writeRaw(storage, UNLOCKED_KEY, String(FIRST_LEVEL));
+  writeRaw(storage, ADVENTURE_SCORES_KEY, '{}');
+}
+
+/** Pure: a typed run seed, or null. Accepts 1 to 10 digits up to 4294967295. */
+export function parseSeedInput(text: string): number | null {
+  return parseUint32(text.trim());
+}
+
+// Adventure progression rules (docs/01 section 2.1).
+
+/** Pure: unlocked index after finishing `index`. Success unlocks index + 1, regardless of stars. */
+export function unlockAfter(unlocked: number, index: number, success: boolean): number {
+  const base = Math.max(FIRST_LEVEL, Math.floor(unlocked));
+  return success ? Math.max(base, Math.floor(index) + 1) : base;
+}
+
+/** Pure: true if level `index` can be started from level select. */
+export function isUnlocked(unlocked: number, index: number): boolean {
+  return Number.isInteger(index) && index >= FIRST_LEVEL && index <= Math.max(FIRST_LEVEL, unlocked);
+}
