@@ -305,6 +305,8 @@ async function boot(): Promise<void> {
     }
     resetScore(world);
     endCheck = true;
+    renderer?.setArena(level);
+    sceneWorld = world;
     syncScene();
     lastHudMs = Number.NEGATIVE_INFINITY;
     emitHud();
@@ -325,7 +327,8 @@ async function boot(): Promise<void> {
     }
     if (!wantPreview) preview = null;
     const next = wantPreview && preview !== null ? preview : world;
-    if (next !== sceneWorld || next === world) renderer?.setArena(next.level);
+    // setArena clears particles, so only call it when the shown world actually changes.
+    if (next !== sceneWorld) renderer?.setArena(next.level);
     sceneWorld = next;
     const insets = readInsets();
     renderer?.setPlayRect(
@@ -395,7 +398,6 @@ async function boot(): Promise<void> {
     seedHash: (seed) => (generator === null ? null : pickLevel(generator, seed, 1, VALID_FIXTURES).hash),
     resetProgress: () => {
       resetProgress();
-      flow = { ...flow, levelIndex: menuLevel() };
     },
     stress: () => {
       dispatch({ type: 'closeSettings' });
