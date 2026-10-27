@@ -4,6 +4,7 @@
 // w.simRng only.
 import type { EnemyKind, SpawnEntry } from '../levelgen/leveldef';
 import { isInside } from './arena';
+import { advanceSegments } from './endless';
 import { defOf, kindOf } from './defs';
 import { init as initPinwheel } from './enemies/pinwheel';
 import { spawnSnake } from './enemies/snake';
@@ -24,9 +25,19 @@ function inRoster(w: World, k: EnemyKind): boolean {
   return false;
 }
 
+function hasSnakeSlot(w: World): boolean {
+  const heads = gs(w).snakeHead;
+  for (let s = 0; s < heads.length; s++) if (heads[s] === -1) return true;
+  return false;
+}
+
 function pushEntry(w: World, e: SpawnEntry, due: number): void {
   const g = gs(w);
-  if (g.queueLen >= QUEUE_CAP) return; // never reached by valid LevelDefs
+  if (g.queueLen >= QUEUE_CAP) {
+    // Only reached in Endless while the live cap holds spawns back for a long time.
+    g.dropped++;
+    return;
+  }
   const i = (g.queueHead + g.queueLen) % QUEUE_CAP;
   g.queueEntry[i] = e;
   g.queueDue[i] = due;
@@ -47,7 +58,7 @@ export function enqueueDueWaves(w: World, clock: number): void {
   for (let guard = 0; guard < MAX_WAVES_PER_STEP; guard++) {
     const wave = s.waves[g.nextWave];
     if (wave === undefined) return;
-    const shift = g.loopK * s.loopPeriodSec;
+    const shift = g.waveShift + g.loopK * s.loopPeriodSec;
     const at = wave.atSec + shift;
     if (clock < at) return;
     for (let i = 0; i < wave.entries.length; i++) {
@@ -149,7 +160,15 @@ export function releaseQueue(w: World, clock: number): void {
       return;
     }
     const id = spawnEntry(w, e, pos.x, pos.y);
-    if (id < 0) return; // world full: retry next step
+    if (id < 0) {
+      // No snake slot: drop the entry so it cannot jam the FIFO. World full: retry next step.
+      if (k === Kind.SnakeHead && !hasSnakeSlot(w)) {
+        popEntry(w);
+        g.dropped++;
+        continue;
+      }
+      return;
+    }
     popEntry(w);
     live++;
     if (g.spawnLog !== null) g.spawnLog.push({ t: clock, kind: k, x: pos.x, y: pos.y });
@@ -161,6 +180,7 @@ export function stepSpawner(w: World, dt: number): void {
   const g = gs(w);
   if (!w.ship.active || g.outcome !== 'running') return;
   g.waveClock += dt;
+  if (g.endless !== null) advanceSegments(w, g.waveClock);
   enqueueDueWaves(w, g.waveClock);
   activateSpawners(w, g.waveClock);
   releaseQueue(w, g.waveClock);

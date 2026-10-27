@@ -1,6 +1,7 @@
 // Pinwheel: slow drift on its spawn heading, reflects off walls, spins at 90 deg/s in a direction
 // from hash01(id). Large hitbox, 2 HP, low value (docs/01 section 6.4).
 import { hash01 } from '../../core/rng';
+import { enemySpeedScale } from '../state';
 import { DEG } from '../steer';
 import { driftEntity, Kind, type World } from '../world';
 import type { EnemyDef } from './types';
@@ -10,7 +11,7 @@ export const def: EnemyDef = { kind: Kind.Pinwheel, radius: 20, speed: 60, value
 const SPIN = 90 * DEG;
 
 export function init(w: World, id: number, headingDeg: number): void {
-  const s = def.speed * w.level.speedScale;
+  const s = def.speed * enemySpeedScale(w);
   w.vx[id] = Math.cos(headingDeg * DEG) * s;
   w.vy[id] = Math.sin(headingDeg * DEG) * s;
 }

@@ -9,7 +9,7 @@ import { defOf } from './defs';
 import { collectGeom, def as geomDef, PICKUP_RADIUS, spawnGeoms } from './geoms';
 import { killShip } from './player';
 import { removeEntity } from './remove';
-import { gs, isHostile } from './state';
+import { gs, isHostile, SNAKE_SEGMENTS, SNAKE_SLOTS } from './state';
 import { SHIP_RADIUS } from './ship';
 import { moveTo } from './steer';
 import { Kind, type World } from './world';
@@ -38,6 +38,7 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   const y = w.y[id] ?? 0;
   g.score += g.scoring.awardKill(w, k);
   if (countsForDestroy(k)) g.kills++;
+  if (k === Kind.SnakeHead) segmentBurst(w, id);
   removeEntity(w, id);
   g.killFx.x = x;
   g.killFx.y = y;
@@ -45,6 +46,24 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   bus.emit('fx:kill', g.killFx);
   bus.emit('sfx', 'explode');
   spawnGeoms(w, x, y, d.geoms);
+}
+
+/** Snake death burst (docs/01 section 6.4): one 'fx:kill' per live segment, no score, no geoms. */
+export function segmentBurst(w: World, head: number): number {
+  const g = gs(w);
+  const slot = w.a[head] ?? -1;
+  if (slot < 0 || slot >= SNAKE_SLOTS || g.snakeHead[slot] !== head) return 0;
+  let n = 0;
+  for (let s = 0; s < SNAKE_SEGMENTS; s++) {
+    const sid = g.snakeSegs[slot * SNAKE_SEGMENTS + s] ?? -1;
+    if (sid <= 0 || w.alive[sid] !== 1 || w.kind[sid] !== Kind.SnakeBody || w.a[sid] !== head) continue;
+    g.killFx.x = w.x[sid] ?? 0;
+    g.killFx.y = w.y[sid] ?? 0;
+    g.killFx.colour = 'cyan';
+    bus.emit('fx:kill', g.killFx);
+    n++;
+  }
+  return n;
 }
 
 /** Apply n damage. Returns true if the entity died. Snake segments are invulnerable. */

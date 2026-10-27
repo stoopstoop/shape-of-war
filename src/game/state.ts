@@ -1,8 +1,9 @@
 // Swarm's per world gameplay state. World (Forge) stays untouched: extra per entity arrays and
 // session counters live here, keyed by the World object. Allocated once per world.
 import type { PaletteKey } from '../render/neon';
-import type { SpawnEntry } from '../levelgen/leveldef';
+import type { EndlessDef, EndlessSegmentDef, SpawnEntry, SuperKind } from '../levelgen/leveldef';
 import type { EnemyDef } from './enemies/types';
+import { arenaSpeedFactor } from './tuning';
 import { Kind, spawn, type World } from './world';
 
 export const SNAKE_SLOTS = 8;
@@ -42,6 +43,21 @@ export interface KillFx {
 export interface PointFx {
   x: number;
   y: number;
+}
+
+/** Supplies Endless segment s. Injected at the edge (wiring passes generateEndlessSegment). */
+export type SegmentSource = (segment: number) => EndlessSegmentDef;
+
+/** Endless run state (docs/01 section 2.2, docs/02 section 10). */
+export interface EndlessRun {
+  def: EndlessDef;
+  source: SegmentSource;
+  /** Segment currently feeding the spawner, 0 based. */
+  segment: number;
+  /** Prefetched segment + 1, requested when the current segment starts. */
+  next: EndlessSegmentDef | null;
+  nextLifeAt: number;
+  nextBombAt: number;
 }
 
 export interface GameState {
@@ -92,6 +108,29 @@ export interface GameState {
   queueLen: number;
   spawnerStarted: Uint8Array; // per hazard spawner
   spawnLog: SpawnLogEntry[] | null;
+
+  /** Spawn entries dropped (queue full, or a snake with no free slot). Debug counter. */
+  dropped: number;
+  /** Seconds added to every wave atSec (Endless: 30 x segment). */
+  waveShift: number;
+  endless: EndlessRun | null;
+
+  // Speed. Enemies read enemySpeedScale and turnScale, never level.speedScale directly.
+  /** LevelDef.speedScale, or the current Endless segment's. */
+  speedScale: number;
+  /** arenaSpeedFactor of the level arena (tuning.ts). */
+  arenaFactor: number;
+
+  // Supers.
+  /** Timed super running (homing or turbo), null otherwise. */
+  superActive: SuperKind | null;
+  /** Seconds left on the timed super. */
+  superTimer: number;
+  /** Seconds until the drone returns after Detonate. */
+  droneAbsent: number;
+  /** Homing scratch: targetable enemy ids rebuilt each step. */
+  targets: Int32Array;
+  targetCount: number;
 
   // Drone.
   droneId: number;
@@ -200,6 +239,16 @@ function createState(w: World): GameState {
     queueLen: 0,
     spawnerStarted: new Uint8Array(4),
     spawnLog: null,
+    dropped: 0,
+    waveShift: 0,
+    endless: null,
+    speedScale: w.level.speedScale,
+    arenaFactor: arenaSpeedFactor(w.level.arena),
+    superActive: null,
+    superTimer: 0,
+    droneAbsent: 0,
+    targets: new Int32Array(cap),
+    targetCount: 0,
     droneId: -1,
     droneCooldown: 0,
     droneAngle: 0,
@@ -244,6 +293,17 @@ export function spawnFromDef(w: World, def: EnemyDef, x: number, y: number, tele
   g.pvx[id] = 0;
   g.pvy[id] = 0;
   return id;
+}
+
+/** Multiplier for enemy linear speeds: speedScale x arena factor. */
+export function enemySpeedScale(w: World): number {
+  const g = gs(w);
+  return g.speedScale * g.arenaFactor;
+}
+
+/** Multiplier for enemy turn rates (Dart): speedScale only, per docs/01 section 6.6. */
+export function turnScale(w: World): number {
+  return gs(w).speedScale;
 }
 
 /** Kinds counted against maxLiveEnemies (wave enemies, telegraphs included). */

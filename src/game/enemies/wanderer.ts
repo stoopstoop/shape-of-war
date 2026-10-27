@@ -1,5 +1,6 @@
 // Wanderer: constant speed on its spawn heading, reflects off walls and obstacles, ignores the
 // ship, rotates visually at 180 deg/s (docs/01 section 6.4).
+import { enemySpeedScale } from '../state';
 import { DEG } from '../steer';
 import { driftEntity, Kind, type World } from '../world';
 import type { EnemyDef } from './types';
@@ -10,7 +11,7 @@ const SPIN = 180 * DEG;
 
 /** Set the travel velocity from the spawn record heading. */
 export function init(w: World, id: number, headingDeg: number): void {
-  const s = def.speed * w.level.speedScale;
+  const s = def.speed * enemySpeedScale(w);
   w.vx[id] = Math.cos(headingDeg * DEG) * s;
   w.vy[id] = Math.sin(headingDeg * DEG) * s;
 }
