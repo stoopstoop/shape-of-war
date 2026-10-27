@@ -300,7 +300,7 @@ describe('hud:score emitted by the sim', () => {
   // g.multiplier, which stays 1 when Ledger's port is wired, while main.ts sends Ledger's value on the
   // same 'hud:score' channel. `it.fails` keeps the suite green while the defect exists and turns red
   // the day it is fixed: then change it.fails to it.
-  it.fails('with Ledger port, carries the multiplier Ledger shows (QA-003: sim emits a stale x1)', () => {
+  it('with Ledger port, carries the multiplier Ledger shows (QA-003: sim emits a stale x1)', () => {
     const { emitted, world } = hudMultipliersAfterFiveGeoms(LEDGER_PORT);
     expect(scoreOf(world).multiplier).toBe(6);
     expect(emitted.length).toBeGreaterThan(0);

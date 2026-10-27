@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
 import { advanceSegments, applyAwards, endlessLevel, endlessWave, stepEndlessAwards } from '../../src/game/endless';
-import { createEndlessGame, stepGame } from '../../src/game/game';
+import { killEnemy } from '../../src/game/combat';
+import { createEndlessGame, createGame, stepGame } from '../../src/game/game';
+import { collectGeom as simCollectGeom } from '../../src/game/geoms';
+import { awardKill, collectGeom, scoreOf, shipDied } from '../../src/game/scoring';
 import { killShip } from '../../src/game/player';
 import { removeEntity } from '../../src/game/remove';
-import { gs } from '../../src/game/state';
-import { ENTITY_CAP, Kind, spawn, type World } from '../../src/game/world';
+import { gs, type ScoringPort } from '../../src/game/state';
+import { ENTITY_CAP, inlineRectLevel, Kind, spawn, type World } from '../../src/game/world';
 import { generateEndless, generateEndlessSegment } from '../../src/levelgen/generator';
 import type { EndlessSegmentDef } from '../../src/levelgen/leveldef';
 import { DT, idle } from './helpers';
@@ -189,4 +192,86 @@ describe('entity cap under Endless', () => {
       if (capacity < ENTITY_CAP) expect(fullSteps).toBeGreaterThan(0);
     }, 60000);
   }
+});
+
+describe('endless bonuses through the real sim with Ledger scoring wired', () => {
+  const ledgerPort: ScoringPort = {
+    awardKill,
+    collectGeom: (w: World): void => {
+      collectGeom(w);
+    },
+    resetMultiplier: shipDied,
+    multiplier: (w: World): number => scoreOf(w).multiplier,
+  };
+
+  function ledgerEndless(seed: number): World {
+    const def = generateEndless(seed);
+    const w = createEndlessGame(def, (s) => generateEndlessSegment(seed, s), { scoring: ledgerPort, vibrate: () => undefined });
+    w.ship.invuln = 1e9;
+    return w;
+  }
+
+  /** Real scored kill of a Grunt through combat.killEnemy. */
+  function killGrunt(w: World): void {
+    killEnemy(w, spawn(w, Kind.Grunt, 300, 0), true);
+  }
+
+  it('the def carries the docs/01 numbers', () => {
+    const def = generateEndless(5);
+    expect(def.extraLifeEvery).toBe(100_000);
+    expect(def.extraBombEvery).toBe(150_000);
+    expect(def.maxLives).toBe(9);
+    expect(def.maxBombs).toBe(9);
+  });
+
+  it('+1 life at 100,000, +1 bomb at 150,000, both reported on hud:score', () => {
+    const w = ledgerEndless(5);
+    const huds: { lives: number; bombs: number; multiplier: number }[] = [];
+    bus.on('hud:score', (p) => huds.push({ lives: p.lives, bombs: p.bombs, multiplier: p.multiplier }));
+    for (let i = 0; i < 998; i++) simCollectGeom(w, spawn(w, Kind.Geom, 0, 0));
+    expect(scoreOf(w).multiplier).toBe(999);
+    expect(gs(w).multiplier).toBe(999);
+    killGrunt(w); // 49,950
+    killGrunt(w); // 99,900
+    stepGame(w, DT, idle());
+    expect(gs(w).lives).toBe(3);
+    killGrunt(w); // 149,850: past the first life threshold
+    stepGame(w, DT, idle());
+    expect(gs(w).score).toBe(149_850);
+    expect(scoreOf(w).score).toBe(149_850);
+    expect(gs(w).lives).toBe(4);
+    expect(gs(w).bombs).toBe(3);
+    killGrunt(w); // 199,800: past the first bomb threshold, short of the second life
+    for (let i = 0; i < 12; i++) stepGame(w, DT, idle());
+    expect(gs(w).lives).toBe(4);
+    expect(gs(w).bombs).toBe(4);
+    const last = huds[huds.length - 1];
+    expect(last).toEqual({ lives: 4, bombs: 4, multiplier: 999 });
+  });
+
+  it('caps lives and bombs at 9 however far the score runs', () => {
+    const w = ledgerEndless(5);
+    for (let i = 0; i < 998; i++) simCollectGeom(w, spawn(w, Kind.Geom, 0, 0));
+    for (let i = 0; i < 60; i++) {
+      killGrunt(w); // 60 x 49,950 = 2,997,000
+      stepGame(w, DT, idle());
+    }
+    expect(gs(w).score).toBe(2_997_000);
+    expect(gs(w).lives).toBe(9);
+    expect(gs(w).bombs).toBe(9);
+    // Thresholds passed at the cap are consumed, so a lost life is not refunded at once.
+    const run = gs(w).endless;
+    expect(run?.nextLifeAt).toBe(3_000_000);
+    expect(run?.nextBombAt).toBe(3_000_000);
+  });
+
+  it('awards nothing in Adventure mode', () => {
+    const w = createGame(inlineRectLevel(3), { scoring: ledgerPort, vibrate: () => undefined });
+    w.ship.invuln = 1e9;
+    for (let i = 0; i < 998; i++) simCollectGeom(w, spawn(w, Kind.Geom, 0, 0));
+    for (let i = 0; i < 5; i++) killGrunt(w);
+    stepGame(w, DT, idle());
+    expect(gs(w).lives).toBe(3);
+    expect(gs(w).bombs).toBe(3);
+  });
 });

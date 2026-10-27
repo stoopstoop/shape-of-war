@@ -4,7 +4,7 @@ import { bus } from '../core/events';
 import { resetWell } from './enemies/gravitywell';
 import { clearGeoms } from './geoms';
 import { removeEntity } from './remove';
-import { gs } from './state';
+import { gs, portResetMultiplier } from './state';
 import { deactivateShip, respawnShip } from './ship';
 import { Kind, type World } from './world';
 import type { InputState } from '../input/types';
@@ -16,12 +16,13 @@ export const DEATH_VIBRATE_MS = 60;
 /**
  * Ship death: lives minus 1, multiplier reset, arena clear without score (wells and spawners
  * stay), geoms removed, drone hidden, 1.5 s respawn delay, 'fx:death' and one vibrate.
+ * No op while gs(w).invulnerable is set (stress scene), so every kill path is covered.
  */
 export function killShip(w: World): void {
-  if (!w.ship.active) return;
   const g = gs(w);
+  if (!w.ship.active || g.invulnerable) return;
   g.lives = Math.max(0, g.lives - 1);
-  g.scoring.resetMultiplier(w);
+  portResetMultiplier(w);
   g.pointFx.x = w.x[0] ?? 0;
   g.pointFx.y = w.y[0] ?? 0;
   for (let id = 1; id < w.cap; id++) {

@@ -24,6 +24,12 @@ export interface ScoringPort {
   collectGeom(w: World): void;
   /** Ship died. Default resets state.multiplier to 1. */
   resetMultiplier(w: World): void;
+  /**
+   * Optional: the port's current multiplier. When present it is the value hud:score carries and
+   * the value mirrored into state.multiplier. When absent Swarm keeps state.multiplier itself
+   * (+1 per geom capped at 999, 1 on death), so the HUD never shows a stale x1.
+   */
+  multiplier?(w: World): number;
 }
 
 export interface SpawnLogEntry {
@@ -87,6 +93,8 @@ export interface GameState {
   overEmitted: boolean;
   shipPullX: number;
   shipPullY: number;
+  /** Debug and stress scenes: the ship cannot die (contacts, wells). Never set in normal play. */
+  invulnerable: boolean;
 
   // Wells.
   wellIds: Int32Array;
@@ -196,6 +204,37 @@ export const defaultScoring: ScoringPort = {
   },
 };
 
+/** Geom pickup through the port. A foreign port without a getter gets Swarm's own mirror. */
+export function portCollectGeom(w: World): void {
+  const g = gs(w);
+  g.scoring.collectGeom(w);
+  if (g.scoring !== defaultScoring && g.multiplier < MULTIPLIER_CAP) g.multiplier++;
+  syncMultiplier(w);
+}
+
+/** Ship death through the port. */
+export function portResetMultiplier(w: World): void {
+  const g = gs(w);
+  g.scoring.resetMultiplier(w);
+  if (g.scoring !== defaultScoring) g.multiplier = 1;
+  syncMultiplier(w);
+}
+
+/** The multiplier the player sees: the port's getter when it has one, else state.multiplier. */
+export function currentMultiplier(w: World): number {
+  const g = gs(w);
+  const port = g.scoring;
+  if (port.multiplier === undefined) return g.multiplier;
+  const m = port.multiplier(w);
+  return Number.isFinite(m) ? m : g.multiplier;
+}
+
+/** Copy the port's multiplier into state.multiplier so gameState(w) agrees with the HUD. */
+export function syncMultiplier(w: World): void {
+  const g = gs(w);
+  g.multiplier = currentMultiplier(w);
+}
+
 export function defaultVibrate(ms: number): void {
   const nav: Navigator | undefined = typeof navigator === 'undefined' ? undefined : navigator;
   if (nav !== undefined && typeof nav.vibrate === 'function') nav.vibrate(ms);
@@ -224,6 +263,7 @@ function createState(w: World): GameState {
     overEmitted: false,
     shipPullX: 0,
     shipPullY: 0,
+    invulnerable: false,
     wellIds: new Int32Array(MAX_WELLS).fill(-1),
     wellCount: 0,
     snakeHead: new Int32Array(SNAKE_SLOTS).fill(-1),

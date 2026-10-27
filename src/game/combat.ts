@@ -105,7 +105,7 @@ export function bulletHits(w: World): void {
 
 /** Ship vs enemy contact (wells excluded, see gravitywell.ts). Returns true if the ship died. */
 export function shipHits(w: World): boolean {
-  if (!w.ship.active || w.ship.invuln > 0) return false;
+  if (!w.ship.active || w.ship.invuln > 0 || gs(w).invulnerable) return false;
   const n = queryCircleInto(w.grid, w, w.x[0] ?? 0, w.y[0] ?? 0, SHIP_RADIUS, hits);
   for (let i = 0; i < n; i++) {
     const id = hits[i] ?? 0;

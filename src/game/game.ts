@@ -12,7 +12,7 @@ import { stepObjective } from './objective';
 import { stepPlayer } from './player';
 import { stepSpawner } from './spawner';
 import { endlessLevel, startEndless, stepEndlessAwards } from './endless';
-import { gs, type GameMode, type GameState, type ScoringPort, type SegmentSource } from './state';
+import { currentMultiplier, gs, syncMultiplier, type GameMode, type GameState, type ScoringPort, type SegmentSource } from './state';
 import { stepSupers, triggerSuper } from './supers';
 import { createWorld, stepWorld, type World } from './world';
 
@@ -37,6 +37,7 @@ export function createGame(level: LevelDef, opts: GameOptions = {}): World {
   if (opts.vibrate !== undefined) g.vibrate = opts.vibrate;
   if (opts.scoring !== undefined) g.scoring = opts.scoring;
   if (opts.logSpawns === true) g.spawnLog = [];
+  syncMultiplier(w);
   spawnWells(w);
   return w;
 }
@@ -44,6 +45,15 @@ export function createGame(level: LevelDef, opts: GameOptions = {}): World {
 /** Swap the scoring hooks at runtime (Ledger wiring). */
 export function setScoring(w: World, port: ScoringPort): void {
   gs(w).scoring = port;
+  syncMultiplier(w);
+}
+
+/**
+ * Debug and stress hook: while on, the ship cannot die (enemy contact, well cores), so a stress
+ * scene keeps its entities. Normal play never sets it.
+ */
+export function setInvulnerable(w: World, on: boolean): void {
+  gs(w).invulnerable = on;
 }
 
 /** Read only view of the session counters for HUD and debug. */
@@ -81,7 +91,7 @@ function emitHud(w: World, dt: number): void {
   if (g.hudTimer < 0) g.hudTimer = 0;
   const h = g.hud;
   h.score = g.score;
-  h.multiplier = g.multiplier;
+  h.multiplier = currentMultiplier(w);
   h.lives = g.lives;
   h.bombs = g.bombs;
   h.superCharge = g.superCharge / SUPER_CHARGE_MAX;

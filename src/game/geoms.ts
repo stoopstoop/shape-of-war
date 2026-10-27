@@ -5,7 +5,7 @@ import { bus } from '../core/events';
 import { hash01 } from '../core/rng';
 import type { EnemyDef } from './enemies/types';
 import { removeEntity } from './remove';
-import { gs, spawnFromDef } from './state';
+import { gs, portCollectGeom, spawnFromDef } from './state';
 import { moveTo } from './steer';
 import { Kind, type World } from './world';
 
@@ -86,7 +86,7 @@ export function collectGeom(w: World, id: number): void {
   g.pointFx.x = w.x[id] ?? 0;
   g.pointFx.y = w.y[id] ?? 0;
   removeEntity(w, id);
-  g.scoring.collectGeom(w);
+  portCollectGeom(w);
   if (g.superCharge < SUPER_CHARGE_MAX) g.superCharge++;
   bus.emit('fx:geom', g.pointFx);
   bus.emit('sfx', 'geom');
