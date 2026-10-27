@@ -9,7 +9,7 @@ import {
 } from '../../src/levelgen/fixtures';
 import { BANDS, bandOf, deepFreeze, expandSpawns, levelSeed, segmentSeed, speedScaleFor } from '../../src/levelgen/leveldef';
 import type { ArenaDef, EndlessSegmentDef, LevelDef } from '../../src/levelgen/leveldef';
-import { insideArena, isArenaConnected, validateLevel, validateSegment } from '../../src/levelgen/validate';
+import { insideArena, isArenaConnected, jsonRoundTripDiff, validateLevel, validateSegment } from '../../src/levelgen/validate';
 
 const clone = (d: LevelDef): LevelDef => structuredClone(d);
 
@@ -196,6 +196,8 @@ const CASES: readonly Case[] = [
   },
   { id: 'H4', base: FIXTURE_RECT_EASY, mutate: (d) => d.hazards.wells.push({ x: 370, y: 0 }) },
   { id: 'L1', base: FIXTURE_RECT_EASY, mutate: (d) => (d.lives = 5) },
+  { id: 'J5', base: FIXTURE_RECT_EASY, mutate: (d) => (d.retries = 9) },
+  { id: 'V1', base: FIXTURE_RECT_EASY, mutate: (d) => delete d.surface },
 ];
 
 describe('validateLevel: every invariant has a failing mutation', () => {
@@ -206,12 +208,20 @@ describe('validateLevel: every invariant has a failing mutation', () => {
 
   it('covers every invariant id in docs/02 section 11 plus F1', () => {
     const ids = new Set(CASES.map((c) => c.id));
-    const want = 'J1 J2 J3 J4 A1 A2 A3 A4 A5 A6 A7 F1 R1 R2 O1 O2 P1 W1 W2 W3 W4 W5 W6 W7 W8 W9 W10 H1 H2 H3 H4 L1';
+    const want = 'J1 J2 J3 J4 J5 A1 A2 A3 A4 A5 A6 A7 F1 R1 R2 O1 O2 P1 W1 W2 W3 W4 W5 W6 W7 W8 W9 W10 H1 H2 H3 H4 L1 V1';
     for (const id of want.split(' ')) expect(ids.has(id), id).toBe(true);
   });
 
+  it('J1 walks without serialising: -0, undefined and array holes are round trip differences', () => {
+    expect(idsOf(errorsOf(FIXTURE_RECT_EASY, (d) => (d.arena.spawnPoint = { x: -0, y: 0 })))).toContain('J1');
+    expect(idsOf(errorsOf(FIXTURE_RECT_EASY, (d) => Object.assign(d, { extra: undefined })))).toContain('J1');
+    expect(jsonRoundTripDiff({ a: [1, , 3] })).toBe('.a.1');
+    expect(jsonRoundTripDiff({ a: [1, { b: 'x', c: null }], d: true })).toBeNull();
+    expect(jsonRoundTripDiff(new Map())).toBe('');
+  });
+
   it('mutations isolate their invariant where geometry allows', () => {
-    const isolated = ['J3', 'J4', 'A7', 'R2', 'P1', 'W2', 'W3', 'W5', 'W6', 'W7', 'W9', 'W10', 'H2', 'H4', 'L1'];
+    const isolated = ['J3', 'J4', 'J5', 'A7', 'R2', 'P1', 'W2', 'W3', 'W5', 'W6', 'W7', 'W9', 'W10', 'H2', 'H4', 'L1', 'V1'];
     for (const c of CASES.filter((x) => isolated.includes(x.id))) {
       expect(new Set(idsOf(errorsOf(c.base, c.mutate))), c.id).toEqual(new Set([c.id]));
     }

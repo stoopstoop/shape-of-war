@@ -1,28 +1,18 @@
-// TODO(W2, Foundry generator brief): generator.ts does not exist yet. Replace the dynamic loader
-// below with a static import from '../../src/levelgen/generator' and change describe.skip to
-// describe. Function names follow docs/02 section 1 (generateEndlessSegment supersedes the
-// generateEndless(seed) of docs/05). Capture the levelHash golden values on the first green run.
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { BANDS, bandOf, levelSeed } from '../../src/levelgen/leveldef';
-import type { EndlessSegmentDef, GenConfig, LevelDef } from '../../src/levelgen/leveldef';
-import { validateLevel, validateSegment } from '../../src/levelgen/validate';
-
-interface GeneratorModule {
-  generateLevel(runSeed: number, levelIndex: number, cfg?: GenConfig): LevelDef;
-  generateEndlessSegment(endlessSeed: number, segment: number, cfg?: GenConfig): EndlessSegmentDef;
-  levelHash(def: LevelDef): string;
-}
-
-function isGeneratorModule(m: unknown): m is GeneratorModule {
-  if (typeof m !== 'object' || m === null) return false;
-  const r = m as Record<string, unknown>;
-  return typeof r['generateLevel'] === 'function' && typeof r['generateEndlessSegment'] === 'function' && typeof r['levelHash'] === 'function';
-}
-
-// A non literal specifier keeps tsc and Vite from resolving a module that does not exist yet.
-const GENERATOR_PATH = ['..', '..', 'src', 'levelgen', 'generator'].join('/');
-
-let gen: GeneratorModule;
+// Generator suite, docs/02 section 12 and docs/06 section 2.3. Function names follow docs/02
+// section 1; generateEndless(seed) of docs/05 is the additive Endless game definition.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as gen from '../../src/levelgen/generator';
+import { BANDS, DEFAULT_GEN_CONFIG, ENDLESS_ARENA, MAX_RETRIES, bandOf, levelSeed } from '../../src/levelgen/leveldef';
+import type { GenConfig, LevelDef } from '../../src/levelgen/leveldef';
+import {
+  FOLD_SAFE_RECTS,
+  MIN_SHIP_PX,
+  SHIP_RADIUS,
+  fitScale,
+  validateEndless,
+  validateLevel,
+  validateSegment,
+} from '../../src/levelgen/validate';
 
 const RUN_SEEDS = [0, 1, 0xdeadbeef, 0x4e464f4c] as const;
 const EDGE_SEEDS = [0, 0xffffffff] as const;
@@ -36,13 +26,8 @@ function expectValid(def: LevelDef): void {
   expect(r.errors, `runSeed ${def.runSeed} level ${def.levelIndex}`).toEqual([]);
 }
 
-describe.skip('generator (TODO W2: enable when generator.ts lands)', () => {
-  beforeAll(async () => {
-    const mod: unknown = await import(/* @vite-ignore */ GENERATOR_PATH);
-    if (!isGeneratorModule(mod)) throw new Error('generator.ts does not export the docs/02 contract');
-    gen = mod;
-  });
-
+// Sweeps generate thousands of levels; allow headroom on slower runners.
+describe('generator', { timeout: 30_000 }, () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -80,6 +65,16 @@ describe.skip('generator (TODO W2: enable when generator.ts lands)', () => {
       });
       for (let n = 1; n <= 100; n++) expect(() => gen.generateLevel(42, n)).not.toThrow();
       expect(() => gen.generateEndlessSegment(42, 3)).not.toThrow();
+    });
+
+    it('stubbing only Math.random to throw still generates levels, segments and Endless', () => {
+      const spy = vi.spyOn(Math, 'random').mockImplementation(() => {
+        throw new Error('Math.random called');
+      });
+      for (const n of [1, 6, 16, 31, 99]) expect(validateLevel(gen.generateLevel(7, n)).ok).toBe(true);
+      expect(validateSegment(gen.generateEndlessSegment(7, 20)).ok).toBe(true);
+      expect(validateEndless(gen.generateEndless(7)).ok).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
     });
 
     it('output is frozen', () => {
@@ -241,9 +236,31 @@ describe.skip('generator (TODO W2: enable when generator.ts lands)', () => {
       expect(gen.levelHash(gen.generateLevel(1, 8))).not.toBe(a);
     });
 
-    // W2: paste the values printed on the first green run for seeds 1, 42, 0xDEADBEEF at levels 1 and 8
-    // (docs/06 says index 0 and 7; level indices start at 1 per docs/02, so both shift by one).
-    it.todo('hard coded hashes for seeds 1, 42, 0xDEADBEEF at levels 1 and 8');
+    // docs/06 says index 0 and 7. Level indices start at 1 (docs/02 section 2, validator J4), so
+    // the first and eighth levels are levelIndex 1 and 8. Captured on the first green run of
+    // GENERATOR_VERSION 1: a change here means generator output changed and needs a version bump.
+    it('hard coded hashes for seeds 1, 42, 0xDEADBEEF at levels 1 and 8', () => {
+      const got: Record<string, string> = {};
+      for (const s of [1, 42, 0xdeadbeef]) for (const n of [1, 8]) got[`${s}:${n}`] = gen.levelHash(gen.generateLevel(s, n));
+      expect(got).toEqual({
+        '1:1': 'E0D43B03',
+        '1:8': '71455C7D',
+        '42:1': 'CD2B515B',
+        '42:8': '60ED65A7',
+        '3735928559:1': 'EE4217C3',
+        '3735928559:8': 'F0A97336',
+      });
+    });
+
+    it('hashes canonical JSON: key order does not matter, any value change does', () => {
+      const d = gen.generateLevel(42, 8);
+      const reordered = JSON.parse(JSON.stringify(d, Object.keys(d).reverse())) as LevelDef;
+      expect(gen.canonicalJson({ b: 1, a: [2, { d: 3, c: 4 }] })).toBe('{"a":[2,{"c":4,"d":3}],"b":1}');
+      expect(gen.levelHash({ ...d })).toBe(gen.levelHash(d));
+      expect(gen.levelHash({ ...d, par: d.par + 500 })).not.toBe(gen.levelHash(d));
+      expect(gen.levelHash(gen.generateLevel(42, 8))).toMatch(/^[0-9A-F]{8}$/);
+      expect(Object.keys(reordered)).not.toEqual(Object.keys(d));
+    });
   });
 
   describe('endless segments', () => {
@@ -272,6 +289,98 @@ describe.skip('generator (TODO W2: enable when generator.ts lands)', () => {
 
     it('edge seeds 0 and 0xFFFFFFFF generate valid segments', () => {
       for (const s of EDGE_SEEDS) expect(validateSegment(gen.generateEndlessSegment(s, 0)).ok).toBe(true);
+    });
+
+    it('ramp is unbounded past band 4: budget keeps growing per segment and spawns grow with it', () => {
+      expect(gen.endlessBudgetBonus(14)).toBe(0);
+      expect(gen.endlessBudgetBonus(15)).toBe(0);
+      expect(gen.endlessBudgetBonus(115)).toBe(100);
+      const spawns = (seg: number): number => gen.generateEndlessSegment(9, seg).waves.waves.reduce((a, w) => a + w.entries.length, 0);
+      const s20 = gen.generateEndlessSegment(9, 20);
+      const s60 = gen.generateEndlessSegment(9, 60);
+      expect(s60.waves.budgetEnd).toBeGreaterThan(s20.waves.budgetEnd);
+      expect(spawns(60)).toBeGreaterThan(spawns(20));
+      expect(spawns(200)).toBeGreaterThan(spawns(60));
+      for (const seg of [60, 200]) expect(validateSegment(gen.generateEndlessSegment(9, seg)).errors).toEqual([]);
+    });
+  });
+
+  describe('generateEndless', () => {
+    it('has mode endless, objective none, the fixed arena and kit, and validates', () => {
+      for (const s of [0, 1, 0xffffffff]) {
+        const d = gen.generateEndless(s);
+        expect(d.mode).toBe('endless');
+        expect(d.objective).toEqual({ kind: 'none' });
+        expect(d.endlessSeed).toBe(s);
+        expect(d.arena).toEqual(ENDLESS_ARENA);
+        expect(d.drone).toBe('attack');
+        expect(d.superType).toBe('turbo');
+        expect(d.surface).toBe('flat');
+        expect(d.hazards).toEqual({ wells: [], spawners: [] });
+        expect(d.budgetPerSegment).toBeGreaterThan(0);
+        expect(d.roster.map((e) => e.kind)).toEqual(['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake']);
+        expect(Object.isFrozen(d.arena)).toBe(true);
+        expect(JSON.parse(JSON.stringify(d))).toEqual(d);
+        expect(validateEndless(d).errors).toEqual([]);
+        expect(gen.generateEndless(s)).toEqual(d);
+      }
+    });
+
+    it('respects the snake cut and reports a broken def', () => {
+      const cut = gen.generateEndless(5, { enableSnake: false, enableSpawner: false, drones: ['attack'], supers: ['turbo'] });
+      expect(cut.roster.map((e) => e.kind)).not.toContain('snake');
+      const bad = { ...structuredClone(gen.generateEndless(5)), objective: { kind: 'none' as const }, budgetPerSegment: 0 };
+      expect(validateEndless(bad).errors.some((e) => e.startsWith('E1:'))).toBe(true);
+    });
+  });
+
+  describe('retries', () => {
+    it('first attempts need no retry and record retries 0 within 0 to MAX_RETRIES', () => {
+      let total = 0;
+      for (let s = 0; s < 200; s++) {
+        const r = gen.generateLevel(s, 25).retries ?? -1;
+        expect(r).toBeGreaterThanOrEqual(0);
+        expect(r).toBeLessThanOrEqual(MAX_RETRIES);
+        total += r;
+      }
+      expect(total).toBe(0);
+    });
+
+    it('a rejected attempt re-derives deterministically and records the count', () => {
+      let calls = 0;
+      const rejectTwo = (): boolean => ++calls > 2;
+      const a = gen.generateLevelChecked(42, 12, DEFAULT_GEN_CONFIG, rejectTwo);
+      expect(a.retries).toBe(2);
+      calls = 0;
+      expect(gen.generateLevelChecked(42, 12, DEFAULT_GEN_CONFIG, rejectTwo)).toEqual(a);
+      const first = gen.generateLevel(42, 12);
+      expect(a.seed).toBe(first.seed);
+      expect(a.arena).not.toEqual(first.arena);
+      expect(validateLevel(a).errors).toEqual([]);
+      expect(gen.attemptSeed(first.seed, 0)).toBe(first.seed);
+      expect(gen.attemptSeed(first.seed, 1)).not.toBe(gen.attemptSeed(first.seed, 2));
+    });
+
+    it('gives up after MAX_RETRIES and still returns a frozen def', () => {
+      let calls = 0;
+      const d = gen.generateLevelChecked(1, 3, DEFAULT_GEN_CONFIG, () => {
+        calls++;
+        return false;
+      });
+      expect(d.retries).toBe(MAX_RETRIES);
+      expect(calls).toBe(MAX_RETRIES);
+      expect(Object.isFrozen(d)).toBe(true);
+    });
+  });
+
+  describe('fold fit', () => {
+    it('every swept arena keeps the ship at least 16 px on both fold safe rects', () => {
+      for (const s of RUN_SEEDS) {
+        for (const n of BAND_SAMPLE_LEVELS) {
+          const a = gen.generateLevel(s, n).arena;
+          for (const rect of FOLD_SAFE_RECTS) expect(2 * SHIP_RADIUS * fitScale(a.width, a.height, rect)).toBeGreaterThanOrEqual(MIN_SHIP_PX);
+        }
+      }
     });
   });
 });

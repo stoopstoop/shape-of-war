@@ -1,5 +1,7 @@
 // Contract stub (docs/05-build-plan.md "Contract stubs"). Types are copied exactly from
 // docs/02-level-generator.md section 3. Foundry owns this file from W1 and may grow it additively.
+import type { SurfaceKind } from '../core/surface';
+
 export const LEVELDEF_VERSION = 1;
 export const GENERATOR_VERSION = 1;
 
@@ -121,7 +123,21 @@ export interface LevelDef {
   hazards: HazardDef;
   par: number; // multiple of 500, at least 1000
   stars: [number, number, number]; // [par, 2 x par, 4 x par]
+  /**
+   * W2, v2 hook (SPEC 3.3, docs/09 section 5). Reserved: only 'flat' is valid in v1 and nothing
+   * reads it. Optional in the type only so hand built defs elsewhere still compile; generateLevel
+   * always emits it and validateLevel (V1) rejects a missing or non flat value.
+   */
+  surface?: SurfaceKind;
+  /**
+   * W2: deterministic re-derive count (0 to MAX_RETRIES) the generator needed before the def
+   * passed validateLevel. Optional in the type for the same reason as surface; checked by J5.
+   */
+  retries?: number;
 }
+
+/** W2: most deterministic re-derives generateLevel makes after the first attempt. */
+export const MAX_RETRIES = 8;
 
 // Additions by Foundry (W1). Everything below follows docs/02-level-generator.md sections 3, 4, 10.
 
@@ -424,6 +440,40 @@ export const ENDLESS_ARENA: Readonly<ArenaDef> = Object.freeze({
   obstacles: [],
   spawnPoint: { x: 0, y: 0 },
 });
+
+// W2: Endless game definition (docs/01 section 2.2, docs/05 W2 task 2). Waves are not stored here
+// because the ramp is unbounded: Ledger asks generateEndlessSegment(endlessSeed, s) for segment s.
+
+/** Extra spawn units per segment once Endless reaches band 4 (segment 15 onward). No upper bound. */
+export const ENDLESS_BUDGET_PER_SEGMENT = 1;
+/** First segment whose effective index is in band 4: 1 + 2 x 15 = 31. */
+export const ENDLESS_BAND4_SEGMENT = 15;
+
+export interface EndlessDef {
+  version: typeof LEVELDEF_VERSION;
+  generatorVersion: number;
+  mode: 'endless';
+  endlessSeed: number;
+  surface: SurfaceKind;
+  /** Fixed 1600 x 1000 rect, ENDLESS_ARENA. */
+  arena: ArenaDef;
+  /** Full catalogue the segments ramp through, with band 4 weights (minus GenConfig cuts). */
+  roster: RosterEntry[];
+  drone: 'attack';
+  superType: 'turbo';
+  lives: number; // 3 at start
+  bombs: number; // 3 at start
+  extraLifeEvery: number; // 100000 points
+  extraBombEvery: number; // 150000 points
+  maxLives: number; // 9
+  maxBombs: number; // 9
+  objective: { kind: 'none' };
+  hazards: HazardDef; // always empty in v1
+  segmentSec: number; // ENDLESS_SEGMENT_SEC
+  /** Spawn units added per segment from ENDLESS_BAND4_SEGMENT onward: the unbounded ramp. */
+  budgetPerSegment: number;
+  band4Segment: number;
+}
 
 /** Recursive Object.freeze. Returns its argument. */
 export function deepFreeze<T>(value: T): T {

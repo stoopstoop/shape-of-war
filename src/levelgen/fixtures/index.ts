@@ -110,6 +110,8 @@ function assemble(s: FixtureSpec): LevelDef {
     hazards: s.hazards,
     par: s.par,
     stars: [s.par, 2 * s.par, 4 * s.par],
+    surface: 'flat',
+    retries: 0,
   };
 }
 
