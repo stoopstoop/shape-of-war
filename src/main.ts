@@ -165,6 +165,7 @@ async function boot(): Promise<void> {
   const viewportLabel = byId('sow-viewport');
   const host = byId('game');
   buildLabel.textContent = `build ${__BUILD_ID__}`;
+  buildLabel.style.zIndex = '25'; // above the UI layer (z 20) so menus never hide the build id
 
   let note = 'renderer: starting';
   let last: Measure = measure();
