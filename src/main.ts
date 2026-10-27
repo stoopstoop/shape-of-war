@@ -41,10 +41,10 @@ import { installDevPanel, setGlowPath, setShowFps } from './render/devpanel';
 import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
-import { createUiRoot } from './ui/dom';
+import { confine, createUiRoot } from './ui/dom';
 import { bootFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
 import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
-import { hudFrame, type HudFrame } from './ui/hudFrame';
+import { hudFrame, overlayPadding, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
 import { resolveAudio } from './ui/audioPort';
 import { endlessLevel, endlessLine } from './ui/endless';
@@ -352,6 +352,9 @@ async function boot(): Promise<void> {
     renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : frame.playRect);
     touch?.reanchor(frame.buttonInsets);
     hud.layout(frame, touch !== null);
+    // Pause, results and the intro card lay out inside the play rect, clear of the HUD rings.
+    const pad = overlayPadding(frame);
+    for (const s of [pauseScreen, results, introScreen]) confine(s.root, pad);
     return frame;
   }
 

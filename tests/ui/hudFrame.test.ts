@@ -5,7 +5,7 @@ import { layoutButtons } from '../../src/input/buttons';
 import type { Insets, Rect } from '../../src/input/types';
 import type { SuperKind } from '../../src/levelgen/leveldef';
 import { superHint, superLabel } from '../../src/ui/hud';
-import { hudFrame, hudRects, overlaps, type HudFrame } from '../../src/ui/hudFrame';
+import { hudFrame, hudRects, overlayPadding, overlaps, type HudFrame } from '../../src/ui/hudFrame';
 
 const ZERO: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -102,6 +102,27 @@ describe('B6 HUD frame keeps the HUD off the arena', () => {
     expect(f.fit.x).toBeCloseTo(f.playRect.x + f.playRect.w / 2);
     expect(f.fit.y).toBeCloseTo(f.playRect.y + f.playRect.h / 2);
     expect(f.arena.w).toBeCloseTo(1600 * f.fit.scale);
+  });
+});
+
+describe('pause, results and intro overlays stay clear of the HUD rings', () => {
+  function contentOf(f: HudFrame): Rect {
+    const p = overlayPadding(f);
+    return { x: p.left, y: p.top, w: f.cssW - p.left - p.right, h: f.cssH - p.top - p.bottom };
+  }
+
+  it('overlay content never overlaps the rings, pause or any HUD text on either screen', () => {
+    for (const f of [...frames(COVER_VIEWS), ...frames(MAIN_VIEWS)]) {
+      const c = contentOf(f);
+      for (const r of hudRects(f)) expect(overlaps(c, r), `${label(f)} ${JSON.stringify(r)}`).toBe(false);
+      expect(c.w).toBeGreaterThan(300);
+      expect(c.h).toBeGreaterThan(300);
+    }
+  });
+
+  it('padding includes the safe area insets', () => {
+    const f = hudFrame(960, 411, { top: 0, right: 0, bottom: 0, left: 32 }, 1600, 1000);
+    expect(overlayPadding(f).left).toBeGreaterThanOrEqual(32);
   });
 });
 
