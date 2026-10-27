@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+.DS_Store
+android/app/build/
+*.apk
+.agents/*
+!.agents/README.md
+!.agents/.gitignore

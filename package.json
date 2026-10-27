@@ -1,0 +1,8 @@
+{
+  "name": "shape-of-war",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dispatcher": "node scripts/dispatcher.mjs"
+  }
+}
