@@ -707,8 +707,8 @@ function stickCircles(t: TouchHandle): StickCircleLike[] {
   const v = t.stickVisuals();
   for (const sv of [v.move, v.aim]) {
     if (sv === null) continue;
-    out.push({ x: sv.ring.x, y: sv.ring.y, r: sv.ring.r, alpha: 0.25 });
-    out.push({ x: sv.knob.x, y: sv.knob.y, r: sv.knob.r, alpha: 0.6, filled: true });
+    // G3 feedback (Ryan): no ring outline under the thumbs; a faint knob only.
+    out.push({ x: sv.knob.x, y: sv.knob.y, r: sv.knob.r * 0.6, alpha: 0.3, filled: true });
   }
   return out;
 }
