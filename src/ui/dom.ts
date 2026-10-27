@@ -111,6 +111,15 @@ export function createScreen(parent: HTMLElement): Screen {
   };
 }
 
+/**
+ * Keep an overlay's content inside a rect given as padding from each screen edge (the padding
+ * already includes the safe area insets). Used so pause, results and the intro card never sit on
+ * the HUD rings (B6 follow up).
+ */
+export function confine(root: HTMLElement, pad: { top: number; right: number; bottom: number; left: number }): void {
+  root.style.padding = `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`;
+}
+
 /** The UI layer above the canvas. Transparent to touches except where a screen is open. */
 export function createUiRoot(doc: Document = document): HTMLDivElement {
   injectStyles(doc);

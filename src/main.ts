@@ -24,7 +24,7 @@ import {
   unlockAfter,
   unlockLevel,
 } from './core/settings';
-import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
+import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { createEndlessGame, createGame, gameState, stepGame } from './game/game';
 import { installAudio } from './audio/synth';
@@ -41,9 +41,10 @@ import { installDevPanel, setGlowPath, setShowFps } from './render/devpanel';
 import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
-import { createUiRoot } from './ui/dom';
-import { initialFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
-import { aspectClass, createHud, due, playRect, type AspectClass } from './ui/hud';
+import { confine, createUiRoot } from './ui/dom';
+import { bootFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
+import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
+import { hudFrame, overlayPadding, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
 import { resolveAudio } from './ui/audioPort';
 import { endlessLevel, endlessLine } from './ui/endless';
@@ -52,6 +53,8 @@ import { continueLabel, createMenuScreen } from './ui/menu';
 import { createPreviewWorld, previewRect, stepPreview } from './ui/preview';
 import { goalMet, objectiveProgress, objectiveStatus, type ObjectiveSnapshot } from './ui/objective';
 import { createPauseScreen } from './ui/pause';
+import { createBootScreen } from './ui/boot';
+import { armIntro, createIntroScreen, introActive, introCard, NO_INTRO, skipIntro, tickIntro, type IntroGate } from './ui/intro';
 import { createResultsScreen } from './ui/results';
 import { createSettingsModel, createSettingsScreen } from './ui/settings';
 
@@ -185,6 +188,7 @@ async function boot(): Promise<void> {
   buildLabel.style.zIndex = '25'; // above the UI layer (z 20) so menus never hide the build id
 
   let note = 'renderer: starting';
+  let gestureDone = false; // fullscreen and audio unlock ran (boot tap or first pointerup)
   let last: Measure = measure();
 
   const paintLabel = (): void => {
@@ -268,7 +272,8 @@ async function boot(): Promise<void> {
   const uiRoot = createUiRoot();
   const hud = createHud(uiRoot);
   hud.listen(bus);
-  let flow: FlowState = initialFlow(menuLevel());
+  let flow: FlowState = bootFlow(menuLevel());
+  let intro: IntroGate = NO_INTRO; // B7: level intro card or Endless Ready, holds the sim
   let endCheck = true; // fallback objective check; the stress hook turns it off
   let lastHudMs = Number.NEGATIVE_INFINITY;
 
@@ -303,6 +308,7 @@ async function boot(): Promise<void> {
       world = createGame(level, { scoring: scoringPort });
       hud.setLevel(index, level.par, pick.hash);
     }
+    hud.setSuper(level.superType);
     resetScore(world);
     endCheck = true;
     renderer?.setArena(level);
@@ -310,6 +316,7 @@ async function boot(): Promise<void> {
     syncScene();
     lastHudMs = Number.NEGATIVE_INFINITY;
     emitHud();
+    intro = armIntro(mode);
     console.info(`[sow] ${mode} level ${index} ${pick.source} seed ${mode === 'endless' ? endlessSeed : runSeed} hash ${pick.hash}`);
   };
 
@@ -330,11 +337,26 @@ async function boot(): Promise<void> {
     // setArena clears particles, so only call it when the shown world actually changes.
     if (next !== sceneWorld) renderer?.setArena(next.level);
     sceneWorld = next;
-    const insets = readInsets();
-    renderer?.setPlayRect(
-      settingsOpen ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, aspectClass(last.cssW, last.cssH)),
-    );
+    relayout();
   };
+
+  /**
+   * B6: one pure HUD frame per viewport and arena. The renderer gets the frame's play rect, Thumbs
+   * gets insets that put bomb and super in the HUD column or band, and the HUD anchors every
+   * element outside the arena. viewport:changed carries the same insets and fit.
+   */
+  let frame: HudFrame = hudFrame(last.cssW, last.cssH, readInsets(), level.arena.width, level.arena.height);
+  function relayout(): HudFrame {
+    const insets = readInsets();
+    frame = hudFrame(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
+    renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : frame.playRect);
+    touch?.reanchor(frame.buttonInsets);
+    hud.layout(frame, touch !== null);
+    // Pause, results and the intro card lay out inside the play rect, clear of the HUD rings.
+    const pad = overlayPadding(frame);
+    for (const s of [pauseScreen, results, introScreen]) confine(s.root, pad);
+    return frame;
+  }
 
   /** Adventure entry point: the highest unlocked level of the stored seed, or level 1 of a typed seed. */
   const adventureLevel = (): number => (customSeed ? 1 : menuLevel());
@@ -408,10 +430,33 @@ async function boot(): Promise<void> {
     buildId: __BUILD_ID__,
   });
 
+  // B7: boot "Tap to start" (the fullscreen and audio unlock gesture) and the intro overlay.
+  const bootScreen = createBootScreen(uiRoot, () => {
+    void unlockGesture();
+    dispatch({ type: 'tapStart' });
+  });
+  const introScreen = createIntroScreen(uiRoot, () => {
+    intro = skipIntro(intro);
+    paintIntro();
+  });
+  /** Show the intro card or Ready text while the gate holds a playing sim. */
+  function paintIntro(): void {
+    if (flow.screen !== 'playing' || !introActive(intro)) {
+      introScreen.hide();
+      return;
+    }
+    if (intro.kind === 'ready') introScreen.showReady();
+    else introScreen.showCard(introCard(flow.levelIndex, level));
+  }
+
   const paintScreens = (): void => {
-    for (const s of [menu, levelSelect, pauseScreen, results, settingsScreen]) s.hide();
+    for (const s of [bootScreen, menu, levelSelect, pauseScreen, results, settingsScreen]) s.hide();
     hud.hide();
+    paintIntro();
     switch (flow.screen) {
+      case 'boot':
+        bootScreen.show();
+        break;
       case 'menu': {
         const seedNote = customSeed ? `Seed ${runSeed} (typed)` : `Seed ${runSeed}`;
         menu.setContinue(customSeed ? 'Play typed seed' : continueLabel(menuLevel()));
@@ -511,6 +556,12 @@ async function boot(): Promise<void> {
         bus.emit('game:pause');
         return;
       }
+      if (introActive(intro)) {
+        // B7: the intro card or Ready text holds the sim; presses made now are dropped.
+        intro = tickIntro(intro, dt);
+        if (!introActive(intro)) paintIntro();
+        return;
+      }
       stepGame(world, dt, input);
       if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
         const score = scoreOf(world).score;
@@ -594,8 +645,11 @@ async function boot(): Promise<void> {
     stress(entities: number, particles = 0): string {
       // The stress scene needs a stepping sim: start a level from the menu, skip the end check.
       endCheck = false;
+      if (flow.screen === 'boot') dispatch({ type: 'tapStart' });
       if (flow.screen === 'menu') dispatch({ type: 'start', mode: 'adventure', levelIndex: menuLevel() });
       endCheck = false; // startLevel re-arms the end check; the stress scene keeps it off
+      intro = NO_INTRO; // the stress scene skips the intro card
+      paintIntro();
       const n = stressEntities(world, Math.max(0, Math.floor(entities)));
       const p = particles > 0 && runParticleStress(Math.floor(particles));
       const msg = `[sow] stress ${n} entities, particles ${particles > 0 ? (p ? particles : 'no hook') : 0}`;
@@ -607,6 +661,7 @@ async function boot(): Promise<void> {
   if (query.stress > 0) window.sowDebug.stress(query.stress, query.particles);
 
   hud.setLevel(menuLevel(), level.par, pick.hash);
+  hud.setSuper(level.superType);
   paintScreens();
   if (renderer !== null) loop.start();
   document.addEventListener('visibilitychange', () => {
@@ -628,13 +683,11 @@ async function boot(): Promise<void> {
   const applyViewport = (): void => {
     last = measure();
     aspect = last.cssW / Math.max(1, last.cssH);
-    const insets = readInsets();
-    const fit = fitArena(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
     const cls = aspectClass(last.cssW, last.cssH);
     renderer?.resize(last.cssW, last.cssH, last.renderDpr);
-    renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, cls));
-    touch?.reanchor(insets);
-    hud.layout(last.cssW, last.cssH, touch !== null ? touch.buttonRects() : null);
+    const f = relayout();
+    const insets = f.insets;
+    const fit = { scale: f.fit.scale, x: f.fit.x, y: f.fit.y };
     // Auto pause on aspect class change, that is a fold or unfold (docs/01 section 10).
     if (appliedClass !== null && cls !== appliedClass) dispatch({ type: 'pause' });
     appliedClass = cls;
@@ -678,8 +731,15 @@ async function boot(): Promise<void> {
 
   // Fullscreen needs a user activation; pointerup is the reliable one in Chrome (docs/04 section 6).
   // The same gesture unlocks audio (docs/04 section 12). unlockAudio runs first and synchronously,
-  // before any await, so it is still inside the user activation.
-  const onFirstPointerUp = async (): Promise<void> => {
+  // before any await, so it is still inside the user activation. The boot screen tap (B7) is
+  // that gesture; the window listener stays as a fallback when the boot screen is bypassed.
+  const onFirstPointerUp = (): void => {
+    void unlockGesture();
+  };
+  window.addEventListener('pointerup', onFirstPointerUp, true);
+  async function unlockGesture(): Promise<void> {
+    if (gestureDone) return;
+    gestureDone = true;
     window.removeEventListener('pointerup', onFirstPointerUp, true);
     audio.unlock();
     try {
@@ -695,8 +755,7 @@ async function boot(): Promise<void> {
       // Refused (not fullscreen, desktop, or not supported): the game stays playable in portrait.
     }
     scheduleResize();
-  };
-  window.addEventListener('pointerup', onFirstPointerUp, true);
+  }
 }
 
 void boot();

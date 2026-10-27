@@ -2,17 +2,14 @@
 // the arena. Numbers come from 'hud:score' (main.ts emits it at most every 100 ms); objective
 // progress and the level line are set directly by main.ts at the same cadence.
 import type { Bus, Events } from '../core/events';
-import type { ButtonRects, Insets, Rect } from '../input/types';
+import type { Insets, Rect } from '../input/types';
+import type { SuperKind } from '../levelgen/leveldef';
 import { el } from './dom';
 import { formatInt, iconRun } from './format';
+import { aspectClass, type AspectClass, type HudBox, type HudFrame } from './hudFrame';
 import type { ObjectiveProgress } from './objective';
 
-export type AspectClass = 'cover' | 'main';
-
-/** Pure: cover when width / height is 1.8 or more (docs/01 section 9). */
-export function aspectClass(cssW: number, cssH: number): AspectClass {
-  return cssW / Math.max(1, cssH) >= 1.8 ? 'cover' : 'main';
-}
+export { aspectClass, type AspectClass };
 
 export interface HudLayout {
   band: number;
@@ -58,7 +55,10 @@ export function hudLayout(c: AspectClass): HudLayout {
   return c === 'cover' ? COVER : MAIN;
 }
 
-/** Pure: safe play rect for renderer.setPlayRect: viewport minus insets minus the HUD band. */
+/**
+ * Pure: legacy top band play rect from the docs/01 section 9 tables. main.ts now uses hudFrame,
+ * which also keeps the side and bottom HUD elements clear of the arena (B6).
+ */
 export function playRect(cssW: number, cssH: number, ins: Insets, c: AspectClass): Rect {
   const band = hudLayout(c).band;
   return {
@@ -102,6 +102,16 @@ export function due(lastMs: number, nowMs: number, intervalMs = 100): boolean {
   return nowMs - lastMs >= intervalMs;
 }
 
+/** Pure: super ring label, for example "SUPER: HOMING". The drone has no upgrades in v1. */
+export function superLabel(kind: SuperKind): string {
+  return `SUPER: ${kind.toUpperCase()}`;
+}
+
+/** Pure: small hint under the super label, from the charge (0 to 1). */
+export function superHint(charge: number): string {
+  return charge >= 1 ? 'ready: tap ring' : 'charges with geoms';
+}
+
 /** Pure: "L3  Par 1,000  #abcd1234". */
 export function levelLine(levelIndex: number, par: number, hash: string): string {
   return `L${levelIndex}  Par ${formatInt(par)}  #${hash}`;
@@ -115,14 +125,29 @@ export interface Hud {
   /** Free text in the level line slot (Endless seed and clock). */
   setLine(text: string): void;
   setObjective(p: ObjectiveProgress): void;
-  /** Re-anchor on resize, fold and unfold. `rects` are Thumbs' button hit rects, if any. */
-  layout(cssW: number, cssH: number, rects: ButtonRects | null): void;
+  /** Super kind for the ring label. */
+  setSuper(kind: SuperKind): void;
+  /**
+   * Re-anchor on resize, fold, unfold and arena change from the pure HUD frame. `buttons` is
+   * false when there is no touch input (renderer failed), which hides the rings and pause.
+   */
+  layout(frame: HudFrame, buttons: boolean): void;
   /** Subscribe to 'hud:score'. Returns the unsubscribe function. */
   listen(bus: Bus): () => void;
 }
 
-function edge(side: 'top' | 'left' | 'right', px: number): string {
-  return `calc(env(safe-area-inset-${side}, 0px) + ${px}px)`;
+function setBox(e: HTMLElement, b: HudBox, text: boolean): void {
+  const s = e.style;
+  s.left = `${b.x}px`;
+  s.top = `${b.y}px`;
+  s.width = `${b.w}px`;
+  s.height = `${b.h}px`;
+  if (!text) return;
+  s.fontSize = `${b.size}px`;
+  s.lineHeight = b.wrap ? `${b.size + 3}px` : `${b.h}px`;
+  s.textAlign = b.align;
+  s.whiteSpace = b.wrap ? 'normal' : 'pre';
+  s.overflow = 'hidden';
 }
 
 function place(e: HTMLElement, r: Rect, d: number): void {
@@ -149,15 +174,13 @@ export function createHud(parent: HTMLElement): Hud {
   const pause = el('div', 'sow-hud-item');
   const bombRing = el('div', 'sow-hud-ring', '');
   const superRing = el('div', 'sow-hud-ring', '');
-  root.append(bar, objLabel, score, mult, par, lives, bombs, pause, bombRing, superRing);
+  const superName = el('div', 'sow-hud-item', superLabel('homing'));
+  superName.style.color = 'hsl(55, 95%, 70%)';
+  superName.style.fontWeight = '600';
+  const superTip = el('div', 'sow-hud-item', superHint(0));
+  superTip.style.opacity = '0.7';
+  root.append(bar, objLabel, score, mult, par, lives, bombs, pause, bombRing, superRing, superName, superTip);
   parent.append(root);
-
-  for (const e of [bar, objLabel, par]) {
-    e.style.left = '50%';
-    e.style.transform = 'translateX(-50%)';
-  }
-  objLabel.style.textAlign = 'center';
-  for (const e of [lives, bombs]) e.style.textAlign = 'right';
   pause.style.cssText += ';display:flex;gap:22%;justify-content:center;align-items:center';
   const bars = [el('div'), el('div')];
   for (const b of bars) {
@@ -177,6 +200,10 @@ export function createHud(parent: HTMLElement): Hud {
       bombRing.textContent = t.bombCount;
       const deg = Math.round(t.charge * 360);
       superRing.style.background = `conic-gradient(hsla(55, 95%, 60%, 0.55) ${deg}deg, transparent ${deg}deg)`;
+      superTip.textContent = superHint(t.charge);
+    },
+    setSuper(kind) {
+      superName.textContent = superLabel(kind);
     },
     setLevel(levelIndex, parScore, hash) {
       par.textContent = levelLine(levelIndex, parScore, hash);
@@ -188,33 +215,24 @@ export function createHud(parent: HTMLElement): Hud {
       objLabel.textContent = p.label;
       fill.style.width = `${Math.round(p.fraction * 1000) / 10}%`;
     },
-    layout(cssW, cssH, rects) {
-      const L = hudLayout(aspectClass(cssW, cssH));
-      const pos = (e: HTMLElement, side: 'left' | 'right', x: number, y: number, size: number): void => {
-        e.style.top = edge('top', y);
-        e.style[side] = edge(side, x);
-        e.style.fontSize = `${size}px`;
-      };
+    layout(frame, buttons) {
+      const B = frame.boxes;
       score.style.fontWeight = '600';
-      pos(score, 'left', L.score.x, L.score.y, L.score.size);
-      pos(mult, 'left', L.mult.x, L.mult.y, L.mult.size);
-      pos(lives, 'right', L.lives.x, L.lives.y, L.lives.size);
-      pos(bombs, 'right', L.bombs.x, L.bombs.y, L.bombs.size);
-      bar.style.top = edge('top', L.objective.y);
-      bar.style.width = `${L.objective.w}px`;
-      bar.style.height = `${L.objective.h}px`;
-      objLabel.style.top = edge('top', L.objective.y);
-      objLabel.style.lineHeight = `${L.objective.h}px`;
-      objLabel.style.fontSize = `${L.objective.size}px`;
-      par.style.top = edge('top', L.par.y);
-      par.style.fontSize = `${L.par.size}px`;
+      setBox(score, B.score, true);
+      setBox(mult, B.mult, true);
+      setBox(lives, B.lives, true);
+      setBox(bombs, B.bombs, true);
+      setBox(bar, B.bar, false);
+      setBox(objLabel, B.objLabel, true);
+      setBox(par, B.par, true);
       par.style.opacity = '0.8';
-      if (rects !== null) {
-        place(pause, rects.pause, L.pauseIcon);
-        place(bombRing, rects.bomb, L.bombD);
-        place(superRing, rects.super, L.superD);
-      }
-      for (const e of [pause, bombRing, superRing]) e.style.display = rects === null ? 'none' : 'flex';
+      setBox(superName, B.superLabel, true);
+      setBox(superTip, B.superHint, true);
+      place(pause, frame.buttons.pause, frame.pauseIcon);
+      place(bombRing, frame.buttons.bomb, frame.bombD);
+      place(superRing, frame.buttons.super, frame.superD);
+      for (const e of [pause, bombRing, superRing]) e.style.display = buttons ? 'flex' : 'none';
+      for (const e of [superName, superTip]) e.style.display = buttons ? '' : 'none';
     },
     listen(bus) {
       return bus.on('hud:score', (p) => hud.update(p));

@@ -1,7 +1,10 @@
 // Screen flow state machine (docs/01 section 10). Pure: main.ts feeds it actions translated from
 // bus events and DOM taps, then renders whatever screen the state names.
 
-export type ScreenId = 'menu' | 'levels' | 'playing' | 'paused' | 'results' | 'settings';
+// 'boot' is the "Tap to start" screen (B7); its tap is also the fullscreen and audio unlock
+// gesture. The level intro card and the Endless "Ready" text run inside 'playing' with the sim
+// held by the intro gate in ui/intro.ts.
+export type ScreenId = 'boot' | 'menu' | 'levels' | 'playing' | 'paused' | 'results' | 'settings';
 export type Mode = 'adventure' | 'endless';
 
 export interface LevelResult {
@@ -32,6 +35,7 @@ export interface FlowState {
 }
 
 export type FlowAction =
+  | { type: 'tapStart' }
   | { type: 'start'; mode: Mode; levelIndex: number }
   | { type: 'pause' }
   | { type: 'hidden' }
@@ -51,6 +55,11 @@ export function initialFlow(levelIndex = 1): FlowState {
   return { screen: 'menu', mode: 'adventure', levelIndex, run: 0, settingsFrom: 'menu', result: null };
 }
 
+/** The flow at app launch: the boot screen, which goes to the menu on its tap. */
+export function bootFlow(levelIndex = 1): FlowState {
+  return { ...initialFlow(levelIndex), screen: 'boot' };
+}
+
 /** Pure: true while the simulation should step. */
 export function simRunning(s: FlowState): boolean {
   return s.screen === 'playing';
@@ -67,6 +76,8 @@ function play(s: FlowState, mode: Mode, levelIndex: number): FlowState {
  */
 export function reduceFlow(s: FlowState, a: FlowAction): FlowState {
   switch (a.type) {
+    case 'tapStart':
+      return s.screen === 'boot' ? { ...s, screen: 'menu' } : s;
     case 'start':
       return s.screen === 'menu' || s.screen === 'levels' ? play(s, a.mode, Math.max(1, Math.floor(a.levelIndex))) : s;
     case 'pause':
