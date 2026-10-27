@@ -33,6 +33,8 @@ export interface SettingsModel {
   toggleGlowPath(): void;
   /** Record a glow change made elsewhere (the debug panel) without calling the renderer again. */
   syncGlowPath(p: GlowPathSetting): void;
+  /** Record a Show FPS change made in the debug panel (which already persisted it). */
+  syncShowFps(on: boolean): void;
 }
 
 /** `storage` defaults to localStorage with an in memory fallback (core/settings). */
@@ -67,6 +69,9 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       if (p === state.glowPath) return;
       state.glowPath = p;
       saveGlowPath(p, storage);
+    },
+    syncShowFps(on) {
+      state.showFps = on;
     },
   };
   return model;
