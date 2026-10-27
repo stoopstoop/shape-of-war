@@ -17,4 +17,6 @@ export {
 export type { TouchModel, DownResult } from './model';
 export { stickVisuals, buttonVisuals } from './visuals';
 export { installHistoryGuard } from './history';
+export { startedOnCanvas, touchTargets, makeTouchMoveGuard } from './gesture';
+export type { TouchMoveLike } from './gesture';
 export type { PauseEmitter, HistoryHost } from './history';
