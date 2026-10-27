@@ -6,7 +6,7 @@ Owner: Proctor. Format from `docs/04-device-and-pwa.md` section 14 step 10 and `
 
 - No device number is recorded here yet. The only readings in this file are node proxies (section 5), which never pass a gate.
 - Build 9ece364 passed G0 to G2 on device by Ryan's report (section 4), but nobody captured average, minimum or longest frame. Those rows are blank on purpose.
-- Every row is valid for its build id only. A row without a build id is void (docs/06 "Bad news first"). Work in progress on `feat/glow-fx` (trails, particles, screen shake, grid ripple) changes the render load, so rows for 9ece364 do not carry over to the next build.
+- Every row is valid for its build id only. A row without a build id is void (docs/06 "Bad news first"). `feat/glow-fx` (trails, particles, screen shake, grid ripple) and `feat/glow-quality` (full resolution MSAA line layer, bloom DPR policy) are merged since 9ece364 and change the render load, so rows for 9ece364 do not carry over to the current build.
 - Device cells stay blank until Ryan pastes numbers. Proctor never fills one in from memory or from a proxy.
 
 ## 1. Pass criteria
@@ -86,6 +86,7 @@ Taken by Proctor from `tests/game/stress.test.ts` (400 spawned entities, about 3
 |---|---|---|---|---|---|
 | 2026-10-27 | 9ece364 plus tests/qa | Suite, workers oversubscribed to 40, run 1 | 0.183 | -901 KiB | Budget is 1.5 ms (04 section 13); the test fails above 4 ms |
 | 2026-10-27 | 9ece364 plus tests/qa | Suite, workers oversubscribed to 40, run 2 | 0.191 | +2689 KiB | The test fails above +6 MiB; heap change is GC noise, not a leak signal on its own |
+| 2026-10-27 | 5bef4ae (W4, after glow, swarm and thumbs fixes) | `vitest run tests/levelgen/generator.test.ts tests/game/stress.test.ts`, verbose | 0.128 (median of 3 runs) | -928 KiB (median) | About 240 enemies still live after wells. The stress test takes a median since be857ca, so one GC pause no longer moves it. Sim step is under 10 percent of the 1.5 ms budget. Says nothing about rendering |
 
 ## 6. Re-measure triggers
 
@@ -96,3 +97,18 @@ Add a new block of rows in section 3 when any of these change:
 3. Particle caps, trails, screen shake or the grid effect change (`feat/glow-fx`).
 4. The entity cap or the stress scenario changes.
 5. Ryan switches Motion smoothness between Standard and Adaptive. Record the new setting in the row and keep the old rows.
+
+## 7. Bundle size (W4)
+
+Taken from `npm run build` on the W4 branch, source identical to main at 5bef4ae. Flag rule from the W4 brief: gzipped JS over 1.5 MB. Sizes are the sum of every `.js` file in `dist/` (maps excluded), gzip level 9 measured with node, so they are a touch smaller than Vite's own per file figures.
+
+| Measure | Bytes | Note |
+|---|---|---|
+| JS files in `dist/` | 12 | Includes `sw.js`, `workbox-*.js` and `registerSW.js` |
+| JS raw | 716,408 | |
+| JS gzipped | 215,696 (210.6 KiB) | 14 percent of 1,500,000, so **not flagged** |
+| JS brotli | about 185,800 | Measured on the first build of this source; what a host that serves brotli would send |
+| Largest chunk | `index-*.js` 430,976 raw, about 132,000 gzipped | Game code plus most of PixiJS |
+| All non map files in `dist/` | 771,644 raw | Service worker precache reports 21 entries, 736.54 KiB |
+
+Not measured: transfer size over the real GitHub Pages response headers, and cold start time on the Fold. The precache is about 0.7 MB, so the first offline ready launch needs that much data once.
