@@ -115,13 +115,25 @@ const ALL_KINDS: readonly Kind[] = [
   Kind.Drone,
 ];
 
-/** Mirror of the scoring port glue in src/main.ts (Ledger's scoring behind Swarm's ScoringPort). */
+/**
+ * Mirror of the scoring port glue in src/main.ts line 34 (Ledger's scoring behind Swarm's
+ * ScoringPort), including the `multiplier` getter added with 5bef4ae. The real constant is private to
+ * the DOM boot module (QA-004), so this copy can drift: if main.ts changes the port, change it here.
+ */
 const LEDGER_PORT: ScoringPort = {
   awardKill,
   collectGeom: (w: World): void => {
     collectGeom(w);
   },
   resetMultiplier: shipDied,
+  multiplier: (w: World): number => scoreOf(w).multiplier,
+};
+
+/** The port as it stood before the getter existed: Swarm must fall back to its own counter. */
+const LEDGER_PORT_NO_GETTER: ScoringPort = {
+  awardKill: LEDGER_PORT.awardKill,
+  collectGeom: LEDGER_PORT.collectGeom,
+  resetMultiplier: LEDGER_PORT.resetMultiplier,
 };
 
 function freshWorld(port?: ScoringPort): World {
@@ -296,14 +308,28 @@ describe('hud:score emitted by the sim', () => {
     for (const m of emitted) expect(m).toBe(6);
   });
 
-  // Finding QA-003 (docs/qa/bugs.md): stepGame's emitHud (src/game/game.ts:58-71) sends Swarm's own
-  // g.multiplier, which stays 1 when Ledger's port is wired, while main.ts sends Ledger's value on the
-  // same 'hud:score' channel. `it.fails` keeps the suite green while the defect exists and turns red
-  // the day it is fixed: then change it.fails to it.
-  it('with Ledger port, carries the multiplier Ledger shows (QA-003: sim emits a stale x1)', () => {
+  // Finding QA-003 (docs/qa/bugs.md), fixed by be857ca and 5bef4ae: emitHud used to send Swarm's own
+  // g.multiplier, which stayed 1 under Ledger's port, while main.ts sent Ledger's value on the same
+  // 'hud:score' channel, so x1 could flash. Now emitHud asks the port (currentMultiplier) first.
+  it('with Ledger port, carries the multiplier Ledger shows (QA-003 regression)', () => {
     const { emitted, world } = hudMultipliersAfterFiveGeoms(LEDGER_PORT);
     expect(scoreOf(world).multiplier).toBe(6);
     expect(emitted.length).toBeGreaterThan(0);
     for (const m of emitted) expect(m).toBe(6);
+  });
+
+  it('a port without the getter still never shows a stale x1 (Swarm keeps its own count)', () => {
+    const { emitted } = hudMultipliersAfterFiveGeoms(LEDGER_PORT_NO_GETTER);
+    expect(emitted.length).toBeGreaterThan(0);
+    for (const m of emitted) expect(m).toBe(6);
+  });
+
+  it('when a port has a getter, the getter value is what hud:score carries', () => {
+    const w = freshWorld({ ...LEDGER_PORT, multiplier: () => 42 });
+    const emitted: number[] = [];
+    bus.on('hud:score', (p) => emitted.push(p.multiplier));
+    for (let i = 0; i < 60; i++) stepGame(w, 1 / 120, IDLE);
+    expect(emitted.length).toBeGreaterThan(0);
+    for (const m of emitted) expect(m).toBe(42);
   });
 });

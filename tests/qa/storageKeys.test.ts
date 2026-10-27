@@ -11,15 +11,20 @@ import { describe, expect, it } from 'vitest';
 import {
   ADVENTURE_SCORES_KEY,
   DEFAULT_SETTINGS,
+  ENDLESS_SCORES_KEY,
   GLOW_PATH_KEY,
   RUN_SEED_KEY,
+  SCHEMA_KEY,
   SETTINGS_PREFIX,
   UNLOCKED_KEY,
+  ensureSchema,
   loadAdventureScores,
+  loadEndlessScores,
   loadRunSeed,
   loadSettings,
   loadUnlocked,
   recordAdventureScore,
+  recordEndlessScore,
   saveGlowPath,
   saveSetting,
   unlockLevel,
@@ -27,25 +32,24 @@ import {
 import type { StorageLike } from '../../src/core/settings';
 import { stripComments } from './summary';
 
-/** Keys the code writes today, hard coded so a rename or an extra key fails loudly. */
+/**
+ * Keys the code writes today, hard coded so a rename or an extra key fails loudly. sow.scores.endless
+ * and sow.schema moved here from a reserved list once Ledger's W3 branch landed them (QA-010).
+ * sow.schema is the storage schema version, default 1, bump and migrate on shape change.
+ */
 const IMPLEMENTED_KEYS: readonly string[] = [
   'sow.progress.runSeed',
   'sow.progress.unlocked',
+  'sow.schema',
   'sow.scores.adventure',
+  'sow.scores.endless',
   'sow.settings.glowPath',
   'sow.settings.neon',
   'sow.settings.showFps',
   'sow.settings.volume',
 ];
 
-/**
- * Documented in docs/03 section 8 (and docs/05 W3 task 3 for the Endless table) but not written by any
- * code yet (Ledger). Registering them here lets Ledger add them without this suite failing on an
- * unknown key. sow.schema is the storage schema version, default 1, bump and migrate on shape change.
- */
-const RESERVED_KEYS: readonly string[] = ['sow.scores.endless', 'sow.schema'];
-
-const ALL_KEYS: readonly string[] = [...IMPLEMENTED_KEYS, ...RESERVED_KEYS];
+const ALL_KEYS: readonly string[] = IMPLEMENTED_KEYS;
 const KEY_SHAPE = /^sow\.(settings|progress|scores)\.[A-Za-z][A-Za-z0-9]*$|^sow\.schema$/;
 /** The only file allowed to touch the Storage API. */
 const STORAGE_OWNER = 'src/core/settings.ts';
@@ -130,13 +134,15 @@ describe('declared storage keys', () => {
     RUN_SEED_KEY,
     UNLOCKED_KEY,
     ADVENTURE_SCORES_KEY,
+    ENDLESS_SCORES_KEY,
+    SCHEMA_KEY,
   ];
 
   it('the exported constants are exactly the implemented key set', () => {
     expect([...declared].sort()).toEqual([...IMPLEMENTED_KEYS].sort());
   });
 
-  it('every key (implemented and reserved) uses the sow. prefix and the sow.<area>.<name> shape (or sow.schema)', () => {
+  it('every key uses the sow. prefix and the sow.<area>.<name> shape (or sow.schema)', () => {
     for (const k of ALL_KEYS) {
       expect(k.startsWith('sow.'), k).toBe(true);
       expect(KEY_SHAPE.test(k), k).toBe(true);
@@ -167,6 +173,8 @@ describe('keys written at run time', () => {
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(1, 2500, 1, store);
+    recordEndlessScore(4000, 1, store);
+    expect(ensureSchema(store)).toBe(1);
     expect([...store.writes].sort()).toEqual([...IMPLEMENTED_KEYS].sort());
     for (const k of store.writes) expect(KEY_SHAPE.test(k), k).toBe(true);
   });
@@ -176,8 +184,19 @@ describe('keys written at run time', () => {
     loadSettings(store);
     loadUnlocked(store);
     loadAdventureScores(store);
+    expect(loadEndlessScores(store)).toEqual([]);
     expect(store.writes.size).toBe(0);
     for (const k of store.reads) expect(IMPLEMENTED_KEYS, k).toContain(k);
+    expect(store.reads.has('sow.scores.endless')).toBe(true);
+  });
+
+  it('first launch writes sow.schema once and a second launch leaves it alone', () => {
+    const store = recordingStorage();
+    expect(ensureSchema(store)).toBe(1);
+    expect(store.data.get('sow.schema')).toBe('1');
+    store.writes.clear();
+    expect(ensureSchema(store)).toBe(1);
+    expect(store.writes.size).toBe(0);
   });
 
   it('values are independent: each key keeps its own value and corrupting one leaves the rest', () => {
@@ -189,6 +208,7 @@ describe('keys written at run time', () => {
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(2, 2500, 2, store);
+    recordEndlessScore(4000, 77, store);
     store.data.set('sow.settings.volume', 'garbage');
     const s = loadSettings(store);
     expect(s.neon).toBe(33);
@@ -197,6 +217,15 @@ describe('keys written at run time', () => {
     expect(loadRunSeed(() => 1, store)).toBe(123456);
     expect(loadUnlocked(store)).toBe(4);
     expect(loadAdventureScores(store)).toEqual({ '2': { best: 2500, stars: 2 } });
+    expect(loadEndlessScores(store)).toEqual([{ score: 4000, at: 77 }]);
+  });
+
+  it('a corrupt Endless table loads as empty and does not touch the Adventure table', () => {
+    const store = recordingStorage();
+    recordAdventureScore(3, 900, 1, store);
+    store.data.set('sow.scores.endless', '{not json');
+    expect(loadEndlessScores(store)).toEqual([]);
+    expect(loadAdventureScores(store)).toEqual({ '3': { best: 900, stars: 1 } });
   });
 });
 
@@ -222,7 +251,14 @@ describe('source scan of src/', () => {
   it('the implemented keys are all spelled out or built from the exported prefix in core/settings.ts', () => {
     const code = stripComments(readFileSync(join(SRC_DIR, 'core/settings.ts'), 'utf8'));
     const literals = sowLiterals(code);
-    for (const k of ['sow.progress.runSeed', 'sow.progress.unlocked', 'sow.scores.adventure', SETTINGS_PREFIX]) {
+    for (const k of [
+      'sow.progress.runSeed',
+      'sow.progress.unlocked',
+      'sow.scores.adventure',
+      'sow.scores.endless',
+      'sow.schema',
+      SETTINGS_PREFIX,
+    ]) {
       expect(literals, k).toContain(k);
     }
   });
@@ -254,7 +290,7 @@ describe('docs/03 section 8 key table', () => {
     }
   });
 
-  it('every documented key is implemented or reserved here (docs and code agree on spelling)', () => {
+  it('every documented key is implemented (docs and code agree on spelling)', () => {
     for (const k of documented) expect(ALL_KEYS, k).toContain(k);
   });
 });
