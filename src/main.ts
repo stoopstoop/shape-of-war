@@ -2,7 +2,6 @@
 // Boot order: load settings, create renderer, create world, attach input, start loop,
 // register resize. The #sow-viewport and #sow-build labels are plain DOM so they still
 // report if the renderer fails.
-import { Application, Container, Graphics } from 'pixi.js';
 import { getDebugInfo, runParticleStress, setDebugInfoSource, type DebugInfo } from './core/debug';
 import { bus, type ViewportInfo } from './core/events';
 import { createLoop, type Loop } from './core/loop';
@@ -14,137 +13,8 @@ import { clearEntities, createWorld, inlineRectLevel, Kind, liveEnemies, spawn, 
 import type { InputState } from './input/types';
 import type { LevelDef } from './levelgen/leveldef';
 import { applyNeon } from './render/neon';
-
-// ---------------------------------------------------------------------------------------
-// W1 placeholders behind the 03 section 1 signatures. Delete this block and import
-// createRenderer from './render/renderer' and attachTouch from './input/touch' once Glow
-// and Thumbs merge. Contract main.ts relies on:
-//   renderer.draw(w, alpha) updates the scene but does not call app.render(); main.ts does.
-//   The renderer positions its world container from bus 'viewport:changed' (payload.fit).
-// ---------------------------------------------------------------------------------------
-
-interface GameRenderer {
-  readonly app: Application;
-  resize(cssW: number, cssH: number, dpr: number): void;
-  setArena(def: LevelDef): void;
-  draw(w: World, alpha: number): void;
-  setBloomEnabled(on: boolean): void;
-}
-
-interface TouchHandle {
-  state: InputState;
-  reanchor(): void;
-  detach(): void;
-}
-
-/** Placeholder: outlines only, one Graphics redrawn per frame. Not the real renderer. */
-async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
-  const m = measure();
-  const app = new Application();
-  await app.init({
-    width: m.cssW,
-    height: m.cssH,
-    resolution: m.renderDpr,
-    autoDensity: true,
-    antialias: false,
-    background: 0x000000,
-    preference: 'webgl', // SPEC fixes WebGL; do not let v8 pick WebGPU on Android
-    powerPreference: 'high-performance',
-    autoStart: false, // our loop calls app.render()
-  });
-  host.appendChild(app.canvas);
-  app.stage.eventMode = 'none';
-  const worldLayer = new Container({ label: 'world' });
-  worldLayer.interactiveChildren = false;
-  const arenaG = new Graphics();
-  const dyn = new Graphics();
-  worldLayer.addChild(arenaG);
-  worldLayer.addChild(dyn);
-  app.stage.addChild(worldLayer);
-  bus.on('viewport:changed', (v) => {
-    worldLayer.position.set(v.fit.x, v.fit.y);
-    worldLayer.scale.set(v.fit.scale);
-  });
-  const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-  return {
-    app,
-    resize(cssW, cssH, dpr) {
-      app.renderer.resize(cssW, cssH, dpr);
-    },
-    setArena(def) {
-      arenaG.clear();
-      drawArenaOutline(arenaG, def);
-    },
-    draw(w, alpha) {
-      dyn.clear();
-      for (let i = 1; i < w.cap; i++) {
-        if (w.alive[i] !== 1) continue;
-        const x = lerp(w.prevX[i] ?? 0, w.x[i] ?? 0, alpha);
-        const y = lerp(w.prevY[i] ?? 0, w.y[i] ?? 0, alpha);
-        dyn.rect(x - (w.radius[i] ?? 8), y - (w.radius[i] ?? 8), (w.radius[i] ?? 8) * 2, (w.radius[i] ?? 8) * 2);
-      }
-      dyn.stroke({ width: 2.5, color: 0x4d8cff });
-      const b = w.bullets;
-      for (let i = 0; i < b.cap; i++) {
-        if (b.alive[i] !== 1) continue;
-        dyn.circle(lerp(b.prevX[i] ?? 0, b.x[i] ?? 0, alpha), lerp(b.prevY[i] ?? 0, b.y[i] ?? 0, alpha), 4);
-      }
-      dyn.fill({ color: 0xffd966 });
-      const blinkOff = w.ship.invuln > 0 && Math.floor(w.ship.invuln * 20) % 2 === 1; // 10 Hz blink
-      if (w.ship.active && !blinkOff) {
-        const sx = lerp(w.prevX[0] ?? 0, w.x[0] ?? 0, alpha);
-        const sy = lerp(w.prevY[0] ?? 0, w.y[0] ?? 0, alpha);
-        const r = w.rot[0] ?? 0;
-        const c = Math.cos(r);
-        const s = Math.sin(r);
-        // Nose 18 u ahead, base 20 u wide (docs/01 section 4.1).
-        dyn.poly([sx + c * 18, sy + s * 18, sx - c * 8 - s * 10, sy - s * 8 + c * 10, sx - c * 8 + s * 10, sy - s * 8 - c * 10]);
-        dyn.stroke({ width: 2.5, color: 0xffffff });
-      }
-    },
-    setBloomEnabled() {
-      // Placeholder has no bloom.
-    },
-  };
-}
-
-function drawArenaOutline(g: Graphics, def: LevelDef): void {
-  const a = def.arena;
-  const hw = a.width / 2;
-  const hh = a.height / 2;
-  switch (a.shape) {
-    case 'rect':
-    case 'rectObstacles':
-      g.rect(-hw, -hh, a.width, a.height);
-      break;
-    case 'roundRect':
-      g.roundRect(-hw, -hh, a.width, a.height, a.cornerRadius);
-      break;
-    case 'circle':
-      g.circle(0, 0, hw);
-      break;
-    case 'hexagon': {
-      const pts: number[] = [];
-      for (let i = 0; i < 6; i++) pts.push(Math.cos((i * Math.PI) / 3) * hw, Math.sin((i * Math.PI) / 3) * hw);
-      g.poly(pts);
-      break;
-    }
-  }
-  for (const o of a.obstacles) g.rect(o.cx - o.w / 2, o.cy - o.h / 2, o.w, o.h);
-  g.stroke({ width: 3, color: 0x5a6cff, alpha: 0.8 });
-}
-
-/** Placeholder: sticks never active until Thumbs merges. */
-function attachTouch(_canvas: HTMLCanvasElement): TouchHandle {
-  const state: InputState = {
-    move: { active: false, x: 0, y: 0 },
-    aim: { active: false, x: 0, y: 0 },
-    bomb: false,
-    superPressed: false,
-    pause: false,
-  };
-  return { state, reanchor() {}, detach() {} };
-}
+import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
+import { attachTouch, type TouchHandle } from './input/touch';
 
 // ---------------------------------------------------------------------------------------
 // Viewport
@@ -309,10 +179,11 @@ async function boot(): Promise<void> {
   let frameCount = 0;
   const loop: Loop = createLoop({
     step(dt) {
-      stepWorld(world, dt, touch !== null ? touch.state : idle);
+      stepWorld(world, dt, touch !== null ? touch.poll() : idle);
     },
     render(alpha) {
       if (renderer === null) return;
+      if (touch !== null) renderer.setSticks(stickCircles(touch));
       renderer.draw(world, alpha);
       renderer.app.render();
       // Divisor policy (docs/04 section 13), evaluated every 15 rendered frames.
@@ -444,3 +315,15 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+/** Glue: Thumbs stick visuals to Glow stick circles. Rings 0.25, knobs 0.6 filled (docs/01 section 3). */
+function stickCircles(t: TouchHandle): StickCircleLike[] {
+  const out: StickCircleLike[] = [];
+  const v = t.stickVisuals();
+  for (const sv of [v.move, v.aim]) {
+    if (sv === null) continue;
+    out.push({ x: sv.ring.x, y: sv.ring.y, r: sv.ring.r, alpha: 0.25 });
+    out.push({ x: sv.knob.x, y: sv.knob.y, r: sv.knob.r, alpha: 0.6, filled: true });
+  }
+  return out;
+}
