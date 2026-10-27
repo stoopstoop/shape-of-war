@@ -40,18 +40,26 @@ export function starsFor(score: number, thresholds: readonly [number, number, nu
   return 0;
 }
 
+const scratch: ObjectiveInput = {
+  objective: { kind: 'survive', durationSec: 0 },
+  mode: 'adventure',
+  score: 0,
+  kills: 0,
+  lives: 0,
+  clock: 0,
+};
+
 /** Update the outcome; emits 'game:over' exactly once when the level ends. Stars are 0 on failure. */
 export function stepObjective(w: World): Outcome {
   const g = gs(w);
   if (g.outcome === 'running') {
-    g.outcome = evaluateObjective({
-      objective: w.level.objective,
-      mode: g.mode,
-      score: g.score,
-      kills: g.kills,
-      lives: g.lives,
-      clock: g.waveClock,
-    });
+    scratch.objective = w.level.objective;
+    scratch.mode = g.mode;
+    scratch.score = g.score;
+    scratch.kills = g.kills;
+    scratch.lives = g.lives;
+    scratch.clock = g.waveClock;
+    g.outcome = evaluateObjective(scratch);
   }
   if (g.outcome !== 'running' && !g.overEmitted) {
     g.overEmitted = true;
