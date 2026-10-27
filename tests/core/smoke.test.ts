@@ -74,7 +74,7 @@ describe('pwa manifest', () => {
     expect(m.scope).toBe('./');
   });
 
-  it('lists four icons: any and maskable at 192 and 512', () => {
+  it('lists four icons, general and maskable purposes, at 192 and 512', () => {
     const keys = readManifest()
       .icons.map((i) => `${i.purpose}:${i.sizes}`)
       .sort();
