@@ -3,6 +3,7 @@
 // waits a 0.4 s cooldown (docs/01 section 6.4).
 // w.t is one timer: above COOLDOWN means dodging, (0, COOLDOWN] means cooling down.
 // w.vx, w.vy hold the dodge velocity.
+import { enemySpeedScale } from '../state';
 import { moveTo, seekShip } from '../steer';
 import { Kind, type World } from '../world';
 import type { EnemyDef } from './types';
@@ -48,7 +49,7 @@ export function findThreat(w: World, id: number): boolean {
 export function step(w: World, id: number, dt: number): void {
   let t = w.t[id] ?? 0;
   if (t > COOLDOWN) {
-    const s = DODGE_SPEED * w.level.speedScale * dt;
+    const s = DODGE_SPEED * enemySpeedScale(w) * dt;
     moveTo(w, id, (w.x[id] ?? 0) + (w.vx[id] ?? 0) * s, (w.y[id] ?? 0) + (w.vy[id] ?? 0) * s);
     w.t[id] = t - dt;
     return;
@@ -58,9 +59,9 @@ export function step(w: World, id: number, dt: number): void {
     w.t[id] = t > 0 ? t : 0;
   } else if (findThreat(w, id)) {
     w.t[id] = DODGE_SEC + COOLDOWN;
-    const s = DODGE_SPEED * w.level.speedScale * dt;
+    const s = DODGE_SPEED * enemySpeedScale(w) * dt;
     moveTo(w, id, (w.x[id] ?? 0) + (w.vx[id] ?? 0) * s, (w.y[id] ?? 0) + (w.vy[id] ?? 0) * s);
     return;
   }
-  w.rot[id] = seekShip(w, id, def.speed * w.level.speedScale, dt);
+  w.rot[id] = seekShip(w, id, def.speed * enemySpeedScale(w), dt);
 }

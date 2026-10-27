@@ -3,7 +3,7 @@
 // live. Emitted Darts telegraph for 0.4 s.
 // w.a = index into level.hazards.spawners, w.t = seconds active, aux = emits so far.
 // A Dart's aux holds the id of the spawner that emitted it.
-import { gs, isWaveEnemy, spawnFromDef } from '../state';
+import { enemySpeedScale, gs, isWaveEnemy, spawnFromDef } from '../state';
 import { seekShip } from '../steer';
 import { Kind, type World } from '../world';
 import { def as dartDef } from './dart';
@@ -49,7 +49,7 @@ export function emitDarts(w: World, id: number, count: number): number {
 
 export function step(w: World, id: number, dt: number): void {
   const g = gs(w);
-  w.rot[id] = seekShip(w, id, def.speed * w.level.speedScale, dt);
+  w.rot[id] = seekShip(w, id, def.speed * enemySpeedScale(w), dt);
   const t = (w.t[id] ?? 0) + dt;
   w.t[id] = t;
   const hz = w.level.hazards.spawners[w.a[id] ?? -1];

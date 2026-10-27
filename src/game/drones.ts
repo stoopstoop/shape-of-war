@@ -146,6 +146,8 @@ export function stepDrone(w: World, dt: number): void {
   }
   let id = g.droneId;
   if (id <= 0 || w.alive[id] !== 1 || w.kind[id] !== Kind.Drone) {
+    if (g.droneAbsent > 0) return; // Detonate: back at the ship once the absence ends
+
     id = spawnFromDef(w, def, (w.x[0] ?? 0) + ORBIT_RADIUS, w.y[0] ?? 0, 0);
     g.droneId = id;
     g.droneCooldown = 0;

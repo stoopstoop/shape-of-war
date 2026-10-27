@@ -49,7 +49,7 @@ const scratch: ObjectiveInput = {
   clock: 0,
 };
 
-/** Update the outcome; emits 'game:over' exactly once when the level ends. Stars are 0 on failure. */
+/** Update the outcome; emits 'game:over' exactly once when the level ends. Stars are 0 on failure and in Endless. */
 export function stepObjective(w: World): Outcome {
   const g = gs(w);
   if (g.outcome === 'running') {
@@ -63,7 +63,8 @@ export function stepObjective(w: World): Outcome {
   }
   if (g.outcome !== 'running' && !g.overEmitted) {
     g.overEmitted = true;
-    const won = g.outcome === 'won' || g.mode === 'endless';
+    // Endless has no par, so no stars.
+    const won = g.outcome === 'won' && g.mode !== 'endless';
     bus.emit('game:over', {
       score: g.score,
       stars: won ? starsFor(g.score, w.level.stars) : 0,

@@ -2,7 +2,7 @@
 // replaces stepWorld in the loop's step hook. stepGame allocates nothing.
 import { bus } from '../core/events';
 import type { InputState } from '../input/types';
-import type { LevelDef } from '../levelgen/leveldef';
+import type { EndlessDef, LevelDef } from '../levelgen/leveldef';
 import { bulletHits, separate, shipHits, shipPickups } from './combat';
 import { registerSwarmBehaviours } from './defs';
 import { stepDrone } from './drones';
@@ -11,8 +11,9 @@ import { SUPER_CHARGE_MAX } from './geoms';
 import { stepObjective } from './objective';
 import { stepPlayer } from './player';
 import { stepSpawner } from './spawner';
-import { gs, type GameMode, type GameState, type ScoringPort } from './state';
-import { triggerSuper } from './supers';
+import { endlessLevel, startEndless, stepEndlessAwards } from './endless';
+import { gs, type GameMode, type GameState, type ScoringPort, type SegmentSource } from './state';
+import { stepSupers, triggerSuper } from './supers';
 import { createWorld, stepWorld, type World } from './world';
 
 export interface GameOptions {
@@ -50,9 +51,26 @@ export function gameState(w: World): Readonly<GameState> {
   return gs(w);
 }
 
+/**
+ * Start an Endless run (docs/01 section 2.2). The source supplies segment s; wire it as
+ * (s) => generateEndlessSegment(def.endlessSeed, s). Segment 0 is requested here, segment s + 1
+ * when segment s starts. Lives and bombs follow the EndlessDef award rules.
+ */
+export function createEndlessGame(def: EndlessDef, source: SegmentSource, opts: Omit<GameOptions, 'mode'> = {}): World {
+  const seg0 = source(0);
+  const w = createGame(endlessLevel(def, seg0), { ...opts, mode: 'endless' });
+  startEndless(w, def, source, seg0);
+  return w;
+}
+
 /** True while the entity is telegraphing (render: draw at 50 percent alpha, flashing). */
 export function isTelegraphing(w: World, id: number): boolean {
   return (gs(w).tele[id] ?? 0) > 0;
+}
+
+/** Telegraph seconds left for id, 0 when live (render: flash phase and fade in). */
+export function telegraphLeft(w: World, id: number): number {
+  return gs(w).tele[id] ?? 0;
 }
 
 function emitHud(w: World, dt: number): void {
@@ -82,7 +100,9 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   stepPlayer(w, dt, input);
   stepDrone(w, dt);
   if (input.superPressed) triggerSuper(w);
+  stepSupers(w, dt);
   stepSpawner(w, dt);
+  stepEndlessAwards(w);
   stepObjective(w);
   emitHud(w, dt);
 }

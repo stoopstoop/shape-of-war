@@ -4,6 +4,7 @@
 // w.simRng only.
 import type { EnemyKind, SpawnEntry } from '../levelgen/leveldef';
 import { isInside } from './arena';
+import { advanceSegments } from './endless';
 import { defOf, kindOf } from './defs';
 import { init as initPinwheel } from './enemies/pinwheel';
 import { spawnSnake } from './enemies/snake';
@@ -47,7 +48,7 @@ export function enqueueDueWaves(w: World, clock: number): void {
   for (let guard = 0; guard < MAX_WAVES_PER_STEP; guard++) {
     const wave = s.waves[g.nextWave];
     if (wave === undefined) return;
-    const shift = g.loopK * s.loopPeriodSec;
+    const shift = g.waveShift + g.loopK * s.loopPeriodSec;
     const at = wave.atSec + shift;
     if (clock < at) return;
     for (let i = 0; i < wave.entries.length; i++) {
@@ -161,6 +162,7 @@ export function stepSpawner(w: World, dt: number): void {
   const g = gs(w);
   if (!w.ship.active || g.outcome !== 'running') return;
   g.waveClock += dt;
+  if (g.endless !== null) advanceSegments(w, g.waveClock);
   enqueueDueWaves(w, g.waveClock);
   activateSpawners(w, g.waveClock);
   releaseQueue(w, g.waveClock);
