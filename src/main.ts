@@ -26,12 +26,12 @@ import {
 } from './core/settings';
 import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
-import { createEndlessGame, createGame, stepGame } from './game/game';
+import { createEndlessGame, createGame, gameState, stepGame } from './game/game';
 import { installAudio } from './audio/synth';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
 // Glue: Ledger's scoring behind Swarm's ScoringPort.
-const scoringPort = { awardKill, collectGeom: (w: World): void => { collectGeom(w); }, resetMultiplier: shipDied };
+const scoringPort = { awardKill, collectGeom: (w: World): void => { collectGeom(w); }, resetMultiplier: shipDied, multiplier: (w: World): number => scoreOf(w).multiplier };
 import { installHistoryGuard } from './input/history';
 import type { InputState } from './input/types';
 import { VALID_FIXTURES } from './levelgen/fixtures';
@@ -128,12 +128,10 @@ function readQuery(): { stress: number; particles: number; sprite: boolean; debu
  * Structural read of a number the sim may expose (lives, bombs, superCharge) on World or on
  * World.ship. Swarm adds these in W2; until then the caller's default applies.
  */
-function simNumber(w: World, key: string): number | null {
-  for (const host of [w, w.ship]) {
-    const v: unknown = Reflect.get(host, key);
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-  }
-  return null;
+function simNumber(w: World, key: 'lives' | 'bombs' | 'superCharge'): number | null {
+  // Glue: Swarm keeps these in gameState(w), not on World (Swarm fixes hand-off).
+  const v = gameState(w)[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
 function snapshotOf(w: World): ObjectiveSnapshot {
