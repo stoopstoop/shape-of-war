@@ -22,7 +22,7 @@ You are a headless Claude Code builder for Shape of War, a personal-use twin-sti
 - No em or en dashes in code comments or docs. Sentence case headings.
 
 ## Definition of done
-`npm test` and `npm run build` pass in your worktree. All tests your brief requires exist and pass. Commit on your branch with a conventional message (`feat(forge): world store`). Do not merge.
+`npm test` and `npm run build` pass in your worktree. `tsc` accepts deprecated v7 shims, so this grep must print nothing before your hand-off: `grep -rnE "beginFill|endFill|lineStyle|drawRect|drawCircle|drawEllipse|drawPolygon|drawRoundedRect|drawStar|app\.view|cacheAsBitmap|getChildByName|\.interactive\b|\.name\s*=|BLEND_MODES|PIXI\." src/ tests/`. All tests your brief requires exist and pass. Commit on your branch with a conventional message (`feat(forge): world store`). Do not merge.
 
 ## Hand-off format (your final message, verbatim structure)
 ```
