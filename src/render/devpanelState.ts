@@ -145,7 +145,14 @@ export function cornerCount(points: Iterable<{ x: number; y: number }>, size: nu
   return c;
 }
 
-/** Pure: ?debug=1 opens the panel at boot. */
+export type DevRow = 'fps' | 'glow' | 'stress';
+
+/** Pure: the panel rows in order. No neon row: the Settings screen owns the slider. */
+export function devPanelRows(hasStress: boolean): DevRow[] {
+  return hasStress ? ['fps', 'glow', 'stress'] : ['fps', 'glow'];
+}
+
+/** Pure: ?debug=1 was requested. Kept for callers; the panel no longer opens on it. */
 export function debugRequested(search: string): boolean {
   return new URLSearchParams(search).get('debug') === '1';
 }

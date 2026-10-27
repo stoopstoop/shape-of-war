@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { ArenaDef } from '../../src/levelgen/leveldef';
+import { gridSegments } from '../../src/render/gridGeom';
 import {
   addRipple,
+  MAX_RIPPLES,
   RIPPLE_LIFE,
   RIPPLE_SPEED,
   rippleDisplace,
   rippledGridPaths,
   stepRipples,
+  traceRippledGrid,
   type Ripple,
 } from '../../src/render/ripple';
 
@@ -42,5 +45,39 @@ describe('grid ripple', () => {
     stepRipples(list, 0.1);
     const bent = rippledGridPaths(ARENA, list);
     expect(bent).not.toEqual(flat);
+  });
+
+  it('a stream of small kill ripples never evicts a bomb ripple', () => {
+    const list: Ripple[] = [];
+    addRipple(list, 0, 0, 60);
+    for (let i = 0; i < MAX_RIPPLES * 3; i++) addRipple(list, i, i, 7);
+    expect(list).toHaveLength(MAX_RIPPLES);
+    expect(list.some((r) => r.strength === 60)).toBe(true);
+  });
+
+  it('when full, a strong ripple replaces the weakest', () => {
+    const list: Ripple[] = [];
+    for (let i = 0; i < MAX_RIPPLES; i++) addRipple(list, i, 0, 7);
+    addRipple(list, 0, 0, 60);
+    expect(list).toHaveLength(MAX_RIPPLES);
+    expect(list[list.length - 1]?.strength).toBe(60);
+  });
+
+  it('traceRippledGrid draws the same points as rippledGridPaths, through a pen', () => {
+    const list: Ripple[] = [];
+    addRipple(list, 0, 0, 30);
+    stepRipples(list, 0.1);
+    const paths = rippledGridPaths(ARENA, list);
+    const pts: number[][] = [];
+    const pen = {
+      moveTo(x: number, y: number): void {
+        pts.push([x, y]);
+      },
+      lineTo(x: number, y: number): void {
+        pts[pts.length - 1]?.push(x, y);
+      },
+    };
+    traceRippledGrid(gridSegments(ARENA), list, pen);
+    expect(pts).toEqual(paths);
   });
 });

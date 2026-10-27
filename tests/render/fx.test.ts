@@ -39,8 +39,29 @@ describe('fx event to burst mapping (docs/01 section 12)', () => {
     expect(p.burst.count).toBe(200);
     expect(p.burst.speedMax).toBe(1200);
     expect(p.shake).toEqual({ amp: 10, dur: 0.4 });
-    expect(p.ring).toBe(true);
+    expect(p.ring).toBe('bomb');
     expect(p.ripple).toBeGreaterThanOrEqual(planFx({ type: 'death' }).ripple);
+  });
+
+  it('every kill ripples the grid a little; the bomb ripple is the largest of all', () => {
+    const colours: PaletteKey[] = ['blue', 'purple', 'green', 'orange', 'magenta', 'cyan', 'yellow', 'red'];
+    const bomb = planFx({ type: 'bomb' }).ripple;
+    for (const colour of colours) {
+      const r = planFx({ type: 'kill', colour }).ripple;
+      expect(r).toBeGreaterThan(0);
+      expect(r).toBeLessThan(bomb);
+      if (colour !== 'red') expect(r).toBeLessThan(bomb / 4); // the well is a big kill
+    }
+    for (const type of ['death', 'super'] as const) expect(planFx({ type }).ripple).toBeLessThan(bomb);
+    expect(planFx({ type: 'kill', colour: 'blue' }).ring).toBeNull();
+  });
+
+  it('super: a ring burst with particles, small shake and a ripple', () => {
+    const p = planFx({ type: 'super' });
+    expect(p.ring).not.toBeNull();
+    expect(p.burst.count).toBeGreaterThan(0);
+    expect(p.shake?.amp).toBeLessThan(planFx({ type: 'bomb' }).shake?.amp ?? 0);
+    expect(p.ripple).toBeGreaterThan(0);
   });
 
   it('geom pickup: 4 short lived sparkles, no shake or ripple', () => {

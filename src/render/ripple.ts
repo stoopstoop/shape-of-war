@@ -7,7 +7,7 @@ import { gridSegments } from './gridGeom';
 export const RIPPLE_SPEED = 900; // arena units per second
 export const RIPPLE_LIFE = 1.1; // seconds
 export const RIPPLE_WIDTH = 140; // half width of the wave band, arena units
-const MAX_RIPPLES = 6;
+export const MAX_RIPPLES = 8;
 /** Grid lines are split into pieces of this length so they can bend. */
 export const RIPPLE_STEP = 25;
 
@@ -23,10 +23,61 @@ export interface Vec {
   y: number;
 }
 
+/** Pure: strength left in a ripple after fading, used to pick which one to evict. */
+function remaining(r: Ripple): number {
+  const f = 1 - r.age / RIPPLE_LIFE;
+  return r.strength * f * f;
+}
+
+/**
+ * Add a ripple. When the list is full the weakest remaining ripple goes, so a stream of small
+ * kill ripples never cancels a bomb wave. A new ripple weaker than all of them is dropped.
+ */
 export function addRipple(list: Ripple[], x: number, y: number, strength: number): void {
   if (!(strength > 0)) return;
-  if (list.length >= MAX_RIPPLES) list.shift();
+  if (list.length >= MAX_RIPPLES) {
+    let weakest = 0;
+    for (let i = 1; i < list.length; i++) {
+      const a = list[i];
+      const b = list[weakest];
+      if (a && b && remaining(a) < remaining(b)) weakest = i;
+    }
+    const w = list[weakest];
+    if (w && remaining(w) > strength) return;
+    list.splice(weakest, 1);
+  }
   list.push({ x, y, age: 0, strength });
+}
+
+/** Structural pen: pixi Graphics satisfies it. */
+export interface Pen {
+  moveTo(x: number, y: number): unknown;
+  lineTo(x: number, y: number): unknown;
+}
+
+const penScratch: Vec = { x: 0, y: 0 };
+
+/**
+ * Trace the grid segments bent by the ripples straight into a pen, with no allocation. segs is
+ * gridSegments output, cached by the caller per arena.
+ */
+export function traceRippledGrid(segs: readonly number[], list: readonly Ripple[], pen: Pen): void {
+  const d = penScratch;
+  for (let i = 0; i + 3 < segs.length; i += 4) {
+    const x0 = segs[i] ?? 0;
+    const y0 = segs[i + 1] ?? 0;
+    const x1 = segs[i + 2] ?? 0;
+    const y1 = segs[i + 3] ?? 0;
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / RIPPLE_STEP));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      const x = x0 + (x1 - x0) * t;
+      const y = y0 + (y1 - y0) * t;
+      rippleDisplace(x, y, list, d);
+      if (k === 0) pen.moveTo(x + d.x, y + d.y);
+      else pen.lineTo(x + d.x, y + d.y);
+    }
+  }
 }
 
 /** Age ripples and drop finished ones, in place. */

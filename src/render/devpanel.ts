@@ -1,5 +1,6 @@
-// Debug settings panel (G1 to G3): neon slider, Show FPS toggle, bloom or fallback toggle.
-// Opened by ?debug=1 or a two finger long press (1 s) in the top left corner.
+// Debug panel (G1 to G3): Show FPS toggle, bloom or fallback toggle, optional stress button.
+// Opened by a two finger long press (1 s) in the top left corner. The neon slider lives on the
+// Settings screen (Ledger, W3); the controller keeps neonInput and neonCommit for that screen.
 // Pure state lives in devpanelState.ts; this file is the DOM edge plus the module level
 // exports Ledger uses from the real settings screen in W2.
 import type { GameRenderer } from './renderer';
@@ -8,8 +9,9 @@ import {
   cornerCount,
   createDevController,
   createFpsMeter,
-  debugRequested,
+  devPanelRows,
   fpsLabel,
+  type DevRow,
   type DevController,
   type DevPanelDeps,
   type DevSettings,
@@ -61,6 +63,8 @@ export interface DevPanelOptions {
   frameTimeMs?: () => number;
   /** Initial glow path, default 'bloom'. */
   glowPath?: GlowPath;
+  /** Optional stress scene trigger, e.g. () => window.sowDebug?.stress(400, 2000). Adds a button. */
+  stress?: () => void;
 }
 
 export interface DevPanelHandle {
@@ -133,15 +137,6 @@ export function installDevPanel(opts: DevPanelOptions): DevPanelHandle {
   panel.id = 'sow-devpanel';
   const title = el('div', 'font-weight:bold;margin-bottom:4px', 'Debug settings');
 
-  const neonRow = el('div', ROW_CSS);
-  const neonLabel = el('span', 'min-width:76px', '');
-  const slider = el('input', 'flex:1;min-width:140px;height:32px');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.step = '1';
-  neonRow.append(neonLabel, slider);
-
   const fpsRow = el('div', ROW_CSS);
   const fpsBtn = el('button', BTN_CSS);
   fpsBtn.type = 'button';
@@ -155,23 +150,28 @@ export function installDevPanel(opts: DevPanelOptions): DevPanelHandle {
   const closeBtn = el('button', BTN_CSS, 'Close');
   closeBtn.type = 'button';
 
-  panel.append(title, neonRow, fpsRow, glowRow, closeBtn);
+  const stressRow = el('div', ROW_CSS);
+  const runStress = opts.stress;
+  if (runStress) {
+    const stressBtn = el('button', BTN_CSS, 'Stress 400 + 2000');
+    stressBtn.type = 'button';
+    stressBtn.addEventListener('click', () => runStress());
+    stressRow.append(stressBtn);
+  }
+  const rowEls: Record<DevRow, HTMLElement> = { fps: fpsRow, glow: glowRow, stress: stressRow };
+  panel.append(title, ...devPanelRows(runStress !== undefined).map((r) => rowEls[r]), closeBtn);
   const fpsEl = el('div', FPS_CSS);
   fpsEl.id = 'sow-fps';
   document.body.append(panel, fpsEl);
 
   const refresh = (): void => {
     const s = c.state;
-    neonLabel.textContent = `Neon ${s.neon}`;
-    if (document.activeElement !== slider) slider.value = String(s.neon);
     fpsBtn.textContent = `Show FPS: ${s.showFps ? 'on' : 'off'}`;
     glowBtn.textContent = `Glow: ${s.glowPath === 'bloom' ? 'Bloom' : 'Fallback'} (tap to switch)`;
     fpsEl.style.display = s.showFps ? 'block' : 'none';
     syncFpsLoop();
   };
 
-  slider.addEventListener('input', () => c.neonInput(Number(slider.value)));
-  slider.addEventListener('change', () => c.neonCommit(Number(slider.value)));
   fpsBtn.addEventListener('click', () => c.setShowFps(!c.state.showFps));
   glowBtn.addEventListener('click', () => c.setGlowPath(c.state.glowPath === 'bloom' ? 'fallback' : 'bloom'));
   closeBtn.addEventListener('click', () => close());
@@ -252,7 +252,7 @@ export function installDevPanel(opts: DevPanelOptions): DevPanelHandle {
   const unsub = c.subscribe(refresh);
   bindDevController(c);
   refresh();
-  if (debugRequested(window.location.search)) open();
+  // ?debug no longer opens the panel: the Settings screen owns the neon slider (W3, Ledger).
 
   return {
     controller: c,

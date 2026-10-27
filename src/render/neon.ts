@@ -27,6 +27,8 @@ export const BASE_PALETTE = {
   geom: [95, 0.75, 0.6],
   grid: [230, 0.6, 0.45],
   bomb: [200, 0.75, 0.8],
+  /** Homing bullets (super). Hot pink, apart from the yellow standard shot. */
+  homing: [335, 0.8, 0.65],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type PaletteKey = keyof typeof BASE_PALETTE;
@@ -74,10 +76,14 @@ export interface NeonRender {
   /** Particle and bullet trail brightness multipliers. */
   particleAlpha: number;
   trailAlpha: number;
+  /** Bloom path: alpha of the per entity bloom source sprite (the filter only sees sprites). */
+  bloomSourceAlpha: number;
+  /** Arena wall core width multiplier on WALL_LINE_PX. */
+  wallWidthMul: number;
 }
 
 /** Bloom gain over the SPEC bloom strength: thin lines carry little energy into the blur. */
-export const BLOOM_GAIN = 1.5;
+export const BLOOM_GAIN = 1.8;
 
 /** Pure: render settings for a set of SPEC params. */
 export function neonRender(p: NeonParams): NeonRender {
@@ -85,16 +91,18 @@ export function neonRender(p: NeonParams): NeonRender {
   return {
     bloomStrength: p.bloomScale * BLOOM_GAIN,
     bloomThreshold: p.threshold,
-    haloWidthMul: lerpNum(3.0, 5.0, t),
-    haloAlpha: p.glowAlpha * 0.25,
-    innerWidthMul: 2.2,
-    innerAlpha: p.glowAlpha * 0.6,
-    coreWidthMul: 1.4,
+    haloWidthMul: lerpNum(3.5, 6.0, t),
+    haloAlpha: p.glowAlpha * 0.3,
+    innerWidthMul: 2.4,
+    innerAlpha: p.glowAlpha * 0.7,
+    coreWidthMul: lerpNum(1.4, 1.8, t),
     spriteAlpha: clampNum(0.15 + p.glowAlpha, 0, 1),
     spriteScale: 1 + p.bloomScale * 0.35,
     gridAlpha: p.gridAlpha,
-    particleAlpha: lerpNum(0.55, 1, t),
-    trailAlpha: lerpNum(0.35, 0.9, t),
+    particleAlpha: lerpNum(0.6, 1, t),
+    trailAlpha: lerpNum(0.5, 1, t),
+    bloomSourceAlpha: clampNum(0.25 + p.glowAlpha * 0.9, 0, 1),
+    wallWidthMul: lerpNum(1.0, 1.35, t),
   };
 }
 

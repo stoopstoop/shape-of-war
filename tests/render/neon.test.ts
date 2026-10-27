@@ -3,9 +3,11 @@ import { hslToRgbInt } from '../../src/render/color';
 import {
   applyNeon,
   BASE_PALETTE,
+  BLOOM_GAIN,
   computePalette,
   current,
   neonParams,
+  neonRender,
   onNeonChanged,
   palette,
   paletteColour,
@@ -75,6 +77,35 @@ describe('palette', () => {
   it('computePalette covers every base key', () => {
     const p = computePalette(1);
     expect(Object.keys(p).sort()).toEqual(Object.keys(BASE_PALETTE).sort());
+  });
+});
+
+describe('neonRender richer default look', () => {
+  it('at neon 70: thick glow lines, strong bloom, visible trails, bright bloom sources', () => {
+    const r = neonRender(neonParams(70));
+    expect(r.bloomStrength).toBeCloseTo(1.4 * BLOOM_GAIN, 10);
+    expect(BLOOM_GAIN).toBeGreaterThanOrEqual(1.8);
+    expect(r.coreWidthMul).toBeGreaterThanOrEqual(1.6);
+    expect(r.haloWidthMul).toBeGreaterThanOrEqual(5);
+    expect(r.trailAlpha).toBeGreaterThanOrEqual(0.8);
+    expect(r.bloomSourceAlpha).toBeGreaterThan(0.7);
+    expect(r.wallWidthMul).toBeGreaterThan(1);
+  });
+
+  it('every derived setting stays monotonic in the slider', () => {
+    for (let n = 0; n < 100; n++) {
+      const a = neonRender(neonParams(n));
+      const b = neonRender(neonParams(n + 1));
+      expect(b.bloomStrength).toBeGreaterThan(a.bloomStrength);
+      expect(b.coreWidthMul).toBeGreaterThan(a.coreWidthMul);
+      expect(b.trailAlpha).toBeGreaterThan(a.trailAlpha);
+      expect(b.wallWidthMul).toBeGreaterThan(a.wallWidthMul);
+      expect(b.bloomSourceAlpha).toBeGreaterThanOrEqual(a.bloomSourceAlpha);
+    }
+  });
+
+  it('homing bullets get their own colour, apart from the yellow shot', () => {
+    expect(paletteColour('homing', 1)).not.toBe(paletteColour('yellow', 1));
   });
 });
 

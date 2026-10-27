@@ -92,6 +92,20 @@ export function buildGlowSourceContext(spec: ShapeSpec, pal: Palette): GraphicsC
   return ctx;
 }
 
+/**
+ * Bloom path source: the shape's core lines, a little thicker, no halo and no blur. Captured
+ * once per kind at resolution 2 and drawn as a sprite inside the reduced resolution bloom layer,
+ * so the filter blurs a cheap quad instead of every entity's full Graphics.
+ */
+export function buildBloomSourceContext(spec: ShapeSpec, pal: Palette): GraphicsContext {
+  const ctx = new GraphicsContext();
+  for (const l of spec.layers) {
+    if (l.fill > 0) fillLayer(ctx, l, layerColour(l, pal));
+    if (l.width > 0) strokeLayer(ctx, l, Math.max(l.width, 1.5) * 2.2, layerColour(l, pal), 1);
+  }
+  return ctx;
+}
+
 // Index 0 holds the magenta unknown context; 1..MAX_KIND hold the registry kinds.
 let contexts: (GraphicsContext | null)[] = new Array<GraphicsContext | null>(MAX_KIND + 1).fill(null);
 
