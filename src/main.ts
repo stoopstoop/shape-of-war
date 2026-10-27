@@ -26,7 +26,8 @@ import {
 } from './core/settings';
 import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
-import { createGame, stepGame } from './game/game';
+import { createEndlessGame, createGame, stepGame } from './game/game';
+import { installAudio } from './audio/synth';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
 // Glue: Ledger's scoring behind Swarm's ScoringPort.
@@ -296,7 +297,8 @@ async function boot(): Promise<void> {
       endlessSeed = freshSeed(); // every Endless game gets a fresh seed (docs/01 section 2.2)
       level = endlessLevel({ generateEndless, generateEndlessSegment }, endlessSeed);
       pick = { def: level, source: 'generator', hash: levelHash(generateEndless(endlessSeed)) };
-      world = createGame(level, { scoring: scoringPort, mode: 'endless' });
+      // Glue: Swarm's segment driven Endless run, segments generated on demand from the seed.
+      world = createEndlessGame(generateEndless(endlessSeed), (seg) => generateEndlessSegment(endlessSeed, seg), { scoring: scoringPort });
     } else {
       pick = pickLevel(generator, runSeed, index, VALID_FIXTURES);
       level = pick.def;
@@ -534,7 +536,7 @@ async function boot(): Promise<void> {
       if (renderer === null) return;
       if (touch !== null && simRunning(flow)) renderer.setSticks(stickCircles(touch));
       renderer.draw(sceneWorld, alpha);
-      renderer.app.render();
+      // Glue: renderer.draw() already calls app.render(); a second call doubled GPU cost.
       // Divisor policy (docs/04 section 13), evaluated every 15 rendered frames.
       if (++frameCount % 15 === 0) {
         const s = loop.stats;
@@ -587,6 +589,7 @@ async function boot(): Promise<void> {
     panel.close();
   }
   settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path
+  installAudio({ volume: settings.volume }); // Glue: Glow's synth listens on the bus; unlock happens on the first gesture
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 
   window.sowDebug = {
