@@ -178,7 +178,7 @@ for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 console.log(`dispatcher: watching .agents/queue (max parallel ${MAX_PARALLEL})`);
 console.log(`dispatcher: claude ${claudeVersion}`);
 console.log(`dispatcher: api key sk-ant-...${key.slice(-4)}`);
-say(`mode: ${HAS_BARE ? '--bare' : 'normal'}, budget per agent run $${MAX_BUDGET_USD}, roster and CLAUDE.md via --append-system-prompt`);
+say(`mode: ${HAS_BARE ? '--bare' : 'normal'}, budget per agent run $${MAX_BUDGET_USD}, roster and CLAUDE.md via --append-system-prompt, Bash allowlist via --allowedTools`);
 
 // ---------- run bookkeeping ----------
 
@@ -259,6 +259,9 @@ async function runAgent(id, job, base) {
   if (stopping) return { exitCode: 1, error: 'interrupted: dispatcher stopped before launch', headSha: headSha(wt), endedAt: ts() };
   const roster = path.join(REPO, '.claude', 'agents', `${job.nickname}.md`);
   const argv = ['claude', '-p', '--model', job.model, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--max-budget-usd', String(MAX_BUDGET_USD)];
+  // Builders need Bash for npm, node, gh api and local git. acceptEdits alone refuses every Bash call in a headless run.
+  const ALLOWED = process.env.ALLOWED_TOOLS || ['Read','Edit','Write','MultiEdit','Glob','Grep','Bash(npm:*)','Bash(npx:*)','Bash(node:*)','Bash(tsc:*)','Bash(gh api:*)','Bash(gh run:*)','Bash(git add:*)','Bash(git commit:*)','Bash(git status:*)','Bash(git diff:*)','Bash(git log:*)','Bash(git rev-parse:*)','Bash(git ls-files:*)','Bash(git branch:*)','Bash(ls:*)','Bash(cat:*)','Bash(head:*)','Bash(tail:*)','Bash(grep:*)','Bash(rg:*)','Bash(find:*)','Bash(mkdir:*)','Bash(wc:*)','Bash(sed:*)','Bash(which:*)','Bash(echo:*)','Bash(printf:*)','Bash(cp:*)','Bash(mv:*)','Bash(chmod:*)'].join(',');
+  argv.push('--allowedTools', ALLOWED);
   if (HAS_BARE) argv.push('--bare'); // skips user hooks, auto-memory and ~/.claude CLAUDE.md; auth is strictly ANTHROPIC_API_KEY
   const rules = fs.readFileSync(path.join(REPO, 'CLAUDE.md'), 'utf8');
   argv.push('--append-system-prompt', `${rules}\n\n${fs.readFileSync(roster, 'utf8')}`);
