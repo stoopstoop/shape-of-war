@@ -38,3 +38,36 @@ export interface ButtonRects {
   super: Rect;
   pause: Rect;
 }
+
+/** Circle in CSS px, canvas local coordinates. */
+export interface Circle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** Ring at the floating origin and knob at the clamped finger position. */
+export interface StickVisual {
+  ring: Circle;
+  knob: Circle;
+}
+
+/** Pure draw data for Glow. A stick that is not held is null. */
+export interface StickVisuals {
+  move: StickVisual | null;
+  aim: StickVisual | null;
+}
+
+export type ButtonId = keyof ButtonRects;
+
+/** Visual (not hit) shape of one on screen button, in CSS px (docs/04 section 10). */
+export interface ButtonVisual {
+  id: ButtonId;
+  shape: 'circle' | 'square';
+  /** Centre. */
+  x: number;
+  y: number;
+  /** Diameter for circles, side for squares. */
+  size: number;
+  held: boolean;
+}
