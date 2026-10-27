@@ -8,3 +8,6 @@ android/app/build/
 .agents/*
 !.agents/README.md
 !.agents/.gitignore
+dev-dist/
+coverage/
+*.tsbuildinfo
