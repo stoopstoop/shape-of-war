@@ -1,0 +1,350 @@
+{
+  "hash": "4C5F7555",
+  "identity": {
+    "version": 1,
+    "generatorVersion": 1,
+    "runSeed": 1313230668,
+    "levelIndex": 31,
+    "seed": 108288492,
+    "band": 4,
+    "retries": 0,
+    "surface": "flat"
+  },
+  "arena": {
+    "shape": "hexagon",
+    "width": 1200.9,
+    "height": 1040,
+    "cornerRadius": 0,
+    "obstacles": [],
+    "spawnPoint": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "roster": [
+    {
+      "kind": "grunt",
+      "weight": 20
+    },
+    {
+      "kind": "wanderer",
+      "weight": 8
+    },
+    {
+      "kind": "weaver",
+      "weight": 18
+    },
+    {
+      "kind": "pinwheel",
+      "weight": 8
+    },
+    {
+      "kind": "snake",
+      "weight": 16
+    }
+  ],
+  "speedScale": 1.2,
+  "drone": "collect",
+  "superType": "detonate",
+  "lives": 3,
+  "bombs": 3,
+  "objective": {
+    "kind": "survive",
+    "durationSec": 120
+  },
+  "hazards": {
+    "wells": [
+      {
+        "x": -371.6,
+        "y": -31.9
+      }
+    ],
+    "spawners": [
+      {
+        "x": 463.1,
+        "y": -24.1,
+        "spawnAtSec": 10,
+        "emitEverySec": 5,
+        "dartsPerEmit": 5
+      },
+      {
+        "x": -165.5,
+        "y": 401.2,
+        "spawnAtSec": 15,
+        "emitEverySec": 5,
+        "dartsPerEmit": 5
+      }
+    ]
+  },
+  "par": 230500,
+  "stars": [
+    230500,
+    461000,
+    922000
+  ],
+  "schedule": {
+    "maxLiveEnemies": 160,
+    "intervalStartSec": 4,
+    "intervalEndSec": 2,
+    "rampSec": 120,
+    "rampExponent": 1.6,
+    "budgetStart": 8,
+    "budgetEnd": 20,
+    "waveCount": 68,
+    "loopFromIndex": 26,
+    "loopPeriodSec": 88.2,
+    "spawnTotal": 851,
+    "spawnsByKind": {
+      "grunt": 443,
+      "wanderer": 115,
+      "weaver": 160,
+      "pinwheel": 121,
+      "dart": 0,
+      "snake": 12
+    },
+    "firstWave": {
+      "index": 0,
+      "atSec": 2.5,
+      "pattern": "ring",
+      "entries": [
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 241,
+          "radius": 330,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.15,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 331,
+          "radius": 330,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.3,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 61,
+          "radius": 330,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.45,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 151,
+          "radius": 330,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.5,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 254,
+          "radius": 310,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.65,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 344,
+          "radius": 310,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.8,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 74,
+          "radius": 310,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.95,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 164,
+          "radius": 310,
+          "headingDeg": 0
+        }
+      ]
+    },
+    "lastWave": {
+      "index": 67,
+      "atSec": 178.6,
+      "pattern": "ring",
+      "entries": [
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 333,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.15,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 9,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.3,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 45,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.45,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 81,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.6,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 117,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.75,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 153,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.9,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 189,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 1.05,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 225,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 1.2,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 261,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 1.35,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 297,
+          "radius": 270,
+          "headingDeg": 0
+        },
+        {
+          "kind": "weaver",
+          "tOffsetSec": 0.5,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 64,
+          "radius": 280,
+          "headingDeg": 0
+        },
+        {
+          "kind": "weaver",
+          "tOffsetSec": 0.65,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 136,
+          "radius": 280,
+          "headingDeg": 0
+        },
+        {
+          "kind": "weaver",
+          "tOffsetSec": 0.8,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 208,
+          "radius": 280,
+          "headingDeg": 0
+        },
+        {
+          "kind": "weaver",
+          "tOffsetSec": 0.95,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 280,
+          "radius": 280,
+          "headingDeg": 0
+        },
+        {
+          "kind": "weaver",
+          "tOffsetSec": 1.1,
+          "mode": "ring",
+          "x": 0,
+          "y": 0,
+          "angleDeg": 352,
+          "radius": 280,
+          "headingDeg": 0
+        }
+      ]
+    }
+  }
+}
