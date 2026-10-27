@@ -1,6 +1,7 @@
 // DOM edge: Pointer Events on the canvas feed the pure model in model.ts (docs/04 section 9).
 // Touch only by design: Pointer Events, touch-action none, preventDefault. Nothing else.
 import { ZERO_INSETS } from './buttons';
+import { makeTouchMoveGuard } from './gesture';
 import { createInputState, createModel, pointerDown, pointerMove, pointerUp, pollModel, reanchorModel, syncSticks } from './model';
 import type { TouchModel } from './model';
 import { buttonVisuals, stickVisuals } from './visuals';
@@ -88,9 +89,8 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
     pointerUp(model, e.pointerId);
     syncSticks(model, state);
   };
-  const touchBlock = (e: TouchEvent): void => {
-    e.preventDefault();
-  };
+  // Only touches that began on the canvas are blocked; UI overlay touches stay native.
+  const touchBlock: (e: TouchEvent) => void = makeTouchMoveGuard(canvas);
 
   const active = { passive: false } as const;
   canvas.addEventListener('pointerdown', down, active);
@@ -98,7 +98,7 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
   canvas.addEventListener('pointerup', up, active);
   canvas.addEventListener('pointercancel', up, active);
   canvas.addEventListener('lostpointercapture', lost);
-  // One non passive touchmove on the document (docs/04 section 11).
+  // One non passive touchmove on the document (docs/04 section 11), scoped to canvas touches.
   const doc = canvas.ownerDocument;
   doc.addEventListener('touchmove', touchBlock, active);
 
