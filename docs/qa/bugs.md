@@ -97,7 +97,7 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 ### QA-005 (P2): wall clock sensitive tests
 
 - Fixed: `tests/game/stress.test.ts` now takes the median of three runs (be857ca). Seen this run: 0.128 ms per step, heap change about -928 KiB.
-- Open: `tests/levelgen/generator.test.ts` lines 224 to 228 asserts 200 levels in under 500 ms. Seen 225 ms, 2.2 times headroom. No flake in 11 full runs this wave. A heavily loaded machine could trip it. Foundry decides whether to widen or drop it.
+- Open: `tests/levelgen/generator.test.ts` lines 224 to 228 asserts 200 levels in under 500 ms. Seen 225 ms, 2.2 times headroom. No flake in 21 full runs this wave (`docs/qa/suite-runs.md`). A heavily loaded machine could trip it. Foundry decides whether to widen or drop it.
 
 ### QA-006 (P2): Reset progress leaves the run seed and the Endless table
 
