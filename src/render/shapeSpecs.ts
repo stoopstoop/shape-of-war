@@ -178,9 +178,5 @@ export function specFor(kind: number): ShapeSpec {
   return SPEC_BY_NUMBER.get(kind) ?? UNKNOWN_SPEC;
 }
 
-/** Outer glow stroke: width multiplier on the core width and alpha factor on glowAlpha. */
-export const GLOW_WIDTH_MUL = 3.2;
-export const GLOW_ALPHA_MUL = 0.35;
-
 /** Highest Kind value with a registry entry, for the context cache size. */
 export const MAX_KIND: number = Math.max(...ALL_KINDS);

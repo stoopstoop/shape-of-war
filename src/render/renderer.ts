@@ -14,6 +14,8 @@ import {
   type Texture,
 } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
+import { registerParticleStress } from '../core/debug';
+import { bus } from '../core/events';
 import type { World } from '../game/world';
 import type { ArenaDef, LevelDef } from '../levelgen/leveldef';
 import { hash01 } from './color';
@@ -21,7 +23,6 @@ import { drawGrid, drawWalls } from './grid';
 import {
   bulletRenderPos,
   fitArena,
-  glowSpriteScale,
   gruntPulse,
   interp,
   parseBloomKnobs,
@@ -29,9 +30,23 @@ import {
   type Fit,
   type PlayRect,
 } from './layout';
-import { current, onNeonChanged, palette, type NeonParams } from './neon';
-import { clearParticles, initParticles, liveParticleCount, setParticleBounds, stepParticles } from './particles';
+import { planFx, type FxEvent } from './fx';
+import { currentRender, palette, type NeonRender } from './neon';
+import { bindNeon } from './neonApply';
+import {
+  burstFx,
+  clearParticles,
+  initParticles,
+  liveParticleCount,
+  setParticleBounds,
+  setParticleStress,
+  stepParticles,
+  STREAK_TEX_LEN,
+} from './particles';
+import { addRipple, rippledGridPaths, stepRipples, type Ripple } from './ripple';
+import { addShake, createShake, stepShake } from './shake';
 import { buildGlowSourceContext, contextForValue, rebuildShapeContexts } from './shapes';
+import type { GraphicsContext } from 'pixi.js';
 import { MAX_KIND, specFor } from './shapeSpecs';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
@@ -85,8 +100,15 @@ export interface GameRenderer {
 const DPR_CAP = 2;
 const SIM_DT = 1 / 120;
 const PARK = -99999;
-const BULLET_SCALE = 0.55;
-const GLOW_PAD = 26;
+const BULLET_SCALE = 0.7;
+const TRAIL_TEX_LEN = 32;
+const TRAIL_LEN_U = 30;
+const GLOW_PAD = 34;
+/** Extra filter area around the screen so shake never shows an unbloomed edge strip. */
+const SHAKE_PAD_PX = 20;
+const RING_SPEED = 1700; // arena units per second
+const RING_LIFE = 0.6; // seconds
+const MAX_RINGS = 4;
 
 // Kind values used for per kind visual scale; numeric literals avoid importing the const enum.
 const KIND_GRUNT = 2;
@@ -142,6 +164,37 @@ function makeDotTexture(app: Application): Texture {
   return tex;
 }
 
+/** Soft horizontal streak for particles, STREAK_TEX_LEN px long, centred. */
+function makeStreakTexture(app: Application): Texture {
+  const L = STREAK_TEX_LEN;
+  const g = new Graphics()
+    .roundRect(-L / 2, -4, L, 8, 4)
+    .fill({ color: 0xffffff, alpha: 0.22 })
+    .roundRect(-L / 2 + 3, -2, L - 6, 4, 2)
+    .fill({ color: 0xffffff, alpha: 0.55 })
+    .roundRect(-L / 2 + 6, -1, L - 12, 2, 1)
+    .fill({ color: 0xffffff, alpha: 1 });
+  const tex = app.renderer.generateTexture({ target: g, frame: new Rectangle(-L / 2, -4, L, 8), resolution: 2 });
+  g.destroy({ context: true });
+  return tex;
+}
+
+/** Bullet trail: fades in from the left, brightest at the right end (anchored on the bullet). */
+function makeTrailTexture(app: Application): Texture {
+  const L = TRAIL_TEX_LEN;
+  const steps = 16;
+  const g = new Graphics();
+  for (let i = 0; i < steps; i++) {
+    const t = (i + 1) / steps;
+    const x = (i * L) / steps;
+    g.rect(x, -3, L / steps, 6).fill({ color: 0xffffff, alpha: 0.18 * t * t });
+    g.rect(x, -1.2, L / steps, 2.4).fill({ color: 0xffffff, alpha: 0.85 * t * t });
+  }
+  const tex = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, -3, L, 6), resolution: 2 });
+  g.destroy({ context: true });
+  return tex;
+}
+
 export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const size = viewportSize(host);
   const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
@@ -168,6 +221,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const glowSprites = new Container({ label: 'glowSprites' });
   const entities = new Container({ label: 'entities' });
   const dot = makeDotTexture(app);
+  const streak = makeStreakTexture(app);
+  const trail = makeTrailTexture(app);
+  const trails = new ParticleContainer({
+    label: 'bulletTrails',
+    texture: trail,
+    blendMode: 'add',
+    dynamicProperties: { position: true, rotation: true, uvs: false, vertex: false, color: false },
+  });
   const bullets = new ParticleContainer({
     label: 'bullets',
     texture: dot,
@@ -176,21 +237,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   });
   const particles = new ParticleContainer({
     label: 'particles',
-    texture: dot,
+    texture: streak,
     blendMode: 'add',
-    dynamicProperties: { position: true, rotation: false, uvs: false, vertex: true, color: true },
+    dynamicProperties: { position: true, rotation: true, uvs: false, vertex: true, color: true },
   });
+  const rings = new Graphics({ label: 'bombRings' });
   const sticks = new Graphics({ label: 'sticks' });
 
-  glowLayer.addChild(walls, glowSprites, entities, bullets, particles);
+  glowLayer.addChild(walls, glowSprites, particles, trails, entities, bullets, rings);
   world.addChild(grid, glowLayer);
   app.stage.addChild(world, sticks);
-  initParticles(particles, dot);
+  initParticles(particles, streak);
 
   const knobs = parseBloomKnobs(window.location.search);
   const bloom = new AdvancedBloomFilter({
-    threshold: current.threshold,
-    bloomScale: current.bloomScale,
+    threshold: currentRender.bloomThreshold,
+    bloomScale: currentRender.bloomStrength,
     brightness: 1,
     blur: knobs.blur,
     quality: knobs.quality,
@@ -219,9 +281,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let glowTextures: (Texture | null)[] = new Array<Texture | null>(MAX_KIND + 1).fill(null);
   let glowTexturesDirty = true;
 
-  // Bullet particles, one per bullet slot, parked when dead.
+  // Bullet particles, one head and one trail per bullet slot, parked when dead.
   const bulletItems: Particle[] = [];
+  const trailItems: Particle[] = [];
   let bulletTint = palette.yellow;
+
+  // Effects state: shake offset in CSS px, grid ripples and bomb rings in arena units.
+  const shake = createShake();
+  const shakeOff = { x: 0, y: 0 };
+  const ripples: Ripple[] = [];
+  let gridRippling = false;
+  const ringList: { x: number; y: number; age: number }[] = [];
+  // Old shape contexts are freed after the next render, once no view batches from them.
+  let retiredContexts: GraphicsContext[] = [];
 
   function growPools(cap: number): void {
     if (views.length >= cap) return;
@@ -245,6 +317,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       p.scaleX = p.scaleY = BULLET_SCALE;
       bulletItems.push(p);
       bullets.addParticle(p);
+      const t = new Particle({
+        texture: trail,
+        x: PARK,
+        y: PARK,
+        anchorX: 1,
+        anchorY: 0.5,
+        tint: bulletTint,
+        alpha: currentRender.trailAlpha,
+      });
+      t.scaleX = TRAIL_LEN_U / TRAIL_TEX_LEN;
+      t.scaleY = 1;
+      trailItems.push(t);
+      trails.addParticle(t);
     }
   }
 
@@ -281,41 +366,116 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     glowTexturesDirty = false;
   }
 
+  function redrawGrid(): void {
+    if (ripples.length === 0) {
+      drawGrid(grid, arena, palette.grid, fit.scale);
+      gridRippling = false;
+      return;
+    }
+    grid.clear();
+    for (const path of rippledGridPaths(arena, ripples)) {
+      grid.moveTo(path[0] ?? 0, path[1] ?? 0);
+      for (let i = 2; i + 1 < path.length; i += 2) grid.lineTo(path[i] ?? 0, path[i + 1] ?? 0);
+    }
+    grid.stroke({ width: 1.6 / Math.max(fit.scale, 0.01), color: palette.grid, alpha: 1 });
+    gridRippling = true;
+  }
+
   function redrawArena(): void {
-    drawGrid(grid, arena, palette.grid, fit.scale);
-    grid.alpha = current.gridAlpha;
-    drawWalls(walls, arena, palette.grid, current.glowAlpha, fit.scale);
+    redrawGrid();
+    grid.alpha = currentRender.gridAlpha;
+    drawWalls(walls, arena, palette.grid, currentRender.innerAlpha, fit.scale);
   }
 
   function applyFit(): void {
     const rect = playRect ?? { x: 0, y: 0, w: cssW, h: cssH };
     fit = fitArena(arena.width, arena.height, rect);
-    world.position.set(fit.x, fit.y);
+    world.position.set(fit.x + shakeOff.x, fit.y + shakeOff.y);
     world.scale.set(fit.scale);
     const r = screenRectInWorld(cssW, cssH, fit);
-    glowLayer.filterArea = new Rectangle(r.x, r.y, r.w, r.h);
+    const pad = SHAKE_PAD_PX / Math.max(fit.scale, 0.01);
+    glowLayer.filterArea = new Rectangle(r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad);
     redrawArena();
   }
 
-  function onNeon(p: NeonParams): void {
-    bloom.bloomScale = p.bloomScale;
-    bloom.threshold = p.threshold;
-    const old = rebuildShapeContexts(p.glowAlpha);
-    for (let i = 0; i < views.length; i++) {
-      const v = views[i];
-      const k = viewKind[i] ?? -1;
-      if (v && k >= 0) v.context = contextForValue(k);
+  // Neon: bindNeon writes bloom strength and threshold onto this live filter instance and the
+  // grid alpha onto the live grid, then calls these hooks for the shape, tint and sprite paths.
+  const offNeon = bindNeon({
+    bloom,
+    grid,
+    shapes(r: Readonly<NeonRender>): void {
+      const old = rebuildShapeContexts(r);
+      for (let i = 0; i < views.length; i++) {
+        const v = views[i];
+        const k = viewKind[i] ?? -1;
+        if (v && k >= 0) v.context = contextForValue(k);
+      }
+      retiredContexts = retiredContexts.concat(old);
+      drawWalls(walls, arena, palette.grid, r.innerAlpha, fit.scale);
+    },
+    tint(): void {
+      viewTint.fill(-1); // every live view retints from the new palette on the next draw
+      bulletTint = palette.yellow;
+      for (const b of bulletItems) b.tint = bulletTint;
+      for (const t of trailItems) {
+        t.tint = bulletTint;
+        t.alpha = currentRender.trailAlpha;
+      }
+      bullets.update();
+      trails.update();
+      redrawGrid();
+    },
+    sprites(): void {
+      glowTexturesDirty = true;
+      if (!bloomOn) rebuildGlowTextures();
+    },
+  });
+
+  // Effects from the sim (docs/01 section 12). Payloads are reused scratch objects, so read
+  // the fields now.
+  function playFx(x: number, y: number, e: FxEvent): void {
+    burstFx(x, y, e);
+    const plan = planFx(e);
+    if (plan.shake) addShake(shake, plan.shake.amp, plan.shake.dur);
+    if (plan.ripple > 0) addRipple(ripples, x, y, plan.ripple);
+    if (plan.ring) {
+      if (ringList.length >= MAX_RINGS) ringList.shift();
+      ringList.push({ x, y, age: 0 });
     }
-    for (const c of old) c.destroy();
-    viewTint.fill(-1); // retint on the next draw from the new palette
-    bulletTint = palette.yellow;
-    for (const b of bulletItems) b.tint = bulletTint;
-    bullets.update();
-    redrawArena();
-    glowTexturesDirty = true;
-    if (!bloomOn) rebuildGlowTextures();
   }
-  const offNeon = onNeonChanged(onNeon);
+  const offFx = [
+    bus.on('fx:kill', (p) => playFx(p.x, p.y, { type: 'kill', colour: p.colour })),
+    bus.on('fx:death', (p) => playFx(p.x, p.y, { type: 'death' })),
+    bus.on('fx:bomb', (p) => playFx(p.x, p.y, { type: 'bomb' })),
+    bus.on('fx:geom', (p) => playFx(p.x, p.y, { type: 'geom' })),
+  ];
+  registerParticleStress(setParticleStress);
+
+  function stepEffects(dt: number): void {
+    stepShake(shake, dt, shakeOff);
+    world.position.set(fit.x + shakeOff.x, fit.y + shakeOff.y);
+    if (ripples.length > 0 || gridRippling) {
+      stepRipples(ripples, dt);
+      redrawGrid();
+    }
+    if (ringList.length > 0 || rings.visible) {
+      rings.clear();
+      for (let i = ringList.length - 1; i >= 0; i--) {
+        const r = ringList[i];
+        if (!r) continue;
+        r.age += dt;
+        if (r.age >= RING_LIFE) {
+          ringList.splice(i, 1);
+          continue;
+        }
+        const f = 1 - r.age / RING_LIFE;
+        const rad = 20 + r.age * RING_SPEED;
+        rings.circle(r.x, r.y, rad).stroke({ width: 26 * f, color: palette.bomb, alpha: 0.25 * f });
+        rings.circle(r.x, r.y, rad).stroke({ width: 7, color: palette.bomb, alpha: f });
+      }
+      rings.visible = ringList.length > 0;
+    }
+  }
 
   function setBloomEnabled(on: boolean): void {
     bloomOn = on;
@@ -334,8 +494,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   function drawEntities(w: World, alpha: number, timeSec: number): void {
     growPools(w.cap);
-    const glowAlpha = current.glowAlpha;
-    const glowScale = glowSpriteScale(current.bloomScale);
+    const glowAlpha = currentRender.spriteAlpha;
+    const glowScale = currentRender.spriteScale;
     let live = 0;
     for (let i = 0; i < w.cap; i++) {
       if (w.alive[i] !== 1) {
@@ -405,14 +565,24 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     let live = 0;
     for (let i = 0; i < bulletItems.length; i++) {
       const item = bulletItems[i];
-      if (!item) continue;
+      const tail = trailItems[i];
+      if (!item || !tail) continue;
       if (i < pool.cap && pool.alive[i] === 1) {
         live++;
-        item.x = bulletRenderPos(pool.x[i] ?? 0, pool.vx[i] ?? 0, alpha, SIM_DT);
-        item.y = bulletRenderPos(pool.y[i] ?? 0, pool.vy[i] ?? 0, alpha, SIM_DT);
+        const vx = pool.vx[i] ?? 0;
+        const vy = pool.vy[i] ?? 0;
+        const x = bulletRenderPos(pool.x[i] ?? 0, vx, alpha, SIM_DT);
+        const y = bulletRenderPos(pool.y[i] ?? 0, vy, alpha, SIM_DT);
+        item.x = x;
+        item.y = y;
+        tail.x = x;
+        tail.y = y;
+        tail.rotation = Math.atan2(vy, vx);
       } else if (item.x !== PARK) {
         item.x = PARK;
         item.y = PARK;
+        tail.x = PARK;
+        tail.y = PARK;
       }
     }
     stats.bullets = live;
@@ -425,9 +595,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     drawEntities(w, a, now / 1000);
     drawBullets(explicitBullets ?? bulletsFromWorld(w), a);
+    stepEffects(dt);
     stepParticles(dt);
     stats.particles = liveParticleCount();
     app.render();
+    if (retiredContexts.length > 0) {
+      for (const c of retiredContexts) c.destroy();
+      retiredContexts = [];
+    }
   }
 
   function resize(w: number, h: number, d: number): void {
@@ -441,6 +616,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     arena = def.arena;
     setParticleBounds(arena.width, arena.height);
     clearParticles();
+    ripples.length = 0;
+    ringList.length = 0;
+    shake.list.length = 0;
     applyFit();
   }
 
@@ -457,6 +635,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   function destroy(): void {
     offNeon();
+    for (const off of offFx) off();
+    registerParticleStress(null);
     for (const t of glowTextures) t?.destroy(true);
     app.destroy(true, { children: true });
   }

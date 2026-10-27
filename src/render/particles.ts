@@ -1,88 +1,96 @@
 // Render only particles (docs/03-architecture.md section 5). Never read by gameplay.
-// A fixed pool of Particle objects lives in one ParticleContainer; dead particles are
-// parked offscreen with alpha 0 and never removed, so the buffer length never changes.
-// Spray variation uses a stateless hash of a counter, not a PRNG.
+// 2048 Particle objects are created once inside one ParticleContainer and never removed;
+// dead ones are parked offscreen with alpha 0 so the buffer length never changes. State lives
+// in the pure pool (particlePool.ts); this file mirrors it onto the Particle objects.
+// Particles draw as short streaks aligned to their velocity (docs/01 section 12).
 import { Particle, type ParticleContainer, type Texture } from 'pixi.js';
 import { hash01 } from './color';
+import { planFx, type FxEvent } from './fx';
+import { currentRender, palette } from './neon';
+import {
+  clearParticlePool,
+  createParticlePool,
+  emitBurst,
+  PARTICLE_CAP,
+  stepParticlePool,
+  type Burst,
+  type ParticlePool,
+} from './particlePool';
 
-export const PARTICLE_CAP = 2048;
+export { PARTICLE_CAP } from './particlePool';
+
 const PARK = -99999;
-const DRAG = 2.2; // per second, exponential velocity decay
-const BASE_SCALE = 0.5;
+/** Streak texture is STREAK_TEX_LEN px long; scale so the core reads about 6 u. */
+export const STREAK_TEX_LEN = 32;
+const STREAK_LEN_U = 9;
+const STREAK_THICK = 0.55;
 
-interface Pool {
-  container: ParticleContainer;
+interface Edge {
   items: Particle[];
-  x: Float32Array;
-  y: Float32Array;
-  vx: Float32Array;
-  vy: Float32Array;
-  life: Float32Array;
-  maxLife: Float32Array;
-  free: Int32Array;
-  freeTop: number;
-  live: number;
+  /** 1 while the Particle shows a live slot, so a dead slot is parked exactly once. */
+  shown: Uint8Array;
 }
 
-let pool: Pool | null = null;
-let counter = 0;
+const pool: ParticlePool = createParticlePool(PARTICLE_CAP);
+let edge: Edge | null = null;
 let stressTarget = 0;
+let stressSeq = 0;
 let boundsW = 800;
 let boundsH = 600;
 
-/** Create the pool inside the given container. Called once by the renderer. */
+const scratch: Burst = {
+  count: 0,
+  speedMin: 120,
+  speedMax: 500,
+  lifeMin: 0.45,
+  lifeMax: 1.05,
+  drag: 2.5,
+  colour: 0xffffff,
+  colour2: null,
+  inwardRadius: 0,
+};
+
+/** Create the Particle objects inside the given container. Called once by the renderer. */
 export function initParticles(container: ParticleContainer, texture: Texture): void {
   const items: Particle[] = [];
-  const free = new Int32Array(PARTICLE_CAP);
   for (let i = 0; i < PARTICLE_CAP; i++) {
     const p = new Particle({ texture, x: PARK, y: PARK, alpha: 0, anchorX: 0.5, anchorY: 0.5 });
     items.push(p);
     container.addParticle(p);
-    free[i] = PARTICLE_CAP - 1 - i;
   }
-  pool = {
-    container,
-    items,
-    x: new Float32Array(PARTICLE_CAP),
-    y: new Float32Array(PARTICLE_CAP),
-    vx: new Float32Array(PARTICLE_CAP),
-    vy: new Float32Array(PARTICLE_CAP),
-    life: new Float32Array(PARTICLE_CAP),
-    maxLife: new Float32Array(PARTICLE_CAP),
-    free,
-    freeTop: PARTICLE_CAP,
-    live: 0,
-  };
+  edge = { items, shown: new Uint8Array(PARTICLE_CAP) };
 }
 
-/** Spray count particles from (x, y) in arena units. Drops the rest when the pool is full. */
+/** Spray count particles from (x, y) in arena units with default speeds. */
 export function burst(x: number, y: number, colour: number, count: number): void {
-  const P = pool;
-  if (!P) return;
-  const n = Math.max(0, Math.floor(count));
-  for (let k = 0; k < n && P.freeTop > 0; k++) {
-    const id = P.free[--P.freeTop] ?? 0;
-    const item = P.items[id];
-    if (!item) continue;
-    counter = (counter + 1) | 0;
-    const ang = (counter * 0.6180339887 + hash01(counter) * 0.25) * Math.PI * 2;
-    const speed = 120 + 380 * hash01(counter + 7919);
-    P.x[id] = x;
-    P.y[id] = y;
-    P.vx[id] = Math.cos(ang) * speed;
-    P.vy[id] = Math.sin(ang) * speed;
-    const life = 0.45 + 0.6 * hash01(counter + 104729);
-    P.life[id] = life;
-    P.maxLife[id] = life;
-    item.tint = colour;
-    item.alpha = 1;
-    item.x = x;
-    item.y = y;
-    P.live++;
-  }
+  scratch.count = count;
+  scratch.speedMin = 120;
+  scratch.speedMax = 500;
+  scratch.lifeMin = 0.45;
+  scratch.lifeMax = 1.05;
+  scratch.drag = 2.5;
+  scratch.colour = colour;
+  scratch.colour2 = null;
+  scratch.inwardRadius = 0;
+  emitBurst(pool, x, y, scratch);
 }
 
-/** Keep about n particles alive (debug stress, 04 section 14). 0 turns it off. */
+/** Emit the particle part of an fx event. Shake, ripple and ring are the renderer's job. */
+export function burstFx(x: number, y: number, e: FxEvent): void {
+  const b = planFx(e).burst;
+  scratch.count = b.count;
+  scratch.speedMin = b.speedMin;
+  scratch.speedMax = b.speedMax;
+  scratch.lifeMin = b.lifeMin;
+  scratch.lifeMax = b.lifeMax;
+  scratch.drag = b.drag;
+  scratch.colour = palette[b.colour];
+  scratch.colour2 = b.colour2 === null ? null : palette[b.colour2];
+  scratch.inwardRadius = 0;
+  emitBurst(pool, x, y, scratch);
+}
+
+/** Keep about n particles alive (debug stress, docs/04 section 14). 0 turns it off. */
 export function setParticleStress(n: number): void {
   stressTarget = Math.max(0, Math.min(PARTICLE_CAP, Math.floor(n)));
 }
@@ -94,72 +102,62 @@ export function setParticleBounds(w: number, h: number): void {
 }
 
 export function liveParticleCount(): number {
-  return pool ? pool.live : 0;
+  return pool.live;
 }
 
-const STRESS_COLOURS = [0x33ccff, 0xff44cc, 0xffcc33, 0x66ff66];
+const STRESS_KEYS = ['cyan', 'magenta', 'yellow', 'green', 'orange', 'purple'] as const;
 
-/** Advance every live particle. dt in seconds, render clock. */
-export function stepParticles(dt: number): void {
-  const P = pool;
-  if (!P) return;
-  const d = Math.min(Math.max(dt, 0), 0.05);
-  if (stressTarget > 0) {
-    let guard = 0;
-    while (P.live < stressTarget && guard++ < 64) {
-      counter = (counter + 1) | 0;
-      const bx = (hash01(counter + 31) - 0.5) * boundsW * 0.9;
-      const by = (hash01(counter + 37) - 0.5) * boundsH * 0.9;
-      burst(bx, by, STRESS_COLOURS[counter & 3] ?? 0xffffff, 24);
-    }
+function topUpStress(): void {
+  let guard = 0;
+  while (pool.live < stressTarget - 24 && guard++ < 96) {
+    stressSeq = (stressSeq + 1) | 0;
+    const bx = (hash01(stressSeq * 3 + 1) - 0.5) * boundsW * 0.9;
+    const by = (hash01(stressSeq * 3 + 2) - 0.5) * boundsH * 0.9;
+    burst(bx, by, palette[STRESS_KEYS[stressSeq % STRESS_KEYS.length] ?? 'white'], 24);
   }
-  const decay = Math.exp(-DRAG * d);
+}
+
+/** Advance the pool and mirror it onto the Particle objects. dt in seconds, render clock. */
+export function stepParticles(dt: number): void {
+  if (stressTarget > 0) topUpStress();
+  stepParticlePool(pool, dt);
+  const E = edge;
+  if (!E) return;
+  const alphaMul = currentRender.particleAlpha;
+  const baseScale = STREAK_LEN_U / STREAK_TEX_LEN;
   for (let i = 0; i < PARTICLE_CAP; i++) {
-    const life = P.life[i] ?? 0;
-    if (life <= 0) continue;
-    const item = P.items[i];
+    const item = E.items[i];
     if (!item) continue;
-    const next = life - d;
-    if (next <= 0) {
-      P.life[i] = 0;
-      item.alpha = 0;
-      item.x = PARK;
-      item.y = PARK;
-      P.free[P.freeTop++] = i;
-      P.live--;
+    const life = pool.life[i] ?? 0;
+    if (life <= 0) {
+      if (E.shown[i] === 1) {
+        E.shown[i] = 0;
+        item.alpha = 0;
+        item.x = PARK;
+        item.y = PARK;
+      }
       continue;
     }
-    P.life[i] = next;
-    const vx = (P.vx[i] ?? 0) * decay;
-    const vy = (P.vy[i] ?? 0) * decay;
-    P.vx[i] = vx;
-    P.vy[i] = vy;
-    const nx = (P.x[i] ?? 0) + vx * d;
-    const ny = (P.y[i] ?? 0) + vy * d;
-    P.x[i] = nx;
-    P.y[i] = ny;
-    const f = next / (P.maxLife[i] ?? 1);
-    item.x = nx;
-    item.y = ny;
-    item.alpha = f;
-    item.scaleX = item.scaleY = BASE_SCALE * (0.4 + 0.6 * f);
+    if (pool.fresh[i] === 1) {
+      pool.fresh[i] = 0;
+      item.tint = pool.colour[i] ?? 0xffffff;
+    }
+    E.shown[i] = 1;
+    const vx = pool.vx[i] ?? 0;
+    const vy = pool.vy[i] ?? 0;
+    const f = life / (pool.maxLife[i] ?? 1);
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    item.x = pool.x[i] ?? 0;
+    item.y = pool.y[i] ?? 0;
+    item.rotation = Math.atan2(vy, vx);
+    // Fast particles stretch, slow ones shrink to dots as they fade.
+    item.scaleX = baseScale * (0.5 + Math.min(speed, 900) / 450);
+    item.scaleY = STREAK_THICK * (0.5 + 0.5 * f);
+    item.alpha = f * alphaMul;
   }
 }
 
 /** Kill every particle (level change). */
 export function clearParticles(): void {
-  const P = pool;
-  if (!P) return;
-  P.freeTop = 0;
-  for (let i = PARTICLE_CAP - 1; i >= 0; i--) {
-    P.life[i] = 0;
-    const item = P.items[i];
-    if (item) {
-      item.alpha = 0;
-      item.x = PARK;
-      item.y = PARK;
-    }
-    P.free[P.freeTop++] = i;
-  }
-  P.live = 0;
+  clearParticlePool(pool);
 }
