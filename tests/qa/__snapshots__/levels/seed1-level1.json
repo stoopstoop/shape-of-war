@@ -1,0 +1,203 @@
+{
+  "hash": "E0D43B03",
+  "identity": {
+    "version": 1,
+    "generatorVersion": 1,
+    "runSeed": 1,
+    "levelIndex": 1,
+    "seed": 821347078,
+    "band": 1,
+    "retries": 0,
+    "surface": "flat"
+  },
+  "arena": {
+    "shape": "rect",
+    "width": 1080,
+    "height": 740,
+    "cornerRadius": 0,
+    "obstacles": [],
+    "spawnPoint": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "roster": [
+    {
+      "kind": "grunt",
+      "weight": 40
+    },
+    {
+      "kind": "wanderer",
+      "weight": 35
+    },
+    {
+      "kind": "pinwheel",
+      "weight": 25
+    }
+  ],
+  "speedScale": 1,
+  "drone": "attack",
+  "superType": "turbo",
+  "lives": 3,
+  "bombs": 3,
+  "objective": {
+    "kind": "scoreInTime",
+    "target": 5000,
+    "timeLimitSec": 60
+  },
+  "hazards": {
+    "wells": [],
+    "spawners": []
+  },
+  "par": 6000,
+  "stars": [
+    6000,
+    12000,
+    24000
+  ],
+  "schedule": {
+    "maxLiveEnemies": 60,
+    "intervalStartSec": 6,
+    "intervalEndSec": 4,
+    "rampSec": 60,
+    "rampExponent": 1,
+    "budgetStart": 3,
+    "budgetEnd": 8,
+    "waveCount": 27,
+    "loopFromIndex": 12,
+    "loopPeriodSec": 60,
+    "spawnTotal": 188,
+    "spawnsByKind": {
+      "grunt": 96,
+      "wanderer": 52,
+      "weaver": 0,
+      "pinwheel": 40,
+      "dart": 0,
+      "snake": 0
+    },
+    "firstWave": {
+      "index": 0,
+      "atSec": 2.5,
+      "pattern": "edges",
+      "entries": [
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": -417,
+          "y": -310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 247
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": -377,
+          "y": -310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 54
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.5,
+          "mode": "fixed",
+          "x": -460,
+          "y": -290,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        }
+      ]
+    },
+    "lastWave": {
+      "index": 26,
+      "atSec": 117.8,
+      "pattern": "edges",
+      "entries": [
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": 182.2,
+          "y": -310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": 480,
+          "y": -300.6,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.3,
+          "mode": "fixed",
+          "x": 480,
+          "y": -260.6,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.45,
+          "mode": "fixed",
+          "x": 480,
+          "y": -220.6,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "wanderer",
+          "tOffsetSec": 0.5,
+          "mode": "fixed",
+          "x": 297.4,
+          "y": 310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 155
+        },
+        {
+          "kind": "wanderer",
+          "tOffsetSec": 0.65,
+          "mode": "fixed",
+          "x": 337.4,
+          "y": 310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 341
+        },
+        {
+          "kind": "wanderer",
+          "tOffsetSec": 0.8,
+          "mode": "fixed",
+          "x": 377.4,
+          "y": 310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 244
+        },
+        {
+          "kind": "wanderer",
+          "tOffsetSec": 0.95,
+          "mode": "fixed",
+          "x": 417.4,
+          "y": 310,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 190
+        }
+      ]
+    }
+  }
+}
