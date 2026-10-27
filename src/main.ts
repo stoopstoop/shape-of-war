@@ -42,7 +42,7 @@ import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
 import { createUiRoot } from './ui/dom';
-import { initialFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
+import { bootFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
 import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
 import { hudFrame, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
@@ -53,6 +53,8 @@ import { continueLabel, createMenuScreen } from './ui/menu';
 import { createPreviewWorld, previewRect, stepPreview } from './ui/preview';
 import { goalMet, objectiveProgress, objectiveStatus, type ObjectiveSnapshot } from './ui/objective';
 import { createPauseScreen } from './ui/pause';
+import { createBootScreen } from './ui/boot';
+import { armIntro, createIntroScreen, introActive, introCard, NO_INTRO, skipIntro, tickIntro, type IntroGate } from './ui/intro';
 import { createResultsScreen } from './ui/results';
 import { createSettingsModel, createSettingsScreen } from './ui/settings';
 
@@ -186,6 +188,7 @@ async function boot(): Promise<void> {
   buildLabel.style.zIndex = '25'; // above the UI layer (z 20) so menus never hide the build id
 
   let note = 'renderer: starting';
+  let gestureDone = false; // fullscreen and audio unlock ran (boot tap or first pointerup)
   let last: Measure = measure();
 
   const paintLabel = (): void => {
@@ -269,7 +272,8 @@ async function boot(): Promise<void> {
   const uiRoot = createUiRoot();
   const hud = createHud(uiRoot);
   hud.listen(bus);
-  let flow: FlowState = initialFlow(menuLevel());
+  let flow: FlowState = bootFlow(menuLevel());
+  let intro: IntroGate = NO_INTRO; // B7: level intro card or Endless Ready, holds the sim
   let endCheck = true; // fallback objective check; the stress hook turns it off
   let lastHudMs = Number.NEGATIVE_INFINITY;
 
@@ -312,6 +316,7 @@ async function boot(): Promise<void> {
     syncScene();
     lastHudMs = Number.NEGATIVE_INFINITY;
     emitHud();
+    intro = armIntro(mode);
     console.info(`[sow] ${mode} level ${index} ${pick.source} seed ${mode === 'endless' ? endlessSeed : runSeed} hash ${pick.hash}`);
   };
 
@@ -422,10 +427,33 @@ async function boot(): Promise<void> {
     buildId: __BUILD_ID__,
   });
 
+  // B7: boot "Tap to start" (the fullscreen and audio unlock gesture) and the intro overlay.
+  const bootScreen = createBootScreen(uiRoot, () => {
+    void unlockGesture();
+    dispatch({ type: 'tapStart' });
+  });
+  const introScreen = createIntroScreen(uiRoot, () => {
+    intro = skipIntro(intro);
+    paintIntro();
+  });
+  /** Show the intro card or Ready text while the gate holds a playing sim. */
+  function paintIntro(): void {
+    if (flow.screen !== 'playing' || !introActive(intro)) {
+      introScreen.hide();
+      return;
+    }
+    if (intro.kind === 'ready') introScreen.showReady();
+    else introScreen.showCard(introCard(flow.levelIndex, level));
+  }
+
   const paintScreens = (): void => {
-    for (const s of [menu, levelSelect, pauseScreen, results, settingsScreen]) s.hide();
+    for (const s of [bootScreen, menu, levelSelect, pauseScreen, results, settingsScreen]) s.hide();
     hud.hide();
+    paintIntro();
     switch (flow.screen) {
+      case 'boot':
+        bootScreen.show();
+        break;
       case 'menu': {
         const seedNote = customSeed ? `Seed ${runSeed} (typed)` : `Seed ${runSeed}`;
         menu.setContinue(customSeed ? 'Play typed seed' : continueLabel(menuLevel()));
@@ -525,6 +553,12 @@ async function boot(): Promise<void> {
         bus.emit('game:pause');
         return;
       }
+      if (introActive(intro)) {
+        // B7: the intro card or Ready text holds the sim; presses made now are dropped.
+        intro = tickIntro(intro, dt);
+        if (!introActive(intro)) paintIntro();
+        return;
+      }
       stepGame(world, dt, input);
       if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
         const score = scoreOf(world).score;
@@ -608,8 +642,11 @@ async function boot(): Promise<void> {
     stress(entities: number, particles = 0): string {
       // The stress scene needs a stepping sim: start a level from the menu, skip the end check.
       endCheck = false;
+      if (flow.screen === 'boot') dispatch({ type: 'tapStart' });
       if (flow.screen === 'menu') dispatch({ type: 'start', mode: 'adventure', levelIndex: menuLevel() });
       endCheck = false; // startLevel re-arms the end check; the stress scene keeps it off
+      intro = NO_INTRO; // the stress scene skips the intro card
+      paintIntro();
       const n = stressEntities(world, Math.max(0, Math.floor(entities)));
       const p = particles > 0 && runParticleStress(Math.floor(particles));
       const msg = `[sow] stress ${n} entities, particles ${particles > 0 ? (p ? particles : 'no hook') : 0}`;
@@ -691,8 +728,15 @@ async function boot(): Promise<void> {
 
   // Fullscreen needs a user activation; pointerup is the reliable one in Chrome (docs/04 section 6).
   // The same gesture unlocks audio (docs/04 section 12). unlockAudio runs first and synchronously,
-  // before any await, so it is still inside the user activation.
-  const onFirstPointerUp = async (): Promise<void> => {
+  // before any await, so it is still inside the user activation. The boot screen tap (B7) is
+  // that gesture; the window listener stays as a fallback when the boot screen is bypassed.
+  const onFirstPointerUp = (): void => {
+    void unlockGesture();
+  };
+  window.addEventListener('pointerup', onFirstPointerUp, true);
+  async function unlockGesture(): Promise<void> {
+    if (gestureDone) return;
+    gestureDone = true;
     window.removeEventListener('pointerup', onFirstPointerUp, true);
     audio.unlock();
     try {
@@ -708,8 +752,7 @@ async function boot(): Promise<void> {
       // Refused (not fullscreen, desktop, or not supported): the game stays playable in portrait.
     }
     scheduleResize();
-  };
-  window.addEventListener('pointerup', onFirstPointerUp, true);
+  }
 }
 
 void boot();
