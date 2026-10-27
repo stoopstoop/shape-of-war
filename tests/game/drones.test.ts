@@ -68,7 +68,7 @@ describe('ram drone', () => {
 });
 
 describe('supers', () => {
-  it('triggerSuper is a no op this wave', () => {
+  it('triggerSuper does nothing without charge (full cases in supers.test.ts)', () => {
     const { w } = makeGame();
     expect(triggerSuper(w)).toBe(false);
   });

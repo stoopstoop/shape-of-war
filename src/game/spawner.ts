@@ -25,9 +25,19 @@ function inRoster(w: World, k: EnemyKind): boolean {
   return false;
 }
 
+function hasSnakeSlot(w: World): boolean {
+  const heads = gs(w).snakeHead;
+  for (let s = 0; s < heads.length; s++) if (heads[s] === -1) return true;
+  return false;
+}
+
 function pushEntry(w: World, e: SpawnEntry, due: number): void {
   const g = gs(w);
-  if (g.queueLen >= QUEUE_CAP) return; // never reached by valid LevelDefs
+  if (g.queueLen >= QUEUE_CAP) {
+    // Only reached in Endless while the live cap holds spawns back for a long time.
+    g.dropped++;
+    return;
+  }
   const i = (g.queueHead + g.queueLen) % QUEUE_CAP;
   g.queueEntry[i] = e;
   g.queueDue[i] = due;
@@ -150,7 +160,15 @@ export function releaseQueue(w: World, clock: number): void {
       return;
     }
     const id = spawnEntry(w, e, pos.x, pos.y);
-    if (id < 0) return; // world full: retry next step
+    if (id < 0) {
+      // No snake slot: drop the entry so it cannot jam the FIFO. World full: retry next step.
+      if (k === Kind.SnakeHead && !hasSnakeSlot(w)) {
+        popEntry(w);
+        g.dropped++;
+        continue;
+      }
+      return;
+    }
     popEntry(w);
     live++;
     if (g.spawnLog !== null) g.spawnLog.push({ t: clock, kind: k, x: pos.x, y: pos.y });

@@ -109,6 +109,8 @@ export interface GameState {
   spawnerStarted: Uint8Array; // per hazard spawner
   spawnLog: SpawnLogEntry[] | null;
 
+  /** Spawn entries dropped (queue full, or a snake with no free slot). Debug counter. */
+  dropped: number;
   /** Seconds added to every wave atSec (Endless: 30 x segment). */
   waveShift: number;
   endless: EndlessRun | null;
@@ -237,6 +239,7 @@ function createState(w: World): GameState {
     queueLen: 0,
     spawnerStarted: new Uint8Array(4),
     spawnLog: null,
+    dropped: 0,
     waveShift: 0,
     endless: null,
     speedScale: w.level.speedScale,

@@ -72,7 +72,8 @@ export function advanceSegments(w: World, clock: number): number {
   const run = gs(w).endless;
   if (run === null || !(run.def.segmentSec > 0)) return 0;
   let n = 0;
-  while (clock >= (run.segment + 1) * run.def.segmentSec && n < 4) {
+  // One switch per step in play; the guard only bounds a debug jump far ahead.
+  while (clock >= (run.segment + 1) * run.def.segmentSec && n < 1024) {
     const want = run.segment + 1;
     const next = run.next !== null && run.next.segment === want ? run.next : run.source(want);
     loadSegment(w, next);
