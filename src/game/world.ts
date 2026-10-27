@@ -197,6 +197,8 @@ export function inlineRectLevel(seed = 1): LevelDef {
     runSeed: 0,
     levelIndex: 1,
     seed: seed >>> 0,
+    surface: 'flat',
+    retries: 0,
     band: 1,
     arena: { shape: 'rect', width: 1400, height: 900, cornerRadius: 0, obstacles: [], spawnPoint: { x: 0, y: 0 } },
     roster: [{ kind: 'grunt', weight: 1 }],

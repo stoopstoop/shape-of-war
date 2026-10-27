@@ -20,8 +20,12 @@ import {
   unlockLevel,
 } from './core/settings';
 import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
-import { resetScore, scoreOf, stars } from './game/scoring';
-import { clearEntities, createWorld, Kind, liveEnemies, spawn, stepWorld, type World } from './game/world';
+import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
+import { createGame, stepGame } from './game/game';
+import { clearEntities, Kind, liveEnemies, spawn, type World } from './game/world';
+
+// Glue: Ledger's scoring behind Swarm's ScoringPort.
+const scoringPort = { awardKill, collectGeom: (w: World): void => { collectGeom(w); }, resetMultiplier: shipDied };
 import { installHistoryGuard } from './input/history';
 import type { InputState } from './input/types';
 import { VALID_FIXTURES } from './levelgen/fixtures';
@@ -227,7 +231,7 @@ async function boot(): Promise<void> {
   const menuLevel = (): number => levelQuery.level ?? loadUnlocked();
   let pick: LevelPick = pickLevel(generator, runSeed, menuLevel(), VALID_FIXTURES);
   let level: LevelDef = pick.def;
-  let world: World = createWorld(level);
+  let world: World = createGame(level, { scoring: scoringPort });
   renderer?.setArena(level);
 
   // 4. Input. Thumbs reads the safe area insets on attach and on every reanchor.
@@ -266,7 +270,7 @@ async function boot(): Promise<void> {
   const startLevel = (index: number): void => {
     pick = pickLevel(generator, runSeed, index, VALID_FIXTURES);
     level = pick.def;
-    world = createWorld(level);
+    world = createGame(level, { scoring: scoringPort });
     resetScore(world);
     renderer?.setArena(level);
     hud.setLevel(index, level.par, pick.hash);
@@ -370,7 +374,7 @@ async function boot(): Promise<void> {
         bus.emit('game:pause');
         return;
       }
-      stepWorld(world, dt, input);
+      stepGame(world, dt, input);
       if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
         const score = scoreOf(world).score;
         bus.emit('game:over', { score, stars: stars(score, level.par), levelIndex: flow.levelIndex, mode: flow.mode });
