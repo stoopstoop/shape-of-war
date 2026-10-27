@@ -77,7 +77,7 @@ export interface NeonRender {
 }
 
 /** Bloom gain over the SPEC bloom strength: thin lines carry little energy into the blur. */
-export const BLOOM_GAIN = 2.2;
+export const BLOOM_GAIN = 1.5;
 
 /** Pure: render settings for a set of SPEC params. */
 export function neonRender(p: NeonParams): NeonRender {
@@ -85,8 +85,8 @@ export function neonRender(p: NeonParams): NeonRender {
   return {
     bloomStrength: p.bloomScale * BLOOM_GAIN,
     bloomThreshold: p.threshold,
-    haloWidthMul: lerpNum(3.0, 6.0, t),
-    haloAlpha: p.glowAlpha * 0.3,
+    haloWidthMul: lerpNum(3.0, 5.0, t),
+    haloAlpha: p.glowAlpha * 0.25,
     innerWidthMul: 2.2,
     innerAlpha: p.glowAlpha * 0.6,
     coreWidthMul: 1.4,
