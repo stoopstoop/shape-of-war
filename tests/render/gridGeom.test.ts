@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import type { ArenaDef, ArenaShape, Obstacle } from '../../src/levelgen/leveldef';
+import { GRID_LINE_PX, gridLineWidth, WALL_LINE_PX, wallPasses } from '../../src/render/grid';
 import { gridSegments, halfExtent, linePositions, subtractObstacles } from '../../src/render/gridGeom';
+
+describe('grid and wall stroke widths (device independent px, never snapped)', () => {
+  it('grid width is GRID_LINE_PX in CSS px at any world scale, unrounded', () => {
+    for (const s of [0.37, 0.61, 0.8, 1, 1.43]) {
+      expect(gridLineWidth(s) * s).toBeCloseTo(GRID_LINE_PX, 10);
+    }
+    expect(gridLineWidth(0.61)).not.toBe(Math.round(gridLineWidth(0.61)));
+  });
+
+  it('crisp walls: halos widest first, core last at full alpha, scaled by the neon width', () => {
+    const p = wallPasses(0.5, 1.2, 0.7, 'crisp');
+    expect(p).toHaveLength(3);
+    const core = p[p.length - 1];
+    expect(core?.alpha).toBe(1);
+    expect((core?.width ?? 0) * 0.7).toBeCloseTo(WALL_LINE_PX * 1.2, 10);
+    for (let i = 1; i < p.length; i++) expect(p[i]?.width ?? 0).toBeLessThan(p[i - 1]?.width ?? 0);
+  });
+
+  it('crisp walls at neon 0 keep only the core; the bloom source is one thick core', () => {
+    expect(wallPasses(0, 1, 1, 'crisp')).toEqual([{ width: WALL_LINE_PX, alpha: 1 }]);
+    const b = wallPasses(0.5, 1, 1, 'bloom');
+    expect(b).toHaveLength(1);
+    expect(b[0]?.width ?? 0).toBeGreaterThan(WALL_LINE_PX);
+  });
+});
 
 function arena(shape: ArenaShape, width: number, height: number, cornerRadius = 0, obstacles: Obstacle[] = []): ArenaDef {
   return { shape, width, height, cornerRadius, obstacles, spawnPoint: { x: 0, y: 0 } };

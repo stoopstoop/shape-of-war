@@ -6,6 +6,7 @@ import {
   createDevController,
   createFpsMeter,
   debugRequested,
+  devPanelRows,
   fpsLabel,
   type DevPanelDeps,
   type DevState,
@@ -174,6 +175,12 @@ describe('helpers', () => {
     ];
     expect(cornerCount(pts, 110)).toBe(2);
     expect(cornerCount(pts, 50)).toBe(1);
+  });
+
+  it('panel rows: FPS, glow path and optional stress, never a neon row', () => {
+    expect(devPanelRows(false)).toEqual(['fps', 'glow']);
+    expect(devPanelRows(true)).toEqual(['fps', 'glow', 'stress']);
+    expect(devPanelRows(true)).not.toContain('neon');
   });
 
   it('reads ?debug=1', () => {
