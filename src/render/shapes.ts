@@ -3,10 +3,8 @@
 // unless a layer bakes a palette colour, so views are coloured by tint.
 import { GraphicsContext } from 'pixi.js';
 import type { Kind } from '../game/world';
-import { current, palette, type PaletteKey } from './neon';
+import { currentRender, palette, type NeonRender, type PaletteKey } from './neon';
 import {
-  GLOW_ALPHA_MUL,
-  GLOW_WIDTH_MUL,
   MAX_KIND,
   specFor,
   type ShapeLayer,
@@ -60,16 +58,24 @@ function fillLayer(ctx: GraphicsContext, l: ShapeLayer, color: number): void {
   }
 }
 
-/** Entity context: outer glow stroke (alpha from glowAlpha), then fill, then core line. */
-export function buildContext(spec: ShapeSpec, glowAlpha: number, pal: Palette): GraphicsContext {
+/** Glow settings a context is built from. A subset of NeonRender. */
+export type GlowStyle = Pick<NeonRender, 'haloWidthMul' | 'haloAlpha' | 'innerWidthMul' | 'innerAlpha' | 'coreWidthMul'>;
+
+/**
+ * Entity context: wide outer halo, inner halo (both scale with the neon slider), then fill,
+ * then the thick core line. With neon at 0 only the core line remains.
+ */
+export function buildContext(spec: ShapeSpec, style: GlowStyle, pal: Palette): GraphicsContext {
   const ctx = new GraphicsContext();
-  const ga = glowAlpha * GLOW_ALPHA_MUL;
   for (const l of spec.layers) {
-    if (l.glow && l.width > 0 && ga > 0) strokeLayer(ctx, l, l.width * GLOW_WIDTH_MUL, layerColour(l, pal), ga);
+    if (!l.glow || l.width <= 0) continue;
+    const c = layerColour(l, pal);
+    if (style.haloAlpha > 0) strokeLayer(ctx, l, l.width * style.haloWidthMul, c, style.haloAlpha);
+    if (style.innerAlpha > 0) strokeLayer(ctx, l, l.width * style.innerWidthMul, c, style.innerAlpha);
   }
   for (const l of spec.layers) {
     if (l.fill > 0) fillLayer(ctx, l, layerColour(l, pal));
-    if (l.width > 0) strokeLayer(ctx, l, l.width, layerColour(l, pal), 1);
+    if (l.width > 0) strokeLayer(ctx, l, l.width * style.coreWidthMul, layerColour(l, pal), 1);
   }
   return ctx;
 }
@@ -103,17 +109,17 @@ export function contextForValue(kind: number): GraphicsContext {
   const slot = slotOf(kind);
   const existing = contexts[slot];
   if (existing) return existing;
-  const built = buildContext(specFor(slot), current.glowAlpha, palette);
+  const built = buildContext(specFor(slot), currentRender, palette);
   contexts[slot] = built;
   return built;
 }
 
 /**
- * Rebuild every context for a new glow alpha and palette. Returns the old contexts; the
+ * Rebuild every context for new glow settings and palette. Returns the old contexts; the
  * caller reassigns view.context on live views and then destroys them.
  */
-export function rebuildShapeContexts(glowAlpha: number): GraphicsContext[] {
+export function rebuildShapeContexts(style: GlowStyle): GraphicsContext[] {
   const old = contexts.filter((c): c is GraphicsContext => c !== null);
-  contexts = contexts.map((_, slot) => buildContext(specFor(slot), glowAlpha, palette));
+  contexts = contexts.map((_, slot) => buildContext(specFor(slot), style, palette));
   return old;
 }
