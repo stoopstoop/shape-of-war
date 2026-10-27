@@ -1,7 +1,7 @@
 // Screen flow state machine (docs/01 section 10). Pure: main.ts feeds it actions translated from
 // bus events and DOM taps, then renders whatever screen the state names.
 
-export type ScreenId = 'menu' | 'playing' | 'paused' | 'results' | 'settings';
+export type ScreenId = 'menu' | 'levels' | 'playing' | 'paused' | 'results' | 'settings';
 export type Mode = 'adventure' | 'endless';
 
 export interface LevelResult {
@@ -14,6 +14,10 @@ export interface LevelResult {
   best: number;
   newBest: boolean;
   hash: string;
+  /** Endless: 1 based rank in the top 10, 0 when outside it. */
+  rank?: number;
+  /** Endless: the endless seed, shown so a run can be reproduced. */
+  seed?: number;
 }
 
 export interface FlowState {
@@ -39,6 +43,8 @@ export type FlowAction =
   | { type: 'retry' }
   | { type: 'menu' }
   | { type: 'openSettings' }
+  | { type: 'openLevels' }
+  | { type: 'closeLevels' }
   | { type: 'closeSettings' };
 
 export function initialFlow(levelIndex = 1): FlowState {
@@ -62,7 +68,7 @@ function play(s: FlowState, mode: Mode, levelIndex: number): FlowState {
 export function reduceFlow(s: FlowState, a: FlowAction): FlowState {
   switch (a.type) {
     case 'start':
-      return s.screen === 'menu' ? play(s, a.mode, Math.max(1, Math.floor(a.levelIndex))) : s;
+      return s.screen === 'menu' || s.screen === 'levels' ? play(s, a.mode, Math.max(1, Math.floor(a.levelIndex))) : s;
     case 'pause':
     case 'hidden':
       return s.screen === 'playing' ? { ...s, screen: 'paused' } : s;
@@ -84,6 +90,10 @@ export function reduceFlow(s: FlowState, a: FlowAction): FlowState {
       return s.screen === 'results' ? { ...s, screen: 'menu', result: null } : s;
     case 'openSettings':
       return s.screen === 'menu' || s.screen === 'paused' ? { ...s, screen: 'settings', settingsFrom: s.screen } : s;
+    case 'openLevels':
+      return s.screen === 'menu' ? { ...s, screen: 'levels' } : s;
+    case 'closeLevels':
+      return s.screen === 'levels' ? { ...s, screen: 'menu' } : s;
     case 'closeSettings':
       return s.screen === 'settings' ? { ...s, screen: s.settingsFrom } : s;
   }
