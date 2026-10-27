@@ -24,7 +24,7 @@ const intEnv = (name, def) => {
   return Number.isFinite(v) && v > 0 ? v : def;
 };
 const MAX_PARALLEL = intEnv('MAX_PARALLEL', 4);
-const MAX_TURNS = intEnv('MAX_TURNS', 200);
+const MAX_BUDGET_USD = intEnv('MAX_BUDGET_USD', 25); // claude 2.1.x dropped --max-turns
 const WALL_MS = intEnv('WALL_MS', 90 * 60 * 1000);
 const SHELL_WALL_MS = intEnv('SHELL_WALL_MS', 30 * 60 * 1000);
 const POLL_MS = 2000;
@@ -171,14 +171,14 @@ try {
   console.error(`dispatcher: cannot run claude (${e.message}). Install Claude Code (runbook section A) and rerun.`);
   process.exit(1);
 }
-const HAS_APPEND_FILE = claudeHelp.includes('--append-system-prompt-file');
+const HAS_BARE = claudeHelp.includes('--bare');
 
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
 console.log(`dispatcher: watching .agents/queue (max parallel ${MAX_PARALLEL})`);
 console.log(`dispatcher: claude ${claudeVersion}`);
 console.log(`dispatcher: api key sk-ant-...${key.slice(-4)}`);
-if (!HAS_APPEND_FILE) say('note: claude --help lacks --append-system-prompt-file; roster files will be prepended to briefs');
+say(`mode: ${HAS_BARE ? '--bare' : 'normal'}, budget per agent run $${MAX_BUDGET_USD}, roster and CLAUDE.md via --append-system-prompt`);
 
 // ---------- run bookkeeping ----------
 
@@ -258,12 +258,13 @@ async function runAgent(id, job, base) {
   }
   if (stopping) return { exitCode: 1, error: 'interrupted: dispatcher stopped before launch', headSha: headSha(wt), endedAt: ts() };
   const roster = path.join(REPO, '.claude', 'agents', `${job.nickname}.md`);
-  const argv = ['claude', '-p', '--model', job.model, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--max-turns', String(MAX_TURNS)];
-  let brief = job.brief;
-  if (HAS_APPEND_FILE) argv.push('--append-system-prompt-file', roster);
-  else brief = `${fs.readFileSync(roster, 'utf8')}\n\n---\n\n${brief}`;
+  const argv = ['claude', '-p', '--model', job.model, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--max-budget-usd', String(MAX_BUDGET_USD)];
+  if (HAS_BARE) argv.push('--bare'); // skips user hooks, auto-memory and ~/.claude CLAUDE.md; auth is strictly ANTHROPIC_API_KEY
+  const rules = fs.readFileSync(path.join(REPO, 'CLAUDE.md'), 'utf8');
+  argv.push('--append-system-prompt', `${rules}\n\n${fs.readFileSync(roster, 'utf8')}`);
+  // '--' ends option parsing so a brief starting with '-' is never read as a flag
   // absolute worktree path in argv so `pkill -f "<worktree>"` can find this run (runbook I.5)
-  argv.push(`${brief}\n\n(dispatcher run ${id}, worktree ${wt})`);
+  argv.push('--', `${job.brief}\n\n(dispatcher run ${id}, worktree ${wt})`);
   log(`[dispatcher] ${ts()} claude -p --model ${job.model} in ${job.worktree}\n`);
 
   let out = '';

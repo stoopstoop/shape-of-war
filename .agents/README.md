@@ -116,7 +116,7 @@ A shell `cmd` matching any of these is rejected: a failed `result.json` is writt
 |---|---|---|
 | `ANTHROPIC_API_KEY` | none, required | The dispatcher refuses to start without it |
 | `MAX_PARALLEL` | 4 | Jobs running at once. Use 2 if 429s appear |
-| `MAX_TURNS` | 200 | `--max-turns` per agent run |
+| `MAX_BUDGET_USD` | 25 | `--max-budget-usd` per agent run (claude 2.1.x has no `--max-turns`) |
 | `WALL_MS` | 5400000 (90 min) | Agent wall clock |
 | `SHELL_WALL_MS` | 1800000 (30 min) | Shell wall clock |
 
