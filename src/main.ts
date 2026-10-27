@@ -24,7 +24,7 @@ import {
   unlockAfter,
   unlockLevel,
 } from './core/settings';
-import { capDpr, fitArena, fmt3, readInsets, viewportLine } from './core/viewport';
+import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { createEndlessGame, createGame, gameState, stepGame } from './game/game';
 import { installAudio } from './audio/synth';
@@ -43,7 +43,8 @@ import { createRenderer, type GameRenderer, type StickCircleLike } from './rende
 import { attachTouch, type TouchHandle } from './input/touch';
 import { createUiRoot } from './ui/dom';
 import { initialFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
-import { aspectClass, createHud, due, playRect, type AspectClass } from './ui/hud';
+import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
+import { hudFrame, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
 import { resolveAudio } from './ui/audioPort';
 import { endlessLevel, endlessLine } from './ui/endless';
@@ -303,6 +304,7 @@ async function boot(): Promise<void> {
       world = createGame(level, { scoring: scoringPort });
       hud.setLevel(index, level.par, pick.hash);
     }
+    hud.setSuper(level.superType);
     resetScore(world);
     endCheck = true;
     renderer?.setArena(level);
@@ -330,11 +332,23 @@ async function boot(): Promise<void> {
     // setArena clears particles, so only call it when the shown world actually changes.
     if (next !== sceneWorld) renderer?.setArena(next.level);
     sceneWorld = next;
-    const insets = readInsets();
-    renderer?.setPlayRect(
-      settingsOpen ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, aspectClass(last.cssW, last.cssH)),
-    );
+    relayout();
   };
+
+  /**
+   * B6: one pure HUD frame per viewport and arena. The renderer gets the frame's play rect, Thumbs
+   * gets insets that put bomb and super in the HUD column or band, and the HUD anchors every
+   * element outside the arena. viewport:changed carries the same insets and fit.
+   */
+  let frame: HudFrame = hudFrame(last.cssW, last.cssH, readInsets(), level.arena.width, level.arena.height);
+  function relayout(): HudFrame {
+    const insets = readInsets();
+    frame = hudFrame(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
+    renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : frame.playRect);
+    touch?.reanchor(frame.buttonInsets);
+    hud.layout(frame, touch !== null);
+    return frame;
+  }
 
   /** Adventure entry point: the highest unlocked level of the stored seed, or level 1 of a typed seed. */
   const adventureLevel = (): number => (customSeed ? 1 : menuLevel());
@@ -607,6 +621,7 @@ async function boot(): Promise<void> {
   if (query.stress > 0) window.sowDebug.stress(query.stress, query.particles);
 
   hud.setLevel(menuLevel(), level.par, pick.hash);
+  hud.setSuper(level.superType);
   paintScreens();
   if (renderer !== null) loop.start();
   document.addEventListener('visibilitychange', () => {
@@ -628,13 +643,11 @@ async function boot(): Promise<void> {
   const applyViewport = (): void => {
     last = measure();
     aspect = last.cssW / Math.max(1, last.cssH);
-    const insets = readInsets();
-    const fit = fitArena(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
     const cls = aspectClass(last.cssW, last.cssH);
     renderer?.resize(last.cssW, last.cssH, last.renderDpr);
-    renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : playRect(last.cssW, last.cssH, insets, cls));
-    touch?.reanchor(insets);
-    hud.layout(last.cssW, last.cssH, touch !== null ? touch.buttonRects() : null);
+    const f = relayout();
+    const insets = f.insets;
+    const fit = { scale: f.fit.scale, x: f.fit.x, y: f.fit.y };
     // Auto pause on aspect class change, that is a fold or unfold (docs/01 section 10).
     if (appliedClass !== null && cls !== appliedClass) dispatch({ type: 'pause' });
     appliedClass = cls;
