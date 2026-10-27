@@ -10,6 +10,7 @@ import {
   ENEMY_KINDS,
   GENERATOR_VERSION,
   LEVELDEF_VERSION,
+  MAX_RETRIES,
   SPAWN_PATTERNS,
   SUPER_KINDS,
   bandOf,
@@ -22,6 +23,7 @@ import {
 import type {
   ArenaDef,
   Band,
+  EndlessDef,
   EndlessSegmentDef,
   EnemyKind,
   LevelDef,
@@ -194,16 +196,19 @@ export function isArenaConnected(arena: ArenaDef): boolean {
   let tail = 0;
   queue[tail++] = start;
   seen[start] = 1;
+  const visit = (n: number): void => {
+    if (seen[n] === 1 || walk[n] !== 1) return;
+    seen[n] = 1;
+    queue[tail++] = n;
+  };
   while (head < tail) {
     const k = queue[head++] ?? 0;
     const i = k % nx;
     const j = (k - i) / nx;
-    const next = [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, j > 0 ? k - nx : -1, j < ny - 1 ? k + nx : -1];
-    for (const n of next) {
-      if (n < 0 || seen[n] === 1 || walk[n] !== 1) continue;
-      seen[n] = 1;
-      queue[tail++] = n;
-    }
+    if (i > 0) visit(k - 1);
+    if (i < nx - 1) visit(k + 1);
+    if (j > 0) visit(k - nx);
+    if (j < ny - 1) visit(k + nx);
   }
   return tail === walkable && walkable >= CONNECT_MIN_FRACTION * inside;
 }
@@ -226,6 +231,43 @@ export function jsonDiff(a: unknown, b: unknown, path = '$'): string | null {
     if (d !== null) return d;
   }
   return null;
+}
+
+/**
+ * Path suffix (".a.0.b") of the first value a JSON.stringify then JSON.parse round trip would not
+ * give back deep equal, "" for the root, or null if it round trips. Walks the value without
+ * serialising (J1 on a band 4 level was most of the generator's time). Fails on: non finite
+ * numbers and -0, undefined, functions, symbols, bigints, array holes, toJSON, non plain objects.
+ */
+export function jsonRoundTripDiff(v: unknown): string | null {
+  switch (typeof v) {
+    case 'string':
+    case 'boolean':
+      return null;
+    case 'number':
+      return Number.isFinite(v) && !Object.is(v, -0) ? null : '';
+    case 'object': {
+      if (v === null) return null;
+      if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) {
+          if (!(i in v)) return `.${i}`;
+          const d = jsonRoundTripDiff(v[i]);
+          if (d !== null) return `.${i}${d}`;
+        }
+        return null;
+      }
+      const proto: unknown = Object.getPrototypeOf(v);
+      if ((proto !== Object.prototype && proto !== null) || 'toJSON' in v) return '';
+      const rec = v as Record<string, unknown>;
+      for (const k of Object.keys(rec)) {
+        const d = jsonRoundTripDiff(rec[k]);
+        if (d !== null) return `.${k}${d}`;
+      }
+      return null;
+    }
+    default:
+      return '';
+  }
 }
 
 /** Paths of values JSON cannot carry exactly: non finite numbers, functions, undefined, symbols, bigints. */
@@ -269,15 +311,8 @@ const onStep = (v: number, lo: number, step: number): boolean => Math.abs((v - l
 
 function checkJson(c: Collector, def: unknown): void {
   c.check('J1', (report) => {
-    let copy: unknown;
-    try {
-      copy = JSON.parse(JSON.stringify(def)) as unknown;
-    } catch (e) {
-      report(`JSON serialisation failed (${e instanceof Error ? e.message : String(e)})`);
-      return;
-    }
-    const d = jsonDiff(def, copy);
-    if (d !== null) report(`JSON round trip differs at ${d} (serialisation)`);
+    const d = jsonRoundTripDiff(def);
+    if (d !== null) report(`JSON round trip differs at $${d} (serialisation)`);
   });
   c.check('J2', (report) => {
     for (const p of nonJsonValues(def)) report(`non JSON value at ${p} (serialisation)`);
@@ -351,13 +386,13 @@ function checkWaves(c: Collector, ws: WaveSchedule, arena: ArenaDef, roster: rea
       w.entries.forEach((e, k) => {
         if (e.mode !== 'fixed') return;
         const p = { x: e.x, y: e.y };
-        const at = `wave ${i} entry ${k} (${f1(e.x)}, ${f1(e.y)})`;
-        if (!insideArena(arena, p, ENTRY_EDGE_MARGIN)) report(`${at} outside arena bounds margin ${ENTRY_EDGE_MARGIN}`);
+        const at = (): string => `wave ${i} entry ${k} (${f1(e.x)}, ${f1(e.y)})`;
+        if (!insideArena(arena, p, ENTRY_EDGE_MARGIN)) report(`${at()} outside arena bounds margin ${ENTRY_EDGE_MARGIN}`);
         const ds = Math.hypot(e.x - arena.spawnPoint.x, e.y - arena.spawnPoint.y);
-        if (ds < ENTRY_SPAWN_CLEAR) report(`${at} spawn clearance ${f1(ds)} < ${ENTRY_SPAWN_CLEAR}`);
+        if (ds < ENTRY_SPAWN_CLEAR) report(`${at()} spawn clearance ${f1(ds)} < ${ENTRY_SPAWN_CLEAR}`);
         arena.obstacles.forEach((o, j) => {
           const d = obstaclePointDistance(o, p);
-          if (d < ENTRY_OBSTACLE_CLEAR) report(`${at} within ${f1(d)} of obstacle ${j}`);
+          if (d < ENTRY_OBSTACLE_CLEAR) report(`${at()} within ${f1(d)} of obstacle ${j}`);
         });
       });
     });
@@ -365,12 +400,12 @@ function checkWaves(c: Collector, ws: WaveSchedule, arena: ArenaDef, roster: rea
   c.check('W5', (report) => {
     ws.waves.forEach((w, i) => {
       w.entries.forEach((e, k) => {
-        const at = `wave ${i} entry ${k}`;
-        if (e.mode !== 'fixed' && e.mode !== 'ring') report(`${at} unknown mode ${String(e.mode)}`);
-        if (!isInt(e.headingDeg) || !inRange(e.headingDeg, 0, 359)) report(`${at} headingDeg ${e.headingDeg} not an integer 0 to 359`);
+        const at = (): string => `wave ${i} entry ${k}`;
+        if (e.mode !== 'fixed' && e.mode !== 'ring') report(`${at()} unknown mode ${String(e.mode)}`);
+        if (!isInt(e.headingDeg) || !inRange(e.headingDeg, 0, 359)) report(`${at()} headingDeg ${e.headingDeg} not an integer 0 to 359`);
         if (e.mode !== 'ring') return;
-        if (!inRange(e.radius, RING_MIN_RADIUS, RING_MAX_RADIUS)) report(`${at} ring radius ${e.radius} outside ${RING_MIN_RADIUS} to ${RING_MAX_RADIUS}`);
-        if (!isInt(e.angleDeg) || !inRange(e.angleDeg, 0, 359)) report(`${at} angleDeg ${e.angleDeg} not an integer 0 to 359`);
+        if (!inRange(e.radius, RING_MIN_RADIUS, RING_MAX_RADIUS)) report(`${at()} ring radius ${e.radius} outside ${RING_MIN_RADIUS} to ${RING_MAX_RADIUS}`);
+        if (!isInt(e.angleDeg) || !inRange(e.angleDeg, 0, 359)) report(`${at()} angleDeg ${e.angleDeg} not an integer 0 to 359`);
       });
     });
   });
@@ -596,6 +631,49 @@ export function validateLevel(def: LevelDef): ValidationResult {
   });
   checkHazards(c, def, band);
   checkLoadout(c, def);
+  checkSurface(c, def.surface);
+  c.check('J5', (report) => {
+    const r = def.retries;
+    if (r === undefined || !isInt(r) || r < 0 || r > MAX_RETRIES) report(`retries ${String(r)} not an integer 0 to ${MAX_RETRIES}`);
+  });
+  return c.result();
+}
+
+/** V1: v2 hook. Only 'flat' is valid in v1; a missing field is an error too. */
+function checkSurface(c: Collector, surface: unknown): void {
+  c.check('V1', (report) => {
+    if (surface !== 'flat') report(`surface ${String(surface)} !== 'flat' (only flat is valid in v1)`);
+  });
+}
+
+/** Validates an EndlessDef: J1 to J3, V1, the fixed arena, full catalogue roster, fixed kit (docs/01 section 2.2). */
+export function validateEndless(def: EndlessDef): ValidationResult {
+  const c = new Collector();
+  checkJson(c, def);
+  checkVersions(c, def.version, def.generatorVersion);
+  checkSurface(c, def.surface);
+  c.check('E1', (report) => {
+    if (def.mode !== 'endless') report(`mode ${String(def.mode)} !== 'endless'`);
+    if (def.objective.kind !== 'none') report(`objective ${String(def.objective.kind)} !== 'none'`);
+    if (!isInt(def.endlessSeed) || def.endlessSeed < 0 || def.endlessSeed > 0xffffffff) report(`endlessSeed ${def.endlessSeed} not a uint32`);
+    const a = def.arena;
+    const e = ENDLESS_ARENA;
+    if (a.shape !== e.shape || a.width !== e.width || a.height !== e.height || a.obstacles.length !== 0) report('arena is not the fixed Endless arena');
+    if (def.hazards.wells.length !== 0 || def.hazards.spawners.length !== 0) report('Endless v1 has no hazards');
+    if (def.drone !== 'attack' || def.superType !== 'turbo') report(`kit ${String(def.drone)}, ${String(def.superType)} !== attack, turbo`);
+    if (def.lives !== LIVES || def.bombs !== BOMBS) report(`start lives ${def.lives}, bombs ${def.bombs} !== ${LIVES}, ${BOMBS}`);
+    if (def.segmentSec !== ENDLESS_SEGMENT_SEC) report(`segmentSec ${def.segmentSec} !== ${ENDLESS_SEGMENT_SEC}`);
+    if (!(def.budgetPerSegment > 0)) report(`budgetPerSegment ${def.budgetPerSegment} not positive: ramp must be unbounded`);
+  });
+  c.check('E2', (report) => {
+    const seen = new Set<string>();
+    for (const e of def.roster) {
+      if (!isKind(e.kind) || seen.has(e.kind) || !(e.weight > 0)) report(`bad roster entry ${String(e.kind)} weight ${e.weight}`);
+      seen.add(e.kind);
+    }
+    if (!seen.has('grunt')) report('roster lacks grunt');
+    if (def.roster.length < 3 || def.roster.length > 6) report(`roster size ${def.roster.length} outside 3 to 6`);
+  });
   return c.result();
 }
 
