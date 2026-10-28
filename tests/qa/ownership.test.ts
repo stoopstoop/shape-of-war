@@ -2,9 +2,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { OWNERS, auditPaths, isOwned, ownersOf, parseNameStatus } from './ownership';
+import { OWNERS, OWNERS_V2, WAVES, auditPaths, isOwned, ownersOf, ownsFromList, parseNameStatus, parseWave } from './ownership';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const AGENTS_DIR = join(ROOT, '.claude/agents');
 
 describe('isOwned', () => {
   const swarm = OWNERS.swarm;
@@ -83,5 +84,138 @@ describe('owner table sanity', () => {
 
   it('every directory entry ends in a slash (prefix match relies on it)', () => {
     for (const rule of Object.values(OWNERS)) for (const d of rule.dirs) expect(d.endsWith('/'), d).toBe(true);
+  });
+});
+
+describe('v2 owner tables (docs/10, one per wave)', () => {
+  const owners = (path: string, wave: (typeof WAVES)[number]): string[] => ownersOf(path, OWNERS_V2[wave]);
+
+  it('names the roles that run in each wave and no others', () => {
+    expect(Object.keys(OWNERS_V2.A).sort()).toEqual(['chorus', 'forge', 'ledger']);
+    expect(Object.keys(OWNERS_V2.B).sort()).toEqual(['glow', 'ledger', 'swarm']);
+    expect(Object.keys(OWNERS_V2.C).sort()).toEqual(['foundry', 'glow', 'swarm']);
+    expect(Object.keys(OWNERS_V2.D).sort()).toEqual(['chorus', 'glow', 'ledger']);
+    expect(Object.keys(OWNERS_V2.E).sort()).toEqual(['proctor', 'scribe']);
+  });
+
+  it('Forge owns exactly four files in wave A and nothing in src/game/ but ship.ts', () => {
+    expect(owners('src/core/physics.ts', 'A')).toEqual(['forge']);
+    expect(owners('src/game/ship.ts', 'A')).toEqual(['forge']);
+    expect(owners('tests/core/physics.test.ts', 'A')).toEqual(['forge']);
+    expect(owners('tests/game/ship.space.test.ts', 'A')).toEqual(['forge']);
+    expect(owners('src/game/world.ts', 'A')).toEqual([]);
+    expect(owners('src/core/rng.ts', 'A')).toEqual([]);
+    expect(owners('tests/game/ship.test.ts', 'A')).toEqual([]);
+  });
+
+  it('ship.ts: Forge in A, Swarm in B and C, nobody in D and E', () => {
+    expect(WAVES.map((w) => owners('src/game/ship.ts', w))).toEqual([['forge'], ['swarm'], ['swarm'], [], []]);
+  });
+
+  it('scoring.ts: Swarm only in C (Ledger does not run there), nobody in A, B and D', () => {
+    expect(WAVES.map((w) => owners('src/game/scoring.ts', w))).toEqual([[], [], ['swarm'], [], []]);
+    expect(owners('src/game/defs.ts', 'C')).toEqual(['swarm']);
+    expect(owners('tests/scoring/scoring.test.ts', 'C')).toEqual(['swarm']);
+    expect(owners('tests/scoring/scoring.test.ts', 'B')).toEqual([]);
+  });
+
+  it('src/audio/: Chorus in A and D, nobody in B and C, and Glow never (docs/11 SPEC 7.3 item 2)', () => {
+    expect(WAVES.map((w) => owners('src/audio/music/engine.ts', w))).toEqual([['chorus'], [], [], ['chorus'], []]);
+    expect(WAVES.map((w) => owners('src/audio/synth.ts', w))).toEqual([['chorus'], [], [], ['chorus'], []]);
+    for (const w of WAVES) expect(OWNERS_V2[w].glow === undefined || !isOwned(OWNERS_V2[w].glow, 'src/audio/synth.ts'), w).toBe(true);
+  });
+
+  it('Foundry owns the level pin test and its snapshots in wave C only; src/levelgen/ in C only', () => {
+    expect(owners('tests/qa/levelSnapshots.test.ts', 'C')).toEqual(['foundry']);
+    expect(owners('tests/qa/__snapshots__/levels/seed42-level13-v2.json', 'C')).toEqual(['foundry']);
+    expect(owners('tests/qa/generatorSweep.test.ts', 'C')).toEqual([]);
+    expect(WAVES.map((w) => owners('src/levelgen/generator.ts', w))).toEqual([[], [], ['foundry'], [], []]);
+  });
+
+  it('Ledger holds settings, ui and main in A, B and D only; Glow holds render in B, C and D only', () => {
+    expect(WAVES.map((w) => owners('src/core/settings.ts', w))).toEqual([['ledger'], ['ledger'], [], ['ledger'], []]);
+    expect(WAVES.map((w) => owners('src/main.ts', w))).toEqual([['ledger'], ['ledger'], [], ['ledger'], []]);
+    expect(WAVES.map((w) => owners('src/ui/settings.ts', w))).toEqual([['ledger'], ['ledger'], [], ['ledger'], []]);
+    expect(WAVES.map((w) => owners('src/render/renderer.ts', w))).toEqual([[], ['glow'], ['glow'], ['glow'], []]);
+  });
+
+  it('Proctor and Scribe: wave E only, and only Scribe may touch STATUS and DECISIONS (as drafts)', () => {
+    expect(WAVES.map((w) => owners('tests/qa/physicsReplay.test.ts', w))).toEqual([[], [], [], [], ['proctor']]);
+    expect(owners('docs/device-checklist.md', 'E')).toEqual(['proctor']);
+    expect(owners('docs/qa/bugs.md', 'E')).toEqual(['proctor']);
+    expect(owners('docs/STATUS.md', 'E')).toEqual(['scribe']);
+    expect(owners('docs/DECISIONS.md', 'E')).toEqual(['scribe']);
+    expect(owners('docs/handoffs/v2e.md', 'E')).toEqual(['scribe']);
+    for (const w of ['A', 'B', 'C', 'D'] as const) {
+      expect(owners('docs/STATUS.md', w), w).toEqual([]);
+      expect(owners('docs/DECISIONS.md', w), w).toEqual([]);
+    }
+  });
+
+  it('nobody but Fable owns package.json, the lockfile, CLAUDE.md, SPEC.md, the addendum or src/core/types.ts', () => {
+    for (const w of WAVES) {
+      for (const p of ['package.json', 'package-lock.json', 'CLAUDE.md', 'SPEC.md', 'docs/11-v2-spec-addendum.md', 'docs/10-v2-plan.md', 'src/core/types.ts', 'vite.config.ts']) {
+        expect(owners(p, w), `${w} ${p}`).toEqual([]);
+      }
+    }
+  });
+
+  it('no path has two owners in any wave', () => {
+    const sample = [
+      'src/core/settings.ts', 'src/core/physics.ts', 'src/main.ts', 'src/ui/hud.ts', 'src/game/ship.ts', 'src/game/world.ts', 'src/game/weapons.ts',
+      'src/game/scoring.ts', 'src/render/renderer.ts', 'src/audio/music/engine.ts', 'src/levelgen/generator.ts', 'tests/qa/levelSnapshots.test.ts',
+      'tests/game/weapons.test.ts', 'tests/settings/spacePhysics.test.ts', 'docs/STATUS.md',
+    ];
+    for (const w of WAVES) for (const p of sample) expect(owners(p, w).length, `${w} ${p}`).toBeLessThanOrEqual(1);
+  });
+
+  it('every nickname has a roster file (the dispatcher refuses a job without one) and every owned path exists', () => {
+    const notYet = ['docs/handoffs/'];
+    for (const w of WAVES) {
+      for (const [agent, rule] of Object.entries(OWNERS_V2[w])) {
+        expect(existsSync(join(AGENTS_DIR, `${agent}.md`)), `${w} ${agent} roster file`).toBe(true);
+        for (const d of rule.dirs) {
+          expect(d.endsWith('/'), d).toBe(true);
+          if (!notYet.includes(d)) expect(existsSync(join(ROOT, d)), `${w} ${agent} ${d}`).toBe(true);
+        }
+        for (const file of rule.files) expect(existsSync(join(ROOT, file)), `${w} ${agent} ${file}`).toBe(true);
+      }
+    }
+  });
+
+  it('the Glow wave D diff (21 paths in the real audit) has one path outside: the cheatsheet note its brief asked for', () => {
+    const changes = parseNameStatus(['M\tsrc/render/effects.ts', 'A\tsrc/render/lattice/sim.ts', 'A\ttests/render/lattice/sim.test.ts', 'M\tdocs/pixi8-cheatsheet.md'].join('\n'));
+    const a = auditPaths('glow', changes, OWNERS_V2.D);
+    expect(a.owned).toEqual(['src/render/effects.ts', 'src/render/lattice/sim.ts', 'tests/render/lattice/sim.test.ts']);
+    expect(a.outside).toEqual(['docs/pixi8-cheatsheet.md']);
+  });
+});
+
+describe('parseWave and ownsFromList', () => {
+  it('reads wave letters in either case and rejects everything else', () => {
+    expect(['a', 'B', 'c', 'D', 'e'].map((x) => parseWave(x))).toEqual(['A', 'B', 'C', 'D', 'E']);
+    expect([parseWave('F'), parseWave(''), parseWave(undefined), parseWave('AB'), parseWave('v1')]).toEqual([null, null, null, null, null]);
+  });
+
+  it('turns a brief file list into a rule: trailing slash means directory, anything else an exact file', () => {
+    const rule = ownsFromList('src/render/, tests/render/ ,docs/pixi8-cheatsheet.md,,');
+    expect(rule).toEqual({ dirs: ['src/render/', 'tests/render/'], files: ['docs/pixi8-cheatsheet.md'], except: [] });
+    expect(isOwned(rule, 'src/render/neon.ts')).toBe(true);
+    expect(isOwned(rule, 'docs/pixi8-cheatsheet.md')).toBe(true);
+    expect(isOwned(rule, 'docs/pixi8-cheatsheet.md.bak')).toBe(false);
+    expect(isOwned(rule, 'src/renderer/x.ts')).toBe(false);
+  });
+
+  it('a fixer audited with its own list: inside is fine, one stray file is outside', () => {
+    const table = { glow: ownsFromList('src/render/,tests/render/') };
+    const changes = parseNameStatus('M\tsrc/render/lattice/sim.ts\nA\ttests/render/trails.test.ts\nM\tsrc/game/ship.ts');
+    const a = auditPaths('glow', changes, table);
+    expect(a.owned).toEqual(['src/render/lattice/sim.ts', 'tests/render/trails.test.ts']);
+    expect(a.outside).toEqual(['src/game/ship.ts']);
+  });
+
+  it('the v1 table is unchanged by the v2 additions (the v1 audit commands still work)', () => {
+    expect(Object.keys(OWNERS).sort()).toEqual(['forge', 'foundry', 'glow', 'ledger', 'proctor', 'swarm', 'thumbs']);
+    expect(ownersOf('src/game/scoring.ts')).toEqual(['ledger']);
   });
 });
