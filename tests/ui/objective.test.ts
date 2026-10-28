@@ -10,9 +10,10 @@ describe('objectives', () => {
   const surv: ObjectiveDef = { kind: 'survive', durationSec: 60 };
   const destroy: ObjectiveDef = { kind: 'destroy', count: 40 };
 
-  it('scoreInTime succeeds on target, fails on time or lives', () => {
+  it('scoreInTime runs the full timer; target decides at the end (docs/01 section 8)', () => {
     expect(objectiveStatus(sit, snap({ score: 4999, elapsedSec: 10 }))).toBe('running');
-    expect(objectiveStatus(sit, snap({ score: 5000, elapsedSec: 10 }))).toBe('success');
+    expect(objectiveStatus(sit, snap({ score: 5000, elapsedSec: 10 }))).toBe('running');
+    expect(objectiveStatus(sit, snap({ score: 5000, elapsedSec: 90 }))).toBe('success');
     expect(objectiveStatus(sit, snap({ score: 10, elapsedSec: 90 }))).toBe('failure');
     expect(objectiveStatus(sit, snap({ score: 10, lives: 0 }))).toBe('failure');
   });
