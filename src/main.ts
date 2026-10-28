@@ -372,7 +372,8 @@ async function boot(): Promise<void> {
   }
 
   /** Adventure entry point: the highest unlocked level of the stored seed, or level 1 of a typed seed. */
-  const adventureLevel = (): number => (customSeed ? 1 : menuLevel());
+  // A typed seed starts at level 1 unless ?level= is also typed (device checks on a fixed seed).
+  const adventureLevel = (): number => (customSeed ? (levelQuery.level ?? 1) : menuLevel());
 
   const menu = createMenuScreen(uiRoot, {
     adventure: () => bus.emit('game:start', { mode: 'adventure', levelIndex: adventureLevel() }),
@@ -461,7 +462,10 @@ async function boot(): Promise<void> {
       return;
     }
     if (intro.kind === 'ready') introScreen.showReady();
-    else introScreen.showCard(introCard(flow.levelIndex, level));
+    else {
+      const card = introCard(flow.levelIndex, level);
+      introScreen.showCard({ ...card, title: `${card.title}  Seed ${runSeed}${customSeed ? ' (typed)' : ''}` });
+    }
   }
 
   const paintScreens = (): void => {
