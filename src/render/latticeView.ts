@@ -17,7 +17,7 @@ import { createLatticeSim, latticeAlpha, stepLattice, writePositions, type Latti
 
 /** Line alpha multipliers inside the grid layer (whose alpha is gridAlpha). */
 export const MAJOR_ALPHA = 1;
-export const MINOR_ALPHA = 0.6;
+export const MINOR_ALPHA = 0.8;
 const PARK = -99999;
 
 interface Gpu {
