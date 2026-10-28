@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-B running (Swarm: weapons, Ledger: weapon-hud, Glow: weapon-fx) on main 4f61c3b. GA passed. v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GB (weapons) after wave B merges
+- Wave: V2-B merged at aff933f (glue). GB pending on device. Then wave C (Swarm: enemies, Foundry: weights, Glow: enemy visuals). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GB (weapons: pickup, rapid, pierce, orbit, death reset, toggle)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -27,7 +27,9 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - W4: proctor-harden ($1.78), ledger-fixes ($2.67), foundry-par ($1.04), swarm-objective ($0.26)
 - v1.1: thumbs-feel ($1.73), forge-feel ($1.60), scribe-v2-plan ($3.03), swarm-wells ($0.90), ledger-hud-scale ($1.45)
 - v2 W0: scribe-v2-stubs ($0.77), scribe-v2-addendum ($1.23 plus $1.91 fix), scribe-v2-stubs2 ($0.17); merged 47b727f, 6176411, 645f8d5
-- Spend so far about $68 of $192 (second $200 also usable per Ryan); tagged v1.0.0 at 4fbdaf7
+- v2 A: forge-space-physics ($0.87), ledger-space-setting ($1.42), chorus-engine ($2.29); glue 4f61c3b
+- v2 B: glow-weapon-fx ($3.93), swarm-weapons ($2.67), ledger-weapon-hud ($1.50); glue aff933f
+- Spend so far about $81 of $192 (second $200 also usable per Ryan); tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
 - B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
@@ -49,4 +51,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Read .agents/runs/0147-swarm-weapons, 0148-ledger-weapon-hud, 0149-glow-weapon-fx. Review, merge in docs/10 wave B order, glue, then gate GB from docs/10. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).
+If GB not pasted: give Ryan the GB device check from docs/10 (build aff933f). If passed: record GB, D5 and D6 defaults stand, dispatch wave C from docs/10 briefs. Not done: the ?music=1 debug hook (docs/10 wave B glue item); Chorus wires music in wave D instead. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).

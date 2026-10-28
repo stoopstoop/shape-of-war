@@ -34,3 +34,4 @@ One line per decision: clock time, who raised it, what was decided, why.
 | 27:10 | Ryan | Accepts the wave A defaults. Beyond v2: a High effects tier, 3D rendering and 3D curved arena surfaces are wanted later (v3 backlog, docs/09 sections 1, 2 and 4 stay parked, not cancelled) | Ryan's reply |
 | 27:15 | Fable | Wave A merged (forge-space-physics $0.87, ledger-space-setting $1.42, chorus-engine $2.29) and glue 4f61c3b wires the setting to setShipSpace. GA open | Merge order per docs/10 |
 | 27:30 | Ryan | GA pass on 4f61c3b. D4: SPACE_TABLE accepted as is (High drift rated 4, control 4; no fix run). Wave B dispatched | Device paste |
+| 28:30 | Fable | Wave B merged (glow-weapon-fx, swarm-weapons, ledger-weapon-hud) plus glue aff933f. The ?music=1 debug hook is deferred to wave D (Chorus wires main.ts with Ledger's port) to keep glue under 20 lines. Swarm skipped wells transferring momentum under space physics: docs/11 rule 8 forbids it, stays | Review |
