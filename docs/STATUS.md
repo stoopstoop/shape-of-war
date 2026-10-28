@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-E merged at 8896202 (chorus 599b8a7, proctor 21b8ec1, glow 8896202), deploy success. GE pending on device (Ryan offline until about 06:00 Dubai 2026-10-29). Backlog merged at 4b82f6a (foundry-gen-perf $2.38, swarm-fx-events $1.30, scribe-v2e-handoff $1.09, glue). Running: Chorus: hit-sounds, Glow: shield-spark. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GE on build 8896202 or later: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
+- Wave: V2-E merged at 8896202 (chorus 599b8a7, proctor 21b8ec1, glow 8896202), deploy success. GE pending on device (Ryan offline until about 06:00 Dubai 2026-10-29). Backlog merged at 4b82f6a (foundry-gen-perf $2.38, swarm-fx-events $1.30, scribe-v2e-handoff $1.09, glue). Hit sounds merged at 019c06d (chorus-hit-sounds $3.00, glow-shield-spark $2.12), deploy success. GE build: 019c06d. Dispatcher idle, waiting for Ryan. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GE on build 019c06d: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -36,7 +36,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - GC fixes: foundry-gc-triage ($1.31), glue d117d8e, tune e6d6b66, ci c82eb1e
 - v2 D: glow-lattice ($7.99), chorus-layers ($3.82), ledger-fx-music ($2.29); glue 4113528
 - v2 E: chorus-v2-fixes ($7.26), proctor-v2-harden ($8.03 capped, five commits kept), glow-v2-fixes ($8.04 capped, wip committed by Fable) plus glow-v2-fixes-finish ($1.13)
-- Spend so far about $143 of $192 (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
+- Spend so far about $148 of $192 (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
 - B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
@@ -58,4 +58,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-If Ryan is back: GE on the latest successful deploy (read gh run list first). Paste-back is the two V2-G4 lines from docs/device-checklist.md plus: trails, map, particles ratings, fps_standard at ?stress=400 with a bomb and a super, music kill notes ok or fail, intensity 1 to 5, glitches none or some or bad. If fps_standard under 59: set AMBIENT_AMP to 0 in src/render/lattice/ambient.ts (glue), rebuild, recheck. On GE pass: tag v2.0.0. Also: read .agents/runs/0190-swarm-fx-events, 0191-foundry-gen-perf, 0192-scribe-v2e-handoff; merge in order Foundry, Swarm, Scribe; then a Chorus hit-sounds run on fx:hit if credits allow. Ask Ryan to restart the dispatcher with MAX_BUDGET_USD=12 when no job is running.
+GE on build 019c06d (deploy confirmed success). Ask Ryan first to restart the dispatcher with MAX_BUDGET_USD=12 (no job is running). Paste-back: the two V2-G4 lines from docs/device-checklist.md plus trails, map, particles ratings, fps_standard at ?stress=400 with a bomb and a super, music: kill notes ok or fail, hit ticks ok or fail, shield deflect sound and spark ok or fail, intensity 1 to 5, glitches none or some or bad. If fps_standard under 59: set AMBIENT_AMP to 0 in src/render/lattice/ambient.ts (glue), rebuild, recheck. On GE pass: tag v2.0.0, Scribe final STATUS and DECISIONS pass, then v3 planning (High tier default, 3D, curved surfaces per DECISIONS 27:10).
