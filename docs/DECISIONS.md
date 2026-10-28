@@ -28,4 +28,4 @@ One line per decision: clock time, who raised it, what was decided, why.
 | 25:20 | Fable | B9 is not an input or sim regression (Thumbs and Forge tests prove 420 u/s from the first step; device peak 100 percent both screens). Causes: well pull felt as resistance, and B6 main screen insets shrank the arena 8 to 15 percent | Device paste plus hand-offs 0122, 0123 |
 | 25:30 | Fable | Well pull retuned: zero at rim, quadratic to 160 u/s at core, 32 per s relaxation (docs/01 6.7 updated). Main screen insets now measured from HUD elements (top 60, right 92, bottom 158); L1 and L6 at 89 percent of pre-B6, L20 at 96 percent. Ledger's row button layout (super beside bomb on main) deferred until Ryan judges the feel | Fix the measured causes only |
 | 25:30 | Fable | Worktrees now live under ~/sow-wt/ (dispatcher allowlist unchanged); the 20 merged v1 worktrees were removed | Keep the home folder clean |
-
+| 25:55 | Ryan | G5: B9 closed on e231b6d (main and cover crossing equal, wells ok, escape yes, no drift); v1.1.0 tagged. Ledger's row button layout not needed. Note: a typed ?seed= starts Adventure at level 1 by design, so ?level= needs no seed | Device paste |

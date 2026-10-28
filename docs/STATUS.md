@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: v1.1 B9 fixes merged (swarm-wells, ledger-hud-scale); device retest pending. docs/10-v2-plan.md drafted (not approved)
-- Open gate: B9 retest on device (wells feel, main vs cover speed, HUD overlap)
+- Wave: v1.1.0 tagged at e231b6d (B9 closed on device). Next: v2 plan review (docs/10-v2-plan.md, not approved)
+- Open gate: none (v1.1 complete)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -13,6 +13,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 | G1 | 2:50 | pass with bug B1 | move=ok fire=ok both=ok fps_cover=60 fps_main=60 slider_live=fail bloom_toggle=ok motion=standard |
 | G2 | 2:50 | pass | level_start=ok enemies_spawn=ok results_screen=ok; bloom path kept (60 fps both screens) |
 | G3 | 6:35 | pass | build=5bef4ae crisp=yes/yes L2 unlock=yes differs=yes endless=yes table=yes slider=yes persisted=yes audio=yes/yes/yes vibrate=yes offline=yes scores=yes fps=60/60 |
+| G5 (v1.1) | 25:55 | pass | e231b6d: main_cross 2 s, cover_cross 2 s, main=same, overlap none, label clip no; level 16 wells_feel ok, escape yes, drift none |
 | G4 | 23:05 | pass | fec4b4f: 55 of 57 pass; U4 fixed 0c1f98e, stars fixed a25cec1 plus 6841677, B8 fixed 4fbdaf7; retests pass on 6841677 and 4fbdaf7; P1 accepted at 60 fps (motion Adaptive) |
 
 ## Merged branches
@@ -27,7 +28,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Spend so far about $64 of $192; tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
-- B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Retest pending. Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
+- B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
 - B5: closed (G4 pass).
 - B6, B7, B8: closed (G4 and retests pass).
 - B1 (P1, was P0): Ryan confirms the ?debug=1 slider does change glow brightness; the gap is that the Settings screen has no neon slider. Ledger W3 builds it. G1 slider item therefore passes on the dev panel.
@@ -46,4 +47,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-If B9 retest not yet pasted: give Ryan the combined device check (wells on ?seed=2&level=6, main vs cover crossing on L1, HUD overlap). If passed: tag v1.1.0, then review docs/10-v2-plan.md and answer its questions with Ryan (D1 SPEC addendum, D2 closed).
+v2: Fable reviews docs/10-v2-plan.md (questions section, D1 SPEC addendum, cost and clock), posts the open questions to Ryan, then queues Scribe: spec-addendum. D2 (B9 closed) is done.
