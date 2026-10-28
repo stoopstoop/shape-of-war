@@ -16,7 +16,7 @@ import {
   SUPER_KINDS,
   bandOf,
   effectiveIndexOf,
-  expandSpawns,
+  forEachSpawn,
   levelSeed,
   segmentSeed,
   speedScaleFor,
@@ -169,6 +169,41 @@ export function inscribedRadius(arena: ArenaDef): number {
  * cell and walls remove at most 15 percent of the open floor.
  */
 export function isArenaConnected(arena: ArenaDef): boolean {
+  const key = connectKey(arena);
+  const hit = connectCache.get(key);
+  if (hit !== undefined) return hit;
+  const ok = floodConnected(arena);
+  if (connectCache.size >= CONNECT_CACHE_MAX) connectCache.clear();
+  connectCache.set(key, ok);
+  return ok;
+}
+
+/**
+ * Memo for isArenaConnected. The answer depends only on the fields in connectKey, and Number to
+ * string is exact, so a hit returns what the flood fill would. It pays off because the validator
+ * re-checks the arena the generator just placed, and walled-free arenas repeat across levels.
+ */
+const connectCache = new Map<string, boolean>();
+const CONNECT_CACHE_MAX = 4096;
+
+function connectKey(arena: ArenaDef): string {
+  let k = `${arena.shape}|${arena.width}|${arena.height}|${arena.cornerRadius}|${arena.spawnPoint.x}|${arena.spawnPoint.y}`;
+  for (const o of arena.obstacles) k += `|${o.cx},${o.cy},${o.w},${o.h}`;
+  return k;
+}
+
+/**
+ * obstaclePointDistance(o, p) >= clearance without the Math.hypot call when one axis already
+ * clears: hypot(dx, dy) is never below max(dx, dy), so the answer is the same.
+ */
+function clearOfObstacle(o: Obstacle, x: number, y: number, clearance: number): boolean {
+  const dx = Math.max(Math.abs(x - o.cx) - o.w / 2, 0);
+  const dy = Math.max(Math.abs(y - o.cy) - o.h / 2, 0);
+  if (dx >= clearance || dy >= clearance) return true;
+  return Math.hypot(dx, dy) >= clearance;
+}
+
+function floodConnected(arena: ArenaDef): boolean {
   const nx = Math.ceil(arena.width / CONNECT_CELL);
   const ny = Math.ceil(arena.height / CONNECT_CELL);
   if (!(nx > 0 && ny > 0) || nx * ny > 1_000_000) return false;
@@ -177,12 +212,20 @@ export function isArenaConnected(arena: ArenaDef): boolean {
   const walk = new Uint8Array(nx * ny);
   let inside = 0;
   let walkable = 0;
+  const obstacles = arena.obstacles;
+  const c = { x: 0, y: 0 };
   for (let j = 0; j < ny; j++) {
+    c.y = y0 + (j + 0.5) * CONNECT_CELL;
     for (let i = 0; i < nx; i++) {
-      const c = { x: x0 + (i + 0.5) * CONNECT_CELL, y: y0 + (j + 0.5) * CONNECT_CELL };
+      c.x = x0 + (i + 0.5) * CONNECT_CELL;
       if (!insideArena(arena, c, CONNECT_CLEARANCE)) continue;
       inside++;
-      if (arena.obstacles.every((o) => obstaclePointDistance(o, c) >= CONNECT_CLEARANCE)) {
+      let clear = true;
+      for (let n = 0; n < obstacles.length && clear; n++) {
+        const o = obstacles[n];
+        if (o !== undefined) clear = clearOfObstacle(o, c.x, c.y, CONNECT_CLEARANCE);
+      }
+      if (clear) {
         walk[j * nx + i] = 1;
         walkable++;
       }
@@ -312,7 +355,59 @@ const isKind = (k: string): k is EnemyKind => (ALL_ENEMY_KINDS as readonly strin
 const inRange = (v: number, lo: number, hi: number): boolean => v >= lo - EPS && v <= hi + EPS;
 const onStep = (v: number, lo: number, step: number): boolean => Math.abs((v - lo) / step - Math.round((v - lo) / step)) < EPS;
 
+/**
+ * One walk that is true only when J1 and J2 both have nothing to report: every reachable value is
+ * a string, boolean, null or finite non -0 number, every array is dense with no extra keys, and
+ * every object is plain with no toJSON. On such a value jsonRoundTripDiff returns null and
+ * nonJsonValues (which walks the same keys) finds nothing, so checkJson can skip both walks.
+ * Anything else returns false and the exact checks run. Primitives are tested inline so the
+ * common leaf costs no call.
+ */
+export function isPlainJson(v: unknown): boolean {
+  if (typeof v !== 'object') return isPlainJsonLeaf(v);
+  if (v === null) return true;
+  if (Array.isArray(v)) {
+    const arr: readonly unknown[] = v;
+    for (let i = 0; i < arr.length; i++) {
+      if (!(i in arr)) return false;
+      const x = arr[i];
+      if (typeof x === 'object' ? !isPlainJson(x) : !isPlainJsonLeaf(x)) return false;
+    }
+    return Object.keys(arr).length === arr.length;
+  }
+  const proto: unknown = Object.getPrototypeOf(v);
+  if ((proto !== Object.prototype && proto !== null) || 'toJSON' in v) return false;
+  const rec = v as Record<string, unknown>;
+  const keys = Object.keys(rec);
+  for (let i = 0; i < keys.length; i++) {
+    const x = rec[keys[i] ?? ''];
+    if (typeof x === 'object' ? !isPlainJson(x) : !isPlainJsonLeaf(x)) return false;
+  }
+  return true;
+}
+
+function isPlainJsonLeaf(v: unknown): boolean {
+  switch (typeof v) {
+    case 'string':
+    case 'boolean':
+      return true;
+    case 'number':
+      return Number.isFinite(v) && !Object.is(v, -0);
+    default:
+      return false;
+  }
+}
+
 function checkJson(c: Collector, def: unknown): void {
+  // Fast path: a clean def gets the same (empty) result from J1 and J2 in one walk.
+  // A throwing getter falls through to the exact checks, which report it.
+  let clean = false;
+  try {
+    clean = isPlainJson(def);
+  } catch {
+    clean = false;
+  }
+  if (clean) return;
   c.check('J1', (report) => {
     const d = jsonRoundTripDiff(def);
     if (d !== null) report(`JSON round trip differs at $${d} (serialisation)`);
@@ -560,15 +655,18 @@ function checkObjective(c: Collector, def: LevelDef, band: Band): void {
   });
   c.check('W9', (report) => {
     if (o.kind !== 'destroy') return;
-    const n = expandSpawns(def.waves, MAX_EST_SEC).length;
+    let n = 0;
+    forEachSpawn(def.waves, MAX_EST_SEC, () => {
+      n++;
+    });
     if (n < o.count / KILL_RATE) report(`only ${n} spawns in ${MAX_EST_SEC} s for destroy ${o.count} (need ${Math.ceil(o.count / KILL_RATE)})`);
   });
   c.check('W10', (report) => {
     if (o.kind === 'destroy') return;
     const T = o.kind === 'survive' ? o.durationSec : o.timeLimitSec;
     if (!def.waves.waves.some((w) => w.atSec <= 5)) report('no wave starts within the first 5 s');
-    const late = expandSpawns(def.waves, T).filter((s) => s.t >= 0.8 * T);
-    if (late.length === 0) report(`no spawns in the last 20 percent of ${T} s`);
+    const late = forEachSpawn(def.waves, T, (t) => t >= 0.8 * T);
+    if (!late) report(`no spawns in the last 20 percent of ${T} s`);
   });
 }
 

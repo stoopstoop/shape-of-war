@@ -247,25 +247,45 @@ export const ENEMY_GEOMS: Record<EnemyKind, number> = {
 /** Shared by par calculation and sim loop handling. Expands loops up to tEnd. Sorted by t. */
 export function expandSpawns(w: WaveSchedule, tEndSec: number): { t: number; kind: EnemyKind }[] {
   const out: { t: number; kind: EnemyKind }[] = [];
-  const push = (wave: WaveDef, shift: number): void => {
-    for (const e of wave.entries) {
+  forEachSpawn(w, tEndSec, (t, kind) => {
+    out.push({ t, kind });
+  });
+  return out.sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Visits every spawn expandSpawns would return, in schedule order (not sorted by t), without
+ * allocating. Same arithmetic as expandSpawns, which is built on it. Stops early when visit
+ * returns true; returns true if it stopped early.
+ */
+export function forEachSpawn(w: WaveSchedule, tEndSec: number, visit: (t: number, kind: EnemyKind) => boolean | void): boolean {
+  const waves = w.waves;
+  const walk = (wave: WaveDef, shift: number): boolean => {
+    const entries = wave.entries;
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e === undefined) continue;
       const t = wave.atSec + shift + e.tOffsetSec;
-      if (t < tEndSec) out.push({ t, kind: e.kind });
+      if (t < tEndSec && visit(t, e.kind) === true) return true;
     }
+    return false;
   };
-  for (const wave of w.waves) push(wave, 0);
-  const loopStart = w.waves[w.loopFromIndex];
+  for (let i = 0; i < waves.length; i++) {
+    const wave = waves[i];
+    if (wave !== undefined && walk(wave, 0)) return true;
+  }
+  const loopStart = waves[w.loopFromIndex];
   if (w.loopFromIndex >= 0 && w.loopPeriodSec > 0 && loopStart !== undefined) {
     for (let k = 1; ; k++) {
       const shift = k * w.loopPeriodSec;
       if (loopStart.atSec + shift >= tEndSec) break;
-      for (let i = w.loopFromIndex; i < w.waves.length; i++) {
-        const wave = w.waves[i];
-        if (wave !== undefined) push(wave, shift);
+      for (let i = w.loopFromIndex; i < waves.length; i++) {
+        const wave = waves[i];
+        if (wave !== undefined && walk(wave, shift)) return true;
       }
     }
   }
-  return out.sort((a, b) => a.t - b.t);
+  return false;
 }
 
 // Seeds. Copies of the docs/02 section 2 integer mixers, so the validator can check J4 without
@@ -536,7 +556,14 @@ export interface EndlessDef {
 export function deepFreeze<T>(value: T): T {
   if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
     Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
+    // Same members as Object.values (own enumerable string keys).
+    const rec = value as Record<string, unknown>;
+    const keys = Object.keys(rec);
+    for (let i = 0; i < keys.length; i++) {
+      const v = rec[keys[i] ?? ''];
+      // Primitives need no call: freezing only ever applies to objects.
+      if (typeof v === 'object' && v !== null) deepFreeze(v);
+    }
   }
   return value;
 }

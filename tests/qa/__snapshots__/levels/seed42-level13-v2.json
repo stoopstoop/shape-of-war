@@ -69,7 +69,7 @@
     "waveCount": 42,
     "loopFromIndex": 18,
     "loopPeriodSec": 72.7,
-    "spawnTotal": 296,
+    "spawnTotal": 427,
     "spawnsByKind": {
       "grunt": 135,
       "wanderer": 85,
