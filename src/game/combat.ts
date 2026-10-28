@@ -6,11 +6,14 @@ import { bus } from '../core/events';
 import { BULLET_RADIUS, hasHit, killBullet, recordHit, STYLE_ORBIT, STYLE_PIERCE, STYLE_SPREAD, styleRadius } from './bullets';
 import { queryCircleInto } from './collide';
 import { defOf } from './defs';
+import { isWarping } from './enemies/blink';
+import { shieldBlocks } from './enemies/bulwark';
+import { isArmed } from './enemies/mine';
 import { collectGeom, def as geomDef, PICKUP_RADIUS, spawnGeoms } from './geoms';
 import { onScoringKill } from './pickup';
 import { killShip } from './player';
 import { removeEntity } from './remove';
-import { gs, isHostile, SNAKE_SEGMENTS, SNAKE_SLOTS } from './state';
+import { gs, isDroppedHazard, isHostile, isV2Enemy, SNAKE_SEGMENTS, SNAKE_SLOTS } from './state';
 import { SHIP_RADIUS } from './ship';
 import { moveTo } from './steer';
 import { BLADE_COOLDOWN, ORBIT_BLADES, WEAPONS, weaponState } from './weapons';
@@ -18,9 +21,9 @@ import { Kind, type World } from './world';
 
 const hits = new Int32Array(64);
 
-/** Kills that count for the destroy objective (segments and wells do not). */
+/** Kills that count for the destroy objective (segments, wells, Mines and Slime do not). */
 export function countsForDestroy(k: number): boolean {
-  return (k >= Kind.Grunt && k <= Kind.SnakeHead) || k === Kind.Spawner;
+  return (k >= Kind.Grunt && k <= Kind.SnakeHead) || k === Kind.Spawner || isV2Enemy(k);
 }
 
 /**
@@ -38,6 +41,16 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   const g = gs(w);
   const x = w.x[id] ?? 0;
   const y = w.y[id] ?? 0;
+  if (isDroppedHazard(k)) {
+    // A shot Mine pops: a kill flash, but no score, no geoms, no kill count, no pickup progress.
+    removeEntity(w, id);
+    g.killFx.x = x;
+    g.killFx.y = y;
+    g.killFx.colour = d.colour;
+    bus.emit('fx:kill', g.killFx);
+    bus.emit('sfx', 'explode');
+    return;
+  }
   g.score += g.scoring.awardKill(w, k);
   if (countsForDestroy(k)) g.kills++;
   if (k === Kind.SnakeHead) segmentBurst(w, id);
@@ -83,9 +96,17 @@ export function damage(w: World, id: number, n: number): boolean {
   return false;
 }
 
-/** A target that bullets and the ship can touch: hostile, not telegraphing. */
+/** A target that bullets and the ship can touch: hostile, not telegraphing, not a warping Blink. */
 export function isTargetable(w: World, id: number): boolean {
-  return w.alive[id] === 1 && isHostile(w.kind[id] ?? 0) && (gs(w).tele[id] ?? 0) <= 0;
+  if (w.alive[id] !== 1) return false;
+  const k = w.kind[id] ?? 0;
+  if (!isHostile(k) || (gs(w).tele[id] ?? 0) > 0) return false;
+  return k !== Kind.Blink || !isWarping(w, id);
+}
+
+/** Bulwark shield: true when a hit from (px, py) on id lands on a Bulwark's front arc. */
+export function shielded(w: World, id: number, px: number, py: number): boolean {
+  return w.kind[id] === Kind.Bulwark && shieldBlocks(w, id, px, py);
 }
 
 /**
@@ -106,6 +127,14 @@ export function bulletHits(w: World): void {
       if (id === 0 || !isTargetable(w, id)) continue;
       const k = w.kind[id] ?? 0;
       if (k === Kind.GravityWell) continue;
+      if (k === Kind.Bulwark) {
+        // A pierce bullet already through this Bulwark ignores it; otherwise the front arc absorbs.
+        if (style === STYLE_PIERCE && hasHit(p, b, id)) continue;
+        if (shielded(w, id, p.x[b] ?? 0, p.y[b] ?? 0)) {
+          killBullet(p, b);
+          break;
+        }
+      }
       if (style === STYLE_PIERCE && k !== Kind.SnakeBody) {
         if (hasHit(p, b, id)) continue;
         const stopped = recordHit(p, b, id);
@@ -140,7 +169,8 @@ export function orbitHits(w: World, dt: number): void {
       const id = hits[j] ?? 0;
       if (id === 0 || !isTargetable(w, id) || w.kind[id] === Kind.SnakeBody) continue;
       p.lastHit[b] = id;
-      damage(w, id, 1);
+      // A blade on a Bulwark's front arc is absorbed: it rests without dealing damage.
+      if (!shielded(w, id, p.x[b] ?? 0, p.y[b] ?? 0)) damage(w, id, 1);
       s.bladeCool[i] = BLADE_COOLDOWN;
       break;
     }
@@ -154,6 +184,7 @@ export function shipHits(w: World): boolean {
   for (let i = 0; i < n; i++) {
     const id = hits[i] ?? 0;
     if (id === 0 || !isTargetable(w, id) || w.kind[id] === Kind.GravityWell) continue;
+    if (w.kind[id] === Kind.Mine && !isArmed(w, id)) continue; // arming delay: harmless
     killShip(w);
     return true;
   }
@@ -179,7 +210,7 @@ export function separate(w: World, dt: number): void {
   for (let id = 1; id < w.cap; id++) {
     if (w.alive[id] !== 1) continue;
     const k = w.kind[id] ?? 0;
-    if (k < Kind.Grunt || k > Kind.Dart || (g.tele[id] ?? 0) > 0) continue;
+    if (!((k >= Kind.Grunt && k <= Kind.Dart) || isV2Enemy(k)) || (g.tele[id] ?? 0) > 0) continue;
     const x = w.x[id] ?? 0;
     const y = w.y[id] ?? 0;
     const r = w.radius[id] ?? 0;

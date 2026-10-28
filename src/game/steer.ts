@@ -1,5 +1,6 @@
 // Small steering helpers shared by enemy step functions. No allocation.
 import { wrapAngle } from '../core/math';
+import { hash01 } from '../core/rng';
 import { confine, createConfineResult } from './arena';
 import type { World } from './world';
 
@@ -44,3 +45,42 @@ export function moveHeading(w: World, id: number, heading: number, speed: number
 }
 
 export const DEG = Math.PI / 180;
+
+/** Like moveTo, but returns true when the arena or an obstacle stopped the move (a wall hit). */
+export function moveToHit(w: World, id: number, nx: number, ny: number): boolean {
+  const r = confine(w.level.arena, nx, ny, w.radius[id] ?? 0, res);
+  w.x[id] = r.x;
+  w.y[id] = r.y;
+  return r.hit;
+}
+
+/** Distance from id to the ship. */
+export function distToShip(w: World, id: number): number {
+  const dx = (w.x[0] ?? 0) - (w.x[id] ?? 0);
+  const dy = (w.y[0] ?? 0) - (w.y[id] ?? 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Wrap a phase timer t into [0, period). */
+export function wrapPhase(t: number, period: number): number {
+  if (t < period) return t;
+  const r = t % period;
+  return r < 0 ? r + period : r;
+}
+
+/**
+ * Stable per entity variation in [0, 1) from the level seed, the entity id and a counter.
+ * Stateless (hash01), so it never advances a PRNG.
+ */
+export function entityHash(w: World, id: number, n: number): number {
+  return hash01((w.level.seed ^ Math.imul(id + 1, 0x85ebca6b)) >>> 0, n);
+}
+
+/** True when a point at (px, py) lies inside the arc of +-halfArc radians around heading, seen from (x, y). */
+export function inFrontArc(x: number, y: number, heading: number, px: number, py: number, halfArc: number): boolean {
+  const dx = px - x;
+  const dy = py - y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1e-9) return true;
+  return (Math.cos(heading) * dx + Math.sin(heading) * dy) / d >= Math.cos(halfArc);
+}

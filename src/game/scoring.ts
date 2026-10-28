@@ -43,14 +43,30 @@ export function baseValue(kind: Kind): number {
       return 150;
     case Kind.GravityWell:
       return 250;
+    // v2 addendum SPEC 3.6. Mine and Slime are hazards and fall through to 0.
+    case Kind.Charger:
+      return 120;
+    case Kind.Bulwark:
+      return 150;
+    case Kind.Blink:
+      return 130;
+    case Kind.Swirl:
+      return 80;
+    case Kind.Sower:
+      return 180;
+    case Kind.Splime:
+      return 140;
     default:
       return 0;
   }
 }
 
-/** Pure: true if the kill counts toward a destroy objective (wells and segments do not). */
+/**
+ * Pure: true if the kill counts toward a destroy objective. Wells, segments, Mines and Slime do
+ * not (the hazards score 0, so the value test covers them).
+ */
 export function countsAsKill(kind: Kind): boolean {
-  return kind !== Kind.GravityWell && baseValue(kind) > 0;
+  return kind !== Kind.GravityWell && kind !== Kind.Mine && kind !== Kind.Slime && baseValue(kind) > 0;
 }
 
 export function createScore(): ScoreState {

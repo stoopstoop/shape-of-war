@@ -4,7 +4,7 @@ import { bus } from '../core/events';
 import { resetWell } from './enemies/gravitywell';
 import { clearGeoms } from './geoms';
 import { removeEntity } from './remove';
-import { gs, portResetMultiplier } from './state';
+import { gs, isHostile, portResetMultiplier } from './state';
 import { deactivateShip, respawnShip } from './ship';
 import { resetWeapon } from './weapons';
 import { Kind, type World } from './world';
@@ -54,7 +54,7 @@ export function triggerBomb(w: World): boolean {
     if (w.alive[id] !== 1) continue;
     const k = w.kind[id] ?? 0;
     if (k === Kind.GravityWell) resetWell(w, id);
-    else if (k >= Kind.Grunt && k <= Kind.Spawner) removeEntity(w, id);
+    else if (isHostile(k) || k === Kind.Slime) removeEntity(w, id); // v2 kinds, Mines and every Slime too
   }
   g.pointFx.x = w.x[0] ?? 0;
   g.pointFx.y = w.y[0] ?? 0;

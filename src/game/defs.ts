@@ -1,15 +1,24 @@
 // Enemy def lookup by Kind and behaviour registration with Forge's world (registerBehaviour).
 // Every registered step is wrapped so telegraphing entities only count down their telegraph.
 import type { EnemyKind } from '../levelgen/leveldef';
+import * as blink from './enemies/blink';
+import * as bulwark from './enemies/bulwark';
+import * as charger from './enemies/charger';
 import * as dart from './enemies/dart';
 import * as grunt from './enemies/grunt';
 import * as gravitywell from './enemies/gravitywell';
+import * as mine from './enemies/mine';
 import * as pinwheel from './enemies/pinwheel';
 import * as snake from './enemies/snake';
+import * as sower from './enemies/sower';
 import * as spawnerEnemy from './enemies/spawner';
+import * as swirl from './enemies/swirl';
 import type { EnemyDef } from './enemies/types';
 import * as wanderer from './enemies/wanderer';
 import * as weaver from './enemies/weaver';
+// Splime and Slime are imported last on purpose: cut 6 removes these lines cleanly.
+import * as slime from './enemies/slime';
+import * as splime from './enemies/splime';
 import * as geoms from './geoms';
 import * as pickup from './pickup';
 import { gs } from './state';
@@ -37,6 +46,22 @@ export function defOf(k: Kind): EnemyDef | null {
       return spawnerEnemy.def;
     case Kind.Geom:
       return geoms.def;
+    case Kind.Charger:
+      return charger.def;
+    case Kind.Bulwark:
+      return bulwark.def;
+    case Kind.Blink:
+      return blink.def;
+    case Kind.Swirl:
+      return swirl.def;
+    case Kind.Sower:
+      return sower.def;
+    case Kind.Mine:
+      return mine.def;
+    case Kind.Splime:
+      return splime.def;
+    case Kind.Slime:
+      return slime.def;
     default:
       return null;
   }
@@ -56,7 +81,7 @@ export function kindOf(k: EnemyKind): Kind {
       return Kind.Dart;
     case 'snake':
       return Kind.SnakeHead;
-    // V2 stubs. The generator emits none of these yet; defOf returns null for them until Swarm adds defs.
+    // V2 enemies (docs/10 wave C). Mine and Slime are hazards with no EnemyKind.
     case 'charger':
       return Kind.Charger;
     case 'bulwark':
@@ -95,6 +120,14 @@ export function registerSwarmBehaviours(): void {
   registerBehaviour(Kind.SnakeBody, withTelegraph(snake.stepSegment));
   registerBehaviour(Kind.GravityWell, withTelegraph(gravitywell.step));
   registerBehaviour(Kind.Spawner, withTelegraph(spawnerEnemy.step));
+  registerBehaviour(Kind.Charger, withTelegraph(charger.step));
+  registerBehaviour(Kind.Bulwark, withTelegraph(bulwark.step));
+  registerBehaviour(Kind.Blink, withTelegraph(blink.step));
+  registerBehaviour(Kind.Swirl, withTelegraph(swirl.step));
+  registerBehaviour(Kind.Sower, withTelegraph(sower.step));
+  registerBehaviour(Kind.Mine, withTelegraph(mine.step));
+  registerBehaviour(Kind.Splime, withTelegraph(splime.step));
+  registerBehaviour(Kind.Slime, withTelegraph(slime.step));
   registerBehaviour(Kind.Geom, geoms.step);
   registerBehaviour(Kind.WeaponPickup, pickup.step);
   // The drone is moved by stepDrone after stepWorld; a no op keeps the default drift off it.

@@ -12,6 +12,7 @@ import { spawnWells, stepWells } from './enemies/gravitywell';
 import { SUPER_CHARGE_MAX } from './geoms';
 import { stepObjective } from './objective';
 import { stepPlayer } from './player';
+import { stepPresence } from './presence';
 import { stepSpawner } from './spawner';
 import { endlessLevel, startEndless, stepEndlessAwards } from './endless';
 import { currentMultiplier, gs, syncMultiplier, type GameMode, type GameState, type ScoringPort, type SegmentSource } from './state';
@@ -125,5 +126,6 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   stepEndlessAwards(w);
   stepObjective(w);
   if (g.outcome !== 'running') clearPickup(w); // level end clears the weapon pickup
+  stepPresence(w, dt); // bus only: enter, exit and threat (docs/10 wave C)
   emitHud(w, dt);
 }

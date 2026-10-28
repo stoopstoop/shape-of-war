@@ -3,6 +3,7 @@
 import type { PaletteKey } from '../render/neon';
 import type { EndlessDef, EndlessSegmentDef, SpawnEntry, SuperKind } from '../levelgen/leveldef';
 import type { EnemyDef } from './enemies/types';
+import { baseValue } from './scoring';
 import { arenaSpeedFactor } from './tuning';
 import { Kind, spawn, type World } from './world';
 
@@ -168,27 +169,9 @@ export interface HudPayload {
 
 export const MULTIPLIER_CAP = 999;
 
+/** Base value per kind: the one table in scoring.ts (SPEC 3.6 plus the v2 addendum). */
 export function scoreBase(kind: Kind): number {
-  switch (kind) {
-    case Kind.Grunt:
-      return 50;
-    case Kind.Wanderer:
-      return 10;
-    case Kind.Weaver:
-      return 100;
-    case Kind.Pinwheel:
-      return 25;
-    case Kind.Dart:
-      return 30;
-    case Kind.SnakeHead:
-      return 200;
-    case Kind.Spawner:
-      return 150;
-    case Kind.GravityWell:
-      return 250;
-    default:
-      return 0;
-  }
+  return baseValue(kind);
 }
 
 export const defaultScoring: ScoringPort = {
@@ -313,9 +296,22 @@ export function gs(w: World): GameState {
   return s;
 }
 
-/** Hostile kinds: everything that kills the ship on contact. */
+/**
+ * Hostile kinds: everything that kills the ship on contact and that bullets can hit. The V2 range
+ * Charger to Splime includes the Mine. Slime is a hazard but not hostile: nothing collides with it.
+ */
 export function isHostile(k: number): boolean {
-  return k >= Kind.Grunt && k <= Kind.Spawner;
+  return (k >= Kind.Grunt && k <= Kind.Spawner) || (k >= Kind.Charger && k <= Kind.Splime);
+}
+
+/** The six V2 enemies (docs/11 SPEC 3.4), excluding the Mine and Slime hazards. */
+export function isV2Enemy(k: number): boolean {
+  return (k >= Kind.Charger && k <= Kind.Sower) || k === Kind.Splime;
+}
+
+/** Dropped hazards: never in a roster, no score, no geoms, not a kill. */
+export function isDroppedHazard(k: number): boolean {
+  return k === Kind.Mine || k === Kind.Slime;
 }
 
 /**
@@ -348,5 +344,5 @@ export function turnScale(w: World): number {
 
 /** Kinds counted against maxLiveEnemies (wave enemies, telegraphs included). */
 export function isWaveEnemy(k: number): boolean {
-  return k >= Kind.Grunt && k <= Kind.SnakeHead;
+  return (k >= Kind.Grunt && k <= Kind.SnakeHead) || isV2Enemy(k);
 }
