@@ -27,7 +27,7 @@ import {
 } from './core/settings';
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
-import { createEndlessGame, createGame, gameState, stepGame } from './game/game';
+import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio } from './audio/synth';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
@@ -262,7 +262,7 @@ async function boot(): Promise<void> {
   // src/game weapons on purpose. It runs at boot (settingsModel.applyBoot), on every change from
   // the Weapon pickups row, and whenever startLevel builds a new world, so the stored choice
   // reaches every world. Until then it is a no-op.
-  const applyWeaponPickups = (_on: boolean): void => {};
+  const applyWeaponPickups = (on: boolean): void => setWeaponPickups(world, on);
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
