@@ -22,6 +22,10 @@
 // lattice (latticeView.ts, sim in lattice/): one position buffer, line-list meshes, impulses from
 // fx events, well pull and ship wake read from the World, and a governor that coarsens the
 // spacing under sustained load. The low tier keeps the v1 grid and ripple path as it was.
+// Run 0198 hit feedback (hitFx.ts): 'fx:hit' draws a tiny additive flash on a multi HP target
+// (80 ms) or, when a Bulwark shield blocked it, a short arc on the shield plus 3 to 5 sparks. The
+// flashes live in a second small pool whose Particles sit in the same pulses container (no extra
+// draw call, no new buffer), throttled to one per entity per 50 ms, and are off on the low tier.
 // The app is created with autoStart false; draw() updates the scene and calls app.render().
 import {
   Application,
@@ -127,7 +131,9 @@ import {
   addPulse,
   clearPulses,
   createPulsePool,
+  PULSE_ARC,
   PULSE_BAR,
+  PULSE_FLASH,
   PULSE_RING,
   PULSE_STREAK,
   pulseAlpha,
@@ -147,9 +153,31 @@ import {
 import { heatBombFor, HEAT_SUPER } from './lattice/heat';
 import { AMBIENT_AMP } from './lattice/ambient';
 import {
+  createHitThrottle,
+  DEFLECT_ARC_HALF,
+  DEFLECT_ARC_LIFE,
+  DEFLECT_ARC_PAD,
+  DEFLECT_ARC_R,
+  DEFLECT_WHITE,
+  arcFrame,
+  deflectArcScale,
+  deflectDir,
+  HIT_DOT_FRAME,
+  HIT_DOT_R,
+  HIT_FLASH_LIFE,
+  HIT_FLASH_WHITE,
+  HIT_FX_CAP,
+  hitFlashScale,
+  hitHueKey,
+  hitThrottleAllow,
+  resetHitThrottle,
+  type Dir,
+} from './hitFx';
+import {
   dustOn,
   trailsOn,
   getEffectsTier,
+  hitFxOn,
   latticeCapFor,
   latticeOn,
   latticeSpacingFor,
@@ -221,8 +249,8 @@ import {
   type ThreatPulse,
   type WallFeature,
 } from './mapFx';
-import { burstSmall, emitBlinkStreak, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
-import { isFloorSlot, KIND_NUM } from './shapeSpecs';
+import { burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
+import { isFloorSlot, KIND_NUM, specFor } from './shapeSpecs';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
 export interface BulletPoolLike {
@@ -491,8 +519,13 @@ function makeTrailAtlas(app: Application): TrailAtlas {
 
 interface FxAtlas {
   readonly texture: Texture;
-  /** Pulse frames by shape: ring (kill shockwave), bar (wall glow), streak (Blink jump). */
-  readonly frames: readonly [Texture, Texture, Texture];
+  /**
+   * Pulse frames by shape: ring (kill shockwave), bar (wall glow), streak (Blink jump), arc
+   * (Bulwark deflect, anchored at its midpoint) and dot (tiny hit flash).
+   */
+  readonly frames: readonly [Texture, Texture, Texture, Texture, Texture];
+  /** Anchor of the arc midpoint inside the arc frame (0 to 1). */
+  readonly arcAnchorX: number;
 }
 
 /** The sprite pulse looks in one texture: one ParticleContainer, one draw call for all pulses. */
@@ -510,11 +543,39 @@ function makeFxAtlas(app: Application): FxAtlas {
   g.roundRect(bx + 12, 6, 40, 4, 2).fill({ color: 0xffffff, alpha: 1 });
   const sy = 20;
   drawTaper(g, bx, sy, TAPER_TEX_LEN, TAPER_TEX_H, 32);
-  const w = bx + 64;
+  // Run 0198 hit feedback: the deflect arc (a slice of the shield circle, same three stroke glow
+  // as the ring) and the soft hit dot sit to the right of the bar column.
+  const af = arcFrame(DEFLECT_ARC_R, DEFLECT_ARC_HALF, DEFLECT_ARC_PAD);
+  const ax = bx + 64 + 2;
+  const arcCx = ax + af.cx;
+  // After a stroke pixi restarts the path at the last point, so each arc starts with a moveTo at
+  // its own start point, or a stray line would join the previous shape to the arc.
+  const arcX0 = arcCx + DEFLECT_ARC_R * Math.cos(-DEFLECT_ARC_HALF);
+  const arcY0 = af.cy + DEFLECT_ARC_R * Math.sin(-DEFLECT_ARC_HALF);
+  const arcPath = (): Graphics => g.moveTo(arcX0, arcY0).arc(arcCx, af.cy, DEFLECT_ARC_R, -DEFLECT_ARC_HALF, DEFLECT_ARC_HALF);
+  arcPath().stroke({ width: 12, color: 0xffffff, alpha: 0.2, cap: 'round' });
+  arcPath().stroke({ width: 6, color: 0xffffff, alpha: 0.5, cap: 'round' });
+  arcPath().stroke({ width: 2.5, color: 0xffffff, alpha: 1, cap: 'round' });
+  const dx = ax + af.w + 2;
+  const dc = HIT_DOT_FRAME / 2;
+  g.circle(dx + dc, dc, HIT_DOT_R).fill({ color: 0xffffff, alpha: 0.22 });
+  g.circle(dx + dc, dc, HIT_DOT_R * 0.62).fill({ color: 0xffffff, alpha: 0.5 });
+  g.circle(dx + dc, dc, HIT_DOT_R * 0.3).fill({ color: 0xffffff, alpha: 1 });
+  const w = dx + HIT_DOT_FRAME;
   const texture = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, w, ringW), resolution: GEN_TEX_RES, antialias: true });
   g.destroy({ context: true });
   const sub = (x: number, y: number, fw: number, fh: number): Texture => new Texture({ source: texture.source, frame: new Rectangle(x, y, fw, fh) });
-  return { texture, frames: [sub(0, 0, ringW, ringW), sub(bx, 0, 64, 16), sub(bx, sy, TAPER_TEX_LEN, TAPER_TEX_H)] };
+  return {
+    texture,
+    frames: [
+      sub(0, 0, ringW, ringW),
+      sub(bx, 0, 64, 16),
+      sub(bx, sy, TAPER_TEX_LEN, TAPER_TEX_H),
+      sub(ax, 0, af.w, af.h),
+      sub(dx, 0, HIT_DOT_FRAME, HIT_DOT_FRAME),
+    ],
+    arcAnchorX: af.anchorX,
+  };
 }
 
 interface CometAtlas {
@@ -635,6 +696,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     pulseItems.push(p);
     pulseLayer.addParticle(p);
   }
+  // Run 0198 hit feedback: a second, small pool in the same container (same atlas, same draw
+  // call), so a burst of hit flashes can never overwrite a kill shockwave ring.
+  const hitPool = createPulsePool(HIT_FX_CAP);
+  const hitItems: Particle[] = [];
+  for (let i = 0; i < hitPool.cap; i++) {
+    const p = new Particle({ texture: fxAtlas.frames[4], x: PARK, y: PARK, alpha: 0, anchorX: 0.5, anchorY: 0.5 });
+    hitItems.push(p);
+    pulseLayer.addParticle(p);
+  }
+  const hitThrottle = createHitThrottle();
   // Comet: one ribbon geometry, drawn twice (warm halo, white core) from one atlas. Under 100
   // vertices, so pixi batches both into the bloom layer's batch: no extra draw call.
   const cometAtlas = makeCometAtlas(app);
@@ -752,6 +823,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const bulletHit = createWallHit();
   /** True while any pulse sprite may still be on screen. */
   let pulsesShown = false;
+  /** True while any hit flash or deflect arc sprite may still be on screen. */
+  let hitShown = false;
+  /** Draw clock (ms) for the per entity hit throttle, and the world the last frame drew. */
+  let hitClockMs = 0;
+  let hitWorld: World | null = null;
+  const hitDir: Dir = { x: 1, y: 0 };
+  let hitSeq = 0;
   /** Geom sparkle colour for this frame (palette follows neon). */
   let sparkleColour = 0xffffff;
 
@@ -1167,6 +1245,100 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     pulsesShown = false;
   }
 
+  /**
+   * 'fx:hit' (core/events.ts): one event per hit, no rate limit, so the throttle lives here. At
+   * most one flash per entity per 50 ms on the draw clock. blocked: a Bulwark shield absorbed it,
+   * so draw the deflect arc on the shield plus 3 to 5 sparks. Otherwise a multi HP target took
+   * damage: one tiny additive flash in its hue. Off on the low tier. No allocation.
+   */
+  function onHit(x: number, y: number, kind: number, id: number, blocked: boolean): void {
+    if (!hitFxOn(getEffectsTier()) || !hitThrottleAllow(hitThrottle, id, hitClockMs)) return;
+    hitSeq = (hitSeq + 1) | 0;
+    if (blocked) deflectAt(x, y, kind, id);
+    else {
+      const colour = mixRgb(palette[hitHueKey(specFor(kind))], 0xffffff, HIT_FLASH_WHITE);
+      addPulse(hitPool, PULSE_FLASH, x, y, 0, 0, 0, HIT_FLASH_LIFE, colour, 1);
+    }
+  }
+
+  /**
+   * Deflect arc and sparks for a blocked hit on entity id. With the Bulwark known (the world the
+   * last frame drew) the arc snaps onto its shield plate along the hit direction, so it sits where
+   * the plate is drawn whichever step the bullet died on; otherwise it sits at the hit point.
+   */
+  function deflectAt(x: number, y: number, kind: number, id: number): void {
+    const w = hitWorld;
+    let px = x;
+    let py = y;
+    if (w !== null && id > 0 && id < w.cap && w.alive[id] === 1 && w.kind[id] === kind) {
+      const cx = w.x[id] ?? x;
+      const cy = w.y[id] ?? y;
+      deflectDir(x, y, cx, cy, hitSeq, hitDir);
+      px = cx + hitDir.x * DEFLECT_ARC_R;
+      py = cy + hitDir.y * DEFLECT_ARC_R;
+    } else {
+      deflectDir(x, y, Number.NaN, Number.NaN, hitSeq, hitDir);
+    }
+    const colour = mixRgb(palette.bulwark, 0xffffff, DEFLECT_WHITE);
+    addPulse(hitPool, PULSE_ARC, px, py, Math.atan2(hitDir.y, hitDir.x), 0, 0, DEFLECT_ARC_LIFE, colour, 1);
+    emitDeflectSparks(px, py, hitDir.x, hitDir.y, colour);
+  }
+
+  /**
+   * Mirror the hit pool onto its Particles. Skipped outright when none is live and none is still
+   * showing. Mirror first, then age, so a new flash draws at full strength on its first frame.
+   * Alpha follows the neon glow like the other map effects (a multiplier, not a SPEC 4 write).
+   */
+  function drawHitFx(dt: number): void {
+    if (hitPool.live === 0 && !hitShown) return;
+    const gain = mapFxNeonGain(current.glowAlpha);
+    let any = false;
+    for (let i = 0; i < hitPool.cap; i++) {
+      const p = hitItems[i];
+      if (!p) continue;
+      if (!pulseLive(hitPool, i)) {
+        if (p.x !== PARK) {
+          p.x = PARK;
+          p.y = PARK;
+          p.alpha = 0;
+        }
+        continue;
+      }
+      any = true;
+      const shape = hitPool.shape[i] ?? PULSE_FLASH;
+      const u = (hitPool.age[i] ?? 0) / Math.max(1e-6, hitPool.life[i] ?? 1);
+      if (hitPool.fresh[i] === 1) {
+        hitPool.fresh[i] = 0;
+        const arc = shape === PULSE_ARC;
+        p.texture = fxAtlas.frames[arc ? 3 : 4];
+        p.anchorX = arc ? fxAtlas.arcAnchorX : 0.5;
+        p.anchorY = 0.5;
+        p.tint = hitPool.colour[i] ?? 0xffffff;
+        p.rotation = hitPool.rot[i] ?? 0;
+      }
+      p.x = hitPool.x[i] ?? 0;
+      p.y = hitPool.y[i] ?? 0;
+      const s = shape === PULSE_ARC ? deflectArcScale(u) : hitFlashScale(u);
+      p.scaleX = s;
+      p.scaleY = s;
+      p.alpha = pulseAlpha(shape, u) * (hitPool.strength[i] ?? 1) * gain;
+    }
+    stepPulses(hitPool, dt);
+    hitShown = any;
+  }
+
+  /** Drop every hit flash and arc and park its sprite (tier off, level change). */
+  function clearHitFx(): void {
+    clearPulses(hitPool);
+    resetHitThrottle(hitThrottle);
+    for (const p of hitItems) {
+      p.x = PARK;
+      p.y = PARK;
+      p.alpha = 0;
+    }
+    hitShown = false;
+  }
+
   /** Ship comet: push the drawn position, rebuild the ribbon, fade by speed and neon. */
   function drawComet(x: number, y: number, vx: number, vy: number, dt: number): void {
     if (!trailsActive()) {
@@ -1257,6 +1429,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bus.on('fx:geom', (p) => playFx(p.x, p.y, { type: 'geom' })),
     // Weapon pickup collected (Swarm, wave B): a burst in the weapon's bullet colour.
     bus.on('fx:pickup', (p) => burst(p.x, p.y, palette[weaponTint(p.weapon)], PICKUP_BURST_COUNT)),
+    // Damage that did not kill, or a Bulwark shield block (run 0198). The payload is reused.
+    bus.on('fx:hit', (p) => onHit(p.x, p.y, p.kind, p.id, p.blocked)),
   ];
   offFx.push(
     onEffectsTierChanged((t) => {
@@ -1265,6 +1439,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       restyleBullets();
       if (!trailsOn(t)) hideComet();
       if (!mapEffectsOn(t)) clearPulseFx();
+      if (!hitFxOn(t)) clearHitFx();
     }),
   );
   registerParticleStress(setParticleStress);
@@ -1751,6 +1926,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
     watchSuper(w);
+    hitClockMs = now;
+    hitWorld = w;
     const nowSec = now / 1000;
     const sim = lattice.sim;
     if (sim) clearForces(sim);
@@ -1777,6 +1954,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     drawBullets(explicitBullets ?? bulletsFromWorld(w), a, shipX, shipY, fxDt);
     stepEffects(dt);
     drawPulses(fxDt);
+    drawHitFx(fxDt);
     if (latticeActive) {
       lattice.glow.alpha = HEAT_GLOW_ALPHA * mapFxNeonGain(current.glowAlpha);
       lattice.frame(dt, nowSec);
@@ -1826,6 +2004,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     resetEnemyAndMapFx();
     hideComet();
     clearPulseFx();
+    clearHitFx();
     // New level: the governor starts again from the tier spacing.
     gov = initialGovernor();
     avgFrameMs = 0;

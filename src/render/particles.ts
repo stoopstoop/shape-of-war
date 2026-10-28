@@ -11,6 +11,7 @@ import { Particle, type ParticleContainer, type Texture } from 'pixi.js';
 import { hash01 } from './color';
 import { getEffectsTier, MAX_PARTICLE_CAP, onEffectsTierChanged, particleCapFor, tierBurstCount, trailsOn, type EffectsTier } from './effects';
 import { planFx, type FxEvent } from './fx';
+import { deflectSparkCount, deflectSparkParticle } from './hitFx';
 import { currentRender, palette } from './neon';
 import {
   clearParticlePool,
@@ -303,6 +304,26 @@ export function emitBlinkStreak(x0: number, y0: number, x1: number, y1: number, 
     blinkStreakParticle(trailScratch, x0, y0, x1, y1, k, n, trailSeq, colour);
     if (!pushTrail()) break;
   }
+}
+
+/**
+ * Bulwark deflect sparks: 3 to 5 from (x, y), fanned about the outward direction (nx, ny). They are
+ * trail class particles of the shared pool, so they follow the trail rules: off on low, refused
+ * above 80 percent live and shed first. Under a full pool the arc flash still shows, the sparks
+ * do not, and the Standard fps budget is untouched. Returns the number written.
+ */
+export function emitDeflectSparks(x: number, y: number, nx: number, ny: number, colour: number): number {
+  if (!trailsEnabled) return 0;
+  trailSeq = (trailSeq + 1) | 0;
+  const n = deflectSparkCount(trailSeq);
+  let written = 0;
+  for (let k = 0; k < n; k++) {
+    trailSeq = (trailSeq + 1) | 0;
+    deflectSparkParticle(trailScratch, x, y, nx, ny, k, n, trailSeq, colour);
+    if (!pushTrail()) break;
+    written++;
+  }
+  return written;
 }
 
 /** Geom sparkle for one geom for one frame. e is the geom slot's emitter. Off on low. */

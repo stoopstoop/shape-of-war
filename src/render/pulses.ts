@@ -7,7 +7,10 @@
 export const PULSE_RING = 0;
 export const PULSE_BAR = 1;
 export const PULSE_STREAK = 2;
-export type PulseShape = typeof PULSE_RING | typeof PULSE_BAR | typeof PULSE_STREAK;
+/** Run 0198 hit feedback (hitFx.ts): the Bulwark deflect arc and the tiny multi HP hit flash. */
+export const PULSE_ARC = 3;
+export const PULSE_FLASH = 4;
+export type PulseShape = typeof PULSE_RING | typeof PULSE_BAR | typeof PULSE_STREAK | typeof PULSE_ARC | typeof PULSE_FLASH;
 
 /** Pool size: rings, wall glows and streaks share it. */
 export const PULSE_CAP = 48;
@@ -139,5 +142,7 @@ export function pulseAlpha(shape: number, u: number): number {
   const r = 1 - u;
   if (shape === PULSE_RING) return Math.pow(r, 1.5);
   if (shape === PULSE_BAR) return Math.pow(r, 1.2);
+  if (shape === PULSE_ARC) return Math.pow(r, 1.5);
+  if (shape === PULSE_FLASH) return r * r;
   return r;
 }
