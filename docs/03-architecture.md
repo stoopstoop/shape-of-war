@@ -479,6 +479,18 @@ localStorage only (SPEC 2). Each value has its own key so a corrupt value cannot
 | `sow.scores.adventure` | JSON `{ [index: string]: { best: number, stars: 0..3 } }` | `{}` | Ledger |
 | `sow.scores.endless` | JSON `Array<{ score: number, at: number }>`, top 10, sorted desc | `[]` | Ledger |
 | `sow.schema` | integer | 1 | Ledger; bump and migrate if a shape changes |
+| `sow.settings.glowPath` | `"bloom"` or `"fallback"` | `"bloom"` | Ledger |
+| `sow.settings.spacePhysics` | `"off"`, `"low"`, `"medium"` or `"high"` | `"off"` | Ledger (v2) |
+| `sow.settings.weaponPickups` | `"0"` or `"1"` | `"1"` (on) | Ledger (v2) |
+| `sow.settings.effects` | `"low"`, `"standard"` or `"high"` | `"standard"` | Ledger (v2) |
+| `sow.settings.music` | integer 0 to 100, 0 is silence | 50 | Ledger (v2) |
+
+The glow path and v2 rows are read and written by their own load and save pairs in `src/core/settings.ts` (`loadGlowPath`, `loadSpacePhysics`, `loadWeaponPickups`, `loadEffects`, `loadMusic` and the matching `save` functions). They are not fields of `Settings` or `DEFAULT_SETTINGS`, so the v1 settings shape and the `loadSettings` snippet below are unchanged. Parse rules, all pure and all falling back to the default:
+
+- `glowPath`, `spacePhysics`, `effects`: exact lower case strings only. Anything else, including a wrong case or `null`, gives the default.
+- `weaponPickups`: only the exact strings `"0"` and `"1"` count.
+- `music`: whole decimal text only (an optional minus sign, then digits). A whole number outside 0 to 100 is clamped. Empty text, decimals, units and any other text give 50.
+- `sow.schema` stays 1. No v2 key needs a migration, and Reset progress does not touch any of these keys (docs/11 "Settings keys and bus additions").
 
 ```ts
 // src/core/settings.ts

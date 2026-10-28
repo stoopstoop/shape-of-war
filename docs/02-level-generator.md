@@ -507,8 +507,9 @@ Same procedure: inside margin 80, at least 0.35 x W from spawn, at least 200 u f
 |---|---|
 | J1 | `JSON.parse(JSON.stringify(def))` deep equals `def` |
 | J2 | Every number is finite (no NaN, no Infinity) |
-| J3 | `version === LEVELDEF_VERSION`, `generatorVersion === GENERATOR_VERSION` |
+| J3 | `version === LEVELDEF_VERSION`, `generatorVersion` is `GENERATOR_VERSION` (1) or `GENERATOR_VERSION_V2` (2); J6 says which |
 | J4 | `seed === levelSeed(runSeed, levelIndex)` and `band === bandOf(levelIndex)` |
+| J6 | With `enableV2Enemies` off, and for band 1 with it on, generator output is byte identical to v1. `generatorVersion` is 2 only for bands 2 and up with the flag on |
 | A1 | Arena height 700 to 1100, width up to 1800, width / height 1.0 to 1.8 (circle exactly 1.0, hexagon 1.1547 within 0.01) |
 | A2 | `spawnPoint` is (0, 0) and passes `insideArena(spawnPoint, 100)` |
 | A3 | Every obstacle is at least 200 u from the spawn point |
@@ -536,6 +537,12 @@ Same procedure: inside margin 80, at least 0.35 x W from spawn, at least 200 u f
 | H3 | 0 to 2 spawners; each inside margin 80, at least 0.35 x width from spawn, at least 200 u from every well |
 | H4 | Band 1 has no hazards; band 2 has no spawners |
 | L1 | `lives === 3`, `bombs === 3`, drone and superType are valid kinds |
+
+J6 notes (v2, `GenConfig.enableV2Enemies`, default on; docs/11 SPEC 3.4 rule 3):
+
+- The validator checks the content side only (`checkV2Content` in `src/levelgen/validate.ts`): a def with `generatorVersion` 1 names no v2 kind, and a def with `generatorVersion` 2 is never in band 1.
+- The byte identity side is pinned by tests, not by `validateLevel`: `tests/qa/generatorFlagSweep.test.ts` holds a golden taken from the tag v1.0.0 source, and `tests/levelgen/v2enemies.test.ts` pins the flag on cases. Levels 1 to 5 keep their v1 hashes in both modes.
+- An `EndlessDef` spans every band, so J6 has no band to test for it. `generateEndless` with the flag on returns version 2. Each segment from `generateEndlessSegment` follows the per band rule: version 2 from band 2 up, version 1 in band 1.
 
 ## 12. Vitest test list
 
