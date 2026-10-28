@@ -140,3 +140,136 @@ Owner: Proctor. Written in W4 against main at 5bef4ae (glue: scoring port multip
 - Base values, multiplier rules, destroy kill counting and the 999 cap agree between Swarm and Ledger for every kind.
 - No `Math.random` outside `src/core/rng.ts`, no keyboard, mouse or gamepad listeners other than the QA-009 clicks, and the only binary assets are the four PWA icons. The 512 px icon is an original cyan neon triangle on black (looked at, not a device result: I3 still needs the home screen).
 - Production build: 12 JS files, 716,408 bytes raw, 215,698 bytes gzipped (about 211 KiB). That is 14 percent of the 1.5 MB gzipped limit. See `docs/qa/perf-log.md` section 7.
+
+---
+
+# v2 triage (wave E)
+
+Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to GD passed on device). Sources: the GA, GB, GC and GD rows of `docs/STATUS.md`, the GD paste Fable supplied, `docs/DECISIONS.md` lines 26:10 to 35:50, the open bug list in STATUS, and a re-check of every v1 item above against the code at this head. Severity as above: P0 blocks a gate, P1 breaks a SPEC requirement or loses data, P2 wrong but contained, info is worth knowing. Owner is the roster nickname; the owning directory is where the fix would go. Nothing here was run on a device by Proctor.
+
+## Bad news first (v2)
+
+1. No P0 is open. GA, GB, GC and GD all passed on device, and the Off invariant holds in the code today: with the flag off, 5080 levels (5000 seeds plus both edge seeds over 40 levels) plus 500 Endless defs and 2000 Endless segments hash exactly as they did at tag v1.0.0 (`tests/qa/generatorFlagSweep.test.ts`, golden from the tagged source).
+2. The Low effects tier measured slower than Standard at GD (50 against 59). Low is the v1 grid path that held 60 at G4, and it is the escape hatch of v2 cut 4. If the number is real, the fallback does not fall back. The paste is ambiguous (V2-03), so this is a recheck first, not yet a verdict.
+3. Standard holds 59, not 60, on the main screen. The addendum (SPEC 5 wording) says 60 is a strict floor for Standard. Ryan accepted 59 at D8 (DECISIONS 35:50). The decision is recorded; the addendum text still says strict (V2-08).
+4. Ryan's GD music notes include kill voicing and a selection rule for which kills sound. SPEC 3.9 and docs/11 do not list either. Chorus is working from STATUS wave E text. A builder that follows CLAUDE.md "no feature outside docs/01" must refuse them until Fable adds a docs/11 line (V2-04).
+5. Trails (2 of 5) and map effects (2 of 5) are the weakest visual ratings, and trails are second in Ryan's own reference priority (grid, trails, particles). Glow is on it (run 0180).
+6. Eight of the open items below are paste or document hygiene, not code. The v1 bug list in STATUS is stale (V2-09).
+
+## Summary (v2)
+
+| ID | Sev | Status | Owning directory | Owner |
+|---|---|---|---|---|
+| V2-01 | P1 | Open, fix run 0181 in flight | `src/audio/music/` | Chorus |
+| V2-02 | P2 | Open, fix run 0180 in flight | `src/render/` | Glow |
+| V2-03 | P2 | Open, recheck on device first | `src/render/` (Low path), measurement | Glow, Ryan |
+| V2-04 | P2 | Open, scope decision needed | `docs/11-v2-spec-addendum.md`, `src/audio/music/` | Fable, Chorus |
+| V2-05 | P2 | Fix merged in wave D, not rated on device | `src/render/` | Glow |
+| V2-06 | info | Open, paste gaps | not code | Fable |
+| V2-07 | P2 | Open, doc drift (plan values), one stale code comment | `docs/10-v2-plan.md`, `src/game/ship.ts` (comment) | Fable, Swarm (comment, via Request) |
+| V2-08 | P2 | Decided at D8, doc not updated | `docs/11-v2-spec-addendum.md` | Fable |
+| V2-09 | info | Open, STATUS drift | `docs/STATUS.md` | Fable |
+| V2-10 | info | Measured, no action needed | `src/levelgen/` | Foundry |
+
+## Details (v2)
+
+### V2-01 (P1): music glitches at GD, intensity range not judged good
+
+- Origin: GD paste `music_glitch=some`, `music_intensity` given as 3 of 5 (the template asks ok or fail), `music_layers=ok`, `pause_fold_music=ok`, `music_zero=ok`. DECISIONS 35:50 adds Ryan's note that the glitches must go and the intensity range must widen.
+- Rule it breaks: docs/10 GD pass says "no `bad` glitch", so `some` passed the gate. It is still the cut 1 path: docs/10 and docs/11 cut 1 fire if glitches persist after one Chorus fix run, and cut 2 after a second.
+- Repro: Settings, Music 50, Effects Standard. Open `?seed=42&level=20` unfolded (a crowded, six kind level), Show FPS on, play two minutes. Listen for clicks, dropouts or stutter, and note whether they line up with an fps dip (the CPU suspects are the 16 voice cap, the 25 ms timer under load and the sfx cap of 24 sharing the main thread). Then repeat with `?seed=42&level=3` for a quiet comparison.
+- What the code lets me say without a device: the voice cap, the gain sum and the quantisation are unit tested in `tests/audio/music/`, so a glitch is more likely main thread jank or scheduler lateness than a budget overrun. This is an inference, not a measurement.
+- Owner: Chorus, run 0181. Retest: checklist V-D4 to V-D8.
+
+### V2-02 (P2): trails and map effects read dull
+
+- Origin: GD paste `trails=2`, `map=2` (1 dull to 5 close to the reference), `grid=4`, `particles=3`. DECISIONS 35:50 names this as the visual gap.
+- Context: B3 (visual quality thin, STATUS) is still listed open. The v2 ratings are the newest evidence on it: grid and particles are fair, trails and map effects are not.
+- Repro: Settings, Effects Standard, play two minutes on `?seed=42&level=20`. Judge the ship trail while drifting under Medium space physics, bullet trails on rapid and pierce, Charger dash and Swirl trails, the wall pulse and wall flashes during a crowded wave.
+- Owner: Glow, run 0180. Retest: checklist V-D2 and V-D3.
+
+### V2-03 (P2): Low tier 50 against Standard 59 at GD
+
+- Origin: GD paste `fps_low 50/59`, `fps_standard 59/59`, `fps_high 59`. The template reads `<average>/<bomb dip>`.
+- Problem 1: Low is the cheapest tier (v1 grid and ripple, trails and map effects off) and it held 60 at G4. A Low that averages below Standard says either a regression on the Low path or a bad measurement.
+- Problem 2: the paste cannot be read as written. An average of 50 with a bomb dip of 59 means the lowest value is above the average. Either the two numbers are average and minimum in some other order, or Low was measured first, cold. High gives one number and no bomb figure.
+- Candidate causes, none confirmed: the Low path still runs the v1 grid Graphics redraw with the wave C and D tells now drawn on every tier (`enemyFxGates` keeps `tells: true` on Low); a cold first measurement (shader and texture warm up); thermal state after the earlier runs.
+- Repro: unfolded, `?stress=400`, Show FPS on, Motion smoothness recorded. Measure Standard first, then High, then Low last, each 10 s for the average, then fire one bomb and write the lowest value seen. Write the three numbers per tier in the order average, bomb dip.
+- Severity: P2 because Low is not the default. It becomes P1 if Low is still below Standard after a warm repeat, because the cut 4 fallback is then broken.
+- Owner: Glow. Retest: checklist V-D1 (written so the order and the two numbers are unambiguous).
+
+### V2-04 (P2): music kill voicing and a selection rule are not in the addendum
+
+- Origin: DECISIONS 35:50 and STATUS wave E, "music needs per enemy kill notes, a selection rule so not every kill sounds, wider intensity range, and the glitches removed" (Ryan's GD note as Fable wrote it).
+- Gap: SPEC 3.9 permits a stinger when a kind enters, a motif per kind, intensity from `sim:threat`. A note per kill, and a rule choosing which kills sound, are new behaviour. Kill sounds exist as sfx (`explode`), under the 24 voice sfx cap, and docs/11 section 13 says the sfx table is unchanged.
+- Risks if built as stated: music voices 16 plus sfx 24 sharing the main thread is already the V2-01 suspect, and a note per kill at crowd density adds the most scheduler events exactly when threat is highest. The determinism rule (music a pure function of seed, kind, bar via `hash01`) needs a stated input for kill notes, because a kill time is not a bar.
+- Needed: one docs/11 line from Fable giving the clause, the voice budget for kill notes and the selection rule, before Chorus builds it. If the run has already started, the line is a retro fit and the hand-off should say which clause it relied on.
+- Owner: Fable (addendum), Chorus (build).
+
+### V2-05 (P2): the GC readability fix is not yet judged on a device
+
+- Origin: Ryan's GC note (DECISIONS 33:30): the counters of Charger, Bulwark and Splime were not obvious. Glow's wave D commit 7927293 added the Bulwark shield plate, the Charger lane band and the Splime drop ring on the real 2 s cycle.
+- GD asked about layers, fps and music, not about the three tells, so the paste does not rate them.
+- Repro and retest: checklist V-C1 to V-C3 (one level per enemy, seed 42, the level indices from Foundry's GC hand-off, which this file does not have).
+- Owner: Glow. Open until Ryan answers those lines.
+
+### V2-06 (info): gaps in the pastes
+
+- GA: `low 4/1/5` has three numbers where the template has four, so the Low turn rating is missing (medium and high have all four).
+- GB: `music_base` was optional and is not recorded.
+- GD: the three items under V2-03, and `music_intensity=3` where the template asks ok or fail (treated here as neither).
+- Action: Fable, state the number format in each future paste template and put a default for skipped items in the block. Nothing to fix in code.
+
+### V2-07 (P2): the plan and one code comment still carry the old Slime numbers
+
+- Source of truth is docs/11 and the code: Slime slows the ship by 50 percent (`SLOW_FACTOR = 0.5`, `src/game/enemies/slime.ts`) for 2 s (`SLOW_SEC = 2`), and Splime drops every 2 s (`DROP_SEC = 2`, `src/game/enemies/splime.ts`). Ryan set these at GC and DECISIONS 31:10 applied them.
+- docs/10-v2-plan.md still says 20 percent (factor 0.8), a drop every 3.5 s and "slowed by about a fifth" in the Splime and Slime rows, the Forge and Swarm briefs and the GC device check. It is the plan, not canon, so nothing breaks, but a reader of the plan gets the wrong numbers.
+- `src/game/ship.ts` line 36: the `slowFactor` comment says "Swarm sets 0.8 in wave C". The value is 0.5. Comment only, no behaviour.
+- Owners: Fable for docs/10. The ship.ts comment is outside Proctor's files: Request to Fable, Swarm owns `src/game/` in the wave E fix lane if one is opened.
+
+### V2-08 (P2): Standard at 59, addendum says a strict 60 floor
+
+- docs/11 SPEC 5: "60 fps is a floor ... The floor is strict for Standard". GD measured 59 average and 59 after a bomb. Ryan accepted at D8 (DECISIONS 35:50, "Standard stays the default").
+- The deviation is decided but the canon text is unchanged, so a later reader sees a pass that the text calls a miss. Fable: either word the floor "59 or better on the 60 Hz main screen" in docs/11, or log the exception where the floor is stated.
+- The v2 checklist uses the GD number as the baseline, not 60: V-D1 passes at 59 or better average with the bomb dip not below 50 (the docs/10 GD rule), and says so.
+- Owner: Fable.
+
+### V2-09 (info): STATUS drift
+
+- "Open bugs" still lists B1 (P1), B2 (P2), B3 (P1) and B4 (P1) as open. B1 and B4 have passing device evidence (G3: `slider=yes`, `crisp=yes/yes`), B2 has indirect evidence (G4 passed F2 and F4, with U4 and the stars as the only two fails and both fixed). B3 is subjective and the v2 ratings above are its newest data.
+- Recommendation, Fable decides: close B1 and B4; close B2 with the note that no portrait report followed G3 and that the v2 regression lines F-reg2 and F-reg3 retest it; keep B3 open as P2 and let GE judge V2-02.
+- "Current position" in STATUS still carries a sentence about "wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings)" after wave D has merged.
+- Owner: Fable.
+
+### V2-10 (info): generator cost with the flag on
+
+- DECISIONS 32:30: the CI deploy missed a 500 ms budget at 957 ms and "Foundry owes a generator perf look (200 levels now about 2x slower than v1)".
+- Measured here, same Mac, same seed spread, under a load average of 3 to 7: v1.0.0 sources 3.1 to 3.2 s for 5000 levels (0.63 ms each); current flag off 3.6 s for 5080 (0.71 ms); current flag on 3.9 s (0.76 ms). That is 1.1 times v1 with the flag off and 1.2 times with it on, not 2 times. The slow CI runner and a loaded machine explain the earlier numbers better than the generator does.
+- No action. `tests/qa/generatorFlagSweep.test.ts` bounds flag on at 4 times flag off, which only catches a blow up. The wall clock budget at `tests/levelgen/generator.test.ts` is still QA-005.
+- Owner: Foundry, only if the CI runner misses a budget again.
+
+## v1 items carried into v2, status at 6f11afb
+
+Re-checked against the code today. The "Recommended" column is a suggestion; Fable decides.
+
+| ID | Sev | Status at this head | Recommended |
+|---|---|---|---|
+| B1 | P1 | Device evidence: G3 `slider=yes` | Close |
+| B2 | P2 | Indirect only (G4 F2 and F4 pass) | Close with a note, retest in F-reg2 and F-reg3 |
+| B3 | P1 | Subjective, GD trails 2 and map 2 | Downgrade to P2, tracked as V2-02 |
+| B4 | P1 | Device evidence: G3 `crisp=yes/yes` | Close |
+| QA-001 | P2 | Open: `deriveSeed` is still `fmix32(runSeed + index)` (`src/core/rng.ts` line 33) | Unchanged, Fable decides |
+| QA-002 | P2 | Open: docs/03 line 478 still says default 0 | Doc fix, Fable |
+| QA-004 | P2 | Open: `scoringPort` is still a private const in `src/main.ts` line 38 | Request unchanged |
+| QA-005 | P2 | Open: the generator wall clock budget was widened to 2500 ms at c82eb1e after a CI miss; see V2-10 | Foundry decides whether to drop it |
+| QA-006 | P2 | Open: `resetProgress` still writes only unlocked and the Adventure table (`src/core/settings.ts` line 417) | Fable decides; note v2 settings are also untouched by it, which matches the addendum |
+| QA-007 | info | Open: docs/07 line 490 still says W3 | Doc fix, Fable |
+| QA-009 | info | Open: four `click` listeners in `src/render/devpanel.ts` lines 158, 175 to 177 | Fable decision |
+| QA-011 | info | Open: docs/06 line 215 still says `?debug=1&stress=400` | Doc fix, Fable |
+| QA-012 | P2 | Open: nothing but `recordEndlessScore` reads the Endless table; the results screen shows a badge and Best | Fable decides; G3 `table=yes` fits the badge reading |
+
+## v2 observations that are not defects
+
+- Off invariant, generator side: proven by hash for 5000 seeds (`tests/qa/generatorFlagSweep.test.ts`). Simulation side: `tests/game/ship.space.test.ts` and `tests/game/weapons.test.ts` carry the v1 golden hashes, and `tests/qa/physicsReplay.test.ts` and `tests/qa/weaponDropReplay.test.ts` add cross module replays.
+- Settings keys: the four v2 keys (`sow.settings.spacePhysics`, `weaponPickups`, `effects`, `music`) keep the `sow.settings.` prefix, collide with nothing and are the only new keys (`tests/qa/storageKeys.test.ts`, `tests/qa/storageKeysV2.test.ts`).
+- Assets: the only binary files in the repo are the PWA icons (`tests/qa/noAssets.test.ts`).
