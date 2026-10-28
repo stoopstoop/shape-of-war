@@ -3,6 +3,7 @@
 // invulnerability timer.
 import type { InputState } from '../input/types';
 import { bus } from '../core/events';
+import { createThrustOut, stepThrust, type SpaceLevel } from '../core/physics';
 import { confine, createConfineResult } from './arena';
 import { fireSpread } from './bullets';
 import type { World } from './world';
@@ -26,10 +27,34 @@ export interface ShipState {
   aimAngle: number;
   /** True on steps where the aim stick is held past its dead zone. */
   firing: boolean;
+  /** Space physics level (docs/11). 'off' is the exact v1 path. */
+  space: SpaceLevel;
+  /** Seconds of continuous move stick hold, for thrust. Reset on release and respawn. */
+  holdT: number;
+  /** Slime slow channel: a w.time value; the slow applies while w.time < slowUntil. */
+  slowUntil: number;
+  /** Speed multiplier while slowed (Swarm sets 0.8 in wave C). */
+  slowFactor: number;
 }
 
 export function createShipState(): ShipState {
-  return { active: true, invuln: INVULN_SEC, fireCooldown: 0, fireRateScale: 1, aimAngle: -Math.PI / 2, firing: false };
+  return {
+    active: true,
+    invuln: INVULN_SEC,
+    fireCooldown: 0,
+    fireRateScale: 1,
+    aimAngle: -Math.PI / 2,
+    firing: false,
+    space: 'off',
+    holdT: 0,
+    slowUntil: 0,
+    slowFactor: 1,
+  };
+}
+
+/** Select the space physics level. Takes effect next step with the current velocity and hold time. */
+export function setShipSpace(w: World, level: SpaceLevel): void {
+  w.ship.space = level;
 }
 
 /** Place the ship at the arena centre with fresh invulnerability (spawn and respawn). */
@@ -43,6 +68,9 @@ export function respawnShip(w: World): void {
   w.ship.active = true;
   w.ship.invuln = INVULN_SEC;
   w.ship.fireCooldown = 0;
+  w.ship.holdT = 0;
+  w.ship.slowUntil = 0;
+  w.ship.slowFactor = 1;
   w.alive[SHIP_ID] = 1;
 }
 
@@ -56,6 +84,7 @@ export function deactivateShip(w: World): void {
 }
 
 const wall = createConfineResult();
+const thrust = createThrustOut();
 
 export function stepShip(w: World, dt: number, input: InputState): void {
   const s = w.ship;
@@ -73,6 +102,19 @@ export function stepShip(w: World, dt: number, input: InputState): void {
   }
   let vx = mx * SHIP_SPEED;
   let vy = my * SHIP_SPEED;
+  if (s.space !== 'off') {
+    // Thrust (docs/11 "Space physics"): velocity integrates from the stored post slide velocity.
+    const held = input.move.active && (mx !== 0 || my !== 0);
+    const slow = w.time < s.slowUntil ? s.slowFactor : 1;
+    stepThrust(s.space, w.vx[SHIP_ID] ?? 0, w.vy[SHIP_ID] ?? 0, mx, my, held, s.holdT, dt, slow, thrust);
+    vx = thrust.vx;
+    vy = thrust.vy;
+    s.holdT = thrust.holdT;
+  } else if (w.time < s.slowUntil) {
+    // Slime slow channel. Does nothing while slowUntil is in the past, so off stays v1.
+    vx *= s.slowFactor;
+    vy *= s.slowFactor;
+  }
   const res = confine(w.level.arena, (w.x[SHIP_ID] ?? 0) + vx * dt, (w.y[SHIP_ID] ?? 0) + vy * dt, SHIP_RADIUS, wall);
   if (res.hit) {
     // Slide: drop the velocity component pointing into the wall.
