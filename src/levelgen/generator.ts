@@ -18,6 +18,7 @@ import {
   ENEMY_GEOMS,
   ENEMY_KINDS,
   GENERATOR_VERSION,
+  GENERATOR_VERSION_V2,
   LEVELDEF_VERSION,
   MAX_RETRIES,
   SUPER_KINDS,
@@ -86,6 +87,7 @@ import {
   obstaclePointDistance,
   validateLevel,
 } from './validate';
+import { ALL_ENEMY_KINDS, V2_ENEMY_SALT, V2_SPAWN_UNIT, planV2Roster, swapGroupKind, v2GroupCount } from './v2enemies';
 
 /** Stage salts, docs/02 section 2. */
 export const SALT = {
@@ -112,14 +114,14 @@ const SPAWN_COST: Record<EnemyKind, number> = {
   weaver: 2,
   dart: 4,
   snake: 6,
-  // V2 stubs: infinite cost means never affordable. Unreachable today (weight 0 in every band);
-  // Foundry sets real costs in wave C.
-  charger: Infinity,
-  bulwark: Infinity,
-  blink: Infinity,
-  swirl: Infinity,
-  sower: Infinity,
-  splime: Infinity,
+  // V2 kinds: 1 unit each (docs/11 section 6.2). The v1 wave pass never sees them; the v2 stage
+  // spends a substituted group's whole budget at this cost.
+  charger: V2_SPAWN_UNIT,
+  bulwark: V2_SPAWN_UNIT,
+  blink: V2_SPAWN_UNIT,
+  swirl: V2_SPAWN_UNIT,
+  sower: V2_SPAWN_UNIT,
+  splime: V2_SPAWN_UNIT,
 };
 const SNAKE_WINDOW_SEC = 30;
 const GROUP_START_STEP_SEC = 0.5;
@@ -388,16 +390,57 @@ function patternFor(r: Rng, kind: EnemyKind): SpawnPattern {
       return 'cluster';
     case 'snake':
       return 'corners';
-    // V2 stubs: no PRNG draw and unreachable today (weight 0). Foundry picks real patterns in wave C.
+    // V2 kinds: only the v2 enemy stage reaches these, on its own stream.
     case 'charger':
+      return rngPick(r, ['edges', 'corners'] as const);
     case 'bulwark':
-    case 'blink':
-    case 'swirl':
-    case 'sower':
-    case 'splime':
       return 'edges';
+    case 'blink':
+      return rngPick(r, ['ring', 'edges'] as const);
+    case 'swirl':
+      return 'ring';
+    case 'sower':
+      return rngPick(r, ['edges', 'corners'] as const);
+    case 'splime':
+      return rngPick(r, ['corners', 'edges'] as const);
   }
 }
+
+// V2 enemy stage, docs/10 wave V2-C. See v2enemies.ts for the mechanism.
+
+/**
+ * Runs on its own stream after every v1 draw. Swaps the roster, then walks the v1 groups in
+ * order: a swapped group is re-emitted (pattern, positions) from the v2 stream at 1 unit per
+ * enemy, at the same wave and group start time; a kept group keeps its v1 entries untouched.
+ */
+export function applyV2Enemies(
+  r: Rng,
+  band: Band,
+  arena: ArenaDef,
+  roster: readonly RosterEntry[],
+  list: { waves: readonly WaveDef[]; groups: readonly GroupRec[] },
+): { roster: RosterEntry[]; waves: WaveDef[] } {
+  const plan = planV2Roster(r, band, roster, list.groups);
+  const entries: SpawnEntry[][] = list.waves.map(() => []);
+  const firstPattern: (SpawnPattern | null)[] = list.waves.map(() => null);
+  for (const g of list.groups) {
+    const src = list.waves[g.wave];
+    const out = entries[g.wave];
+    if (src === undefined || out === undefined) continue;
+    const kind = swapGroupKind(r, plan, g.kind);
+    if (kind === null) {
+      out.push(...src.entries.slice(g.first, g.first + g.count));
+      continue;
+    }
+    const pattern = patternFor(r, kind);
+    if (g.first === 0) firstPattern[g.wave] = pattern;
+    out.push(...emitGroup(r, arena, kind, v2GroupCount(g.units), pattern, g.startSec));
+  }
+  const waves = list.waves.map((w, i) => ({ ...w, pattern: firstPattern[i] ?? w.pattern, entries: entries[i] ?? [] }));
+  return { roster: plan.roster, waves };
+}
+
+const runsV2 = (cfg: GenConfig, band: Band): boolean => cfg.enableV2Enemies && band >= 2;
 
 // Waves, docs/02 section 7.
 
@@ -421,21 +464,41 @@ function rampU(run: WaveRun, t: number): number {
   return Math.pow(Math.min(1, (t + run.rampOffsetSec) / run.b.rampSec), run.b.rampExponent);
 }
 
+/**
+ * One spawn group of the v1 wave pass, recorded for the v2 enemy stage. Not part of the output:
+ * the LevelDef holds only the entries. units is the group's spawn budget (gb).
+ */
+export interface GroupRec {
+  wave: number;
+  /** Index of the group's first entry in its wave, and how many entries it has. */
+  first: number;
+  count: number;
+  kind: EnemyKind;
+  units: number;
+  startSec: number;
+}
+
 /** Per wave draws: group count, then per group kind, count draws (snake none, dart 5 to 8 per pack), pattern, emitGroup. */
 export function generateWaveList(r: Rng, run: WaveRun): WaveDef[] {
+  return generateWaveGroups(r, run).waves;
+}
+
+/** generateWaveList plus the group records. Same draws, same waves: the records are a side output. */
+export function generateWaveGroups(r: Rng, run: WaveRun): { waves: WaveDef[]; groups: GroupRec[] } {
   const { b, roster } = run;
   const waves: WaveDef[] = [];
+  const groups: GroupRec[] = [];
   const snakeTimes: number[] = [];
   for (let t = run.tStart, i = 0; t < run.tEnd; i++) {
     const u = rampU(run, t);
     const budget = Math.round(b.budgetStart + (b.budgetEnd - b.budgetStart) * u) + run.budgetBonus;
-    let groups = rngInt(r, b.groupsPerWave.min, b.groupsPerWave.max);
-    while (groups > budget) groups--;
-    const share = Math.floor(budget / groups);
+    let nGroups = rngInt(r, b.groupsPerWave.min, b.groupsPerWave.max);
+    while (nGroups > budget) nGroups--;
+    const share = Math.floor(budget / nGroups);
     const entries: SpawnEntry[] = [];
     let first: SpawnPattern | null = null;
-    for (let g = 0; g < groups; g++) {
-      const gb = share + (g === 0 ? budget - share * groups : 0);
+    for (let g = 0; g < nGroups; g++) {
+      const gb = share + (g === 0 ? budget - share * nGroups : 0);
       const fits = roster.filter((e) => SPAWN_COST[e.kind] <= gb);
       let kind = rngPick(
         r,
@@ -458,12 +521,14 @@ export function generateWaveList(r: Rng, run: WaveRun): WaveDef[] {
       }
       const pattern = patternFor(r, kind);
       first ??= pattern;
-      entries.push(...emitGroup(r, run.arena, kind, count, pattern, g * GROUP_START_STEP_SEC));
+      const emitted = emitGroup(r, run.arena, kind, count, pattern, g * GROUP_START_STEP_SEC);
+      groups.push({ wave: i, first: entries.length, count: emitted.length, kind, units: gb, startSec: g * GROUP_START_STEP_SEC });
+      entries.push(...emitted);
     }
     waves.push({ index: i, atSec: t, pattern: first ?? 'edges', entries });
     t = round1(t + b.intervalStartSec + (b.intervalEndSec - b.intervalStartSec) * u);
   }
-  return waves;
+  return { waves, groups };
 }
 
 function scheduleOf(b: BandParams, waves: WaveDef[], loopFromIndex: number, loopPeriodSec: number, budgetBonus = 0): WaveSchedule {
@@ -605,16 +670,16 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
   const band = bandOf(levelIndex);
   const b = BANDS[band];
   const arena = generateArena(stream(s, SALT.arena), band);
-  const roster = generateRoster(stream(s, SALT.roster), band, cfg);
+  const v1Roster = generateRoster(stream(s, SALT.roster), band, cfg);
   const loadout = stream(s, SALT.loadout);
   const drone = pickAllowed(loadout, DRONE_KINDS, b.droneWeights, cfg.drones, 'attack');
   const superType = pickAllowed(loadout, SUPER_KINDS, b.superWeights, cfg.supers, 'turbo');
   let objective = generateObjective(stream(s, SALT.objective), b);
   const timed = objectiveTimeSec(objective);
   const scheduleSec = timed === null ? b.scheduleSec : Math.max(b.scheduleSec, timed + 10);
-  const list = generateWaveList(stream(s, SALT.waves), {
+  const v1List = generateWaveGroups(stream(s, SALT.waves), {
     arena,
-    roster,
+    roster: v1Roster,
     b,
     tStart: FIRST_WAVE_SEC,
     tEnd: scheduleSec,
@@ -622,6 +687,9 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
     fullRamp: false,
     budgetBonus: 0,
   });
+  const v2 = runsV2(cfg, band);
+  // The v2 stage only rewrites kinds and entries; atSec is untouched, so the loop fields match v1.
+  const { roster, waves: list } = v2 ? applyV2Enemies(stream(s, V2_ENEMY_SALT), band, arena, v1Roster, v1List) : { roster: v1Roster, waves: v1List.waves };
   const loop = loopFields(list, scheduleSec, b.intervalEndSec);
   const waves = scheduleOf(b, list, loop.from, loop.period);
   const hazards = generateHazards(stream(s, SALT.hazards), arena, b, cfg, objective);
@@ -629,7 +697,7 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
   if (objective.kind === 'scoreInTime') objective = { ...objective, target };
   return {
     version: LEVELDEF_VERSION,
-    generatorVersion: GENERATOR_VERSION,
+    generatorVersion: v2 ? GENERATOR_VERSION_V2 : GENERATOR_VERSION,
     runSeed,
     levelIndex,
     seed,
@@ -683,11 +751,11 @@ export function generateEndlessSegment(endlessSeed: number, segment: number, cfg
   const effectiveIndex = effectiveIndexOf(segment);
   const band = bandOf(effectiveIndex);
   const b = BANDS[band];
-  const roster = generateRoster(stream(seed, SALT.roster), band, cfg);
+  const v1Roster = generateRoster(stream(seed, SALT.roster), band, cfg);
   const bonus = endlessBudgetBonus(segment);
-  const list = generateWaveList(stream(seed, SALT.waves), {
+  const v1List = generateWaveGroups(stream(seed, SALT.waves), {
     arena: ENDLESS_ARENA,
-    roster,
+    roster: v1Roster,
     b,
     tStart: segment === 0 ? FIRST_WAVE_SEC : 0,
     tEnd: ENDLESS_SEGMENT_SEC,
@@ -695,9 +763,11 @@ export function generateEndlessSegment(endlessSeed: number, segment: number, cfg
     fullRamp: band >= 3,
     budgetBonus: bonus,
   });
+  const v2 = runsV2(cfg, band);
+  const { roster, waves: list } = v2 ? applyV2Enemies(stream(seed, V2_ENEMY_SALT), band, ENDLESS_ARENA, v1Roster, v1List) : { roster: v1Roster, waves: v1List.waves };
   return deepFreeze({
     version: LEVELDEF_VERSION,
-    generatorVersion: GENERATOR_VERSION,
+    generatorVersion: v2 ? GENERATOR_VERSION_V2 : GENERATOR_VERSION,
     endlessSeed: es,
     segment,
     seed,
@@ -716,14 +786,16 @@ export function generateEndlessSegment(endlessSeed: number, segment: number, cfg
  */
 export function generateEndless(endlessSeed: number, cfg: GenConfig = DEFAULT_GEN_CONFIG): EndlessDef {
   const w = BANDS[4].rosterWeights;
+  // Flag on: the catalogue the segments ramp through includes every band 4 v2 kind.
+  const kinds = cfg.enableV2Enemies ? ALL_ENEMY_KINDS.filter((k) => w[k] > 0) : ENEMY_KINDS;
   return deepFreeze({
     version: LEVELDEF_VERSION,
-    generatorVersion: GENERATOR_VERSION,
+    generatorVersion: cfg.enableV2Enemies ? GENERATOR_VERSION_V2 : GENERATOR_VERSION,
     mode: 'endless',
     endlessSeed: endlessSeed >>> 0,
     surface: 'flat',
     arena: structuredCloneArena(ENDLESS_ARENA),
-    roster: ENEMY_KINDS.filter((k) => k !== 'snake' || cfg.enableSnake).map((kind) => ({ kind, weight: w[kind] })),
+    roster: kinds.filter((k) => k !== 'snake' || cfg.enableSnake).map((kind) => ({ kind, weight: w[kind] })),
     drone: 'attack',
     superType: 'turbo',
     lives: LIVES,

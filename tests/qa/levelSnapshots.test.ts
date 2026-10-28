@@ -6,10 +6,14 @@
 //
 // The five pins cover every arena shape, every band, and every objective kind, with wells and
 // spawners present in the harder bands.
+//
+// V2-C: the five original pins run with enableV2Enemies false (the v1 generator), so their hashes
+// and snapshot files are unchanged. The '-v2' pins are the same four band 2 to 4 pairs with the
+// flag on (the default), stored as new files. Band 1 needs no v2 pin: it is identical either way.
 import { describe, expect, it } from 'vitest';
 import { generateLevel, levelHash } from '../../src/levelgen/generator';
-import { GENERATOR_VERSION, LEVELDEF_VERSION } from '../../src/levelgen/leveldef';
-import type { ArenaShape, Band, ObjectiveDef } from '../../src/levelgen/leveldef';
+import { DEFAULT_GEN_CONFIG, GENERATOR_VERSION, GENERATOR_VERSION_V2, LEVELDEF_VERSION, V1_GEN_CONFIG } from '../../src/levelgen/leveldef';
+import type { ArenaShape, Band, GenConfig, ObjectiveDef } from '../../src/levelgen/leveldef';
 import { validateLevel } from '../../src/levelgen/validate';
 import { snapshotText, summariseLevel } from './summary';
 
@@ -21,19 +25,33 @@ interface Pin {
   shape: ArenaShape;
   band: Band;
   objective: ObjectiveDef['kind'];
+  cfg: Readonly<GenConfig>;
+  generatorVersion: number;
 }
 
+const V1 = { cfg: V1_GEN_CONFIG, generatorVersion: GENERATOR_VERSION };
+const V2 = { cfg: DEFAULT_GEN_CONFIG, generatorVersion: GENERATOR_VERSION_V2 };
+
 const PINS: readonly Pin[] = [
-  { name: 'seed1-level1', runSeed: 1, levelIndex: 1, hash: 'E0D43B03', shape: 'rect', band: 1, objective: 'scoreInTime' },
-  { name: 'seed42-level13', runSeed: 42, levelIndex: 13, hash: '16999441', shape: 'circle', band: 2, objective: 'destroy' },
-  { name: 'seed0xDEADBEEF-level18', runSeed: 0xdeadbeef, levelIndex: 18, hash: '158966A8', shape: 'rectObstacles', band: 3, objective: 'scoreInTime' },
-  { name: 'seed0xDEADBEEF-level36', runSeed: 0xdeadbeef, levelIndex: 36, hash: '09C8C862', shape: 'roundRect', band: 4, objective: 'destroy' },
-  { name: 'seed0x4E464F4C-level31', runSeed: 0x4e464f4c, levelIndex: 31, hash: '4C5F7555', shape: 'hexagon', band: 4, objective: 'survive' },
+  { name: 'seed1-level1', runSeed: 1, levelIndex: 1, hash: 'E0D43B03', shape: 'rect', band: 1, objective: 'scoreInTime', ...V1 },
+  { name: 'seed42-level13', runSeed: 42, levelIndex: 13, hash: '16999441', shape: 'circle', band: 2, objective: 'destroy', ...V1 },
+  { name: 'seed0xDEADBEEF-level18', runSeed: 0xdeadbeef, levelIndex: 18, hash: '158966A8', shape: 'rectObstacles', band: 3, objective: 'scoreInTime', ...V1 },
+  { name: 'seed0xDEADBEEF-level36', runSeed: 0xdeadbeef, levelIndex: 36, hash: '09C8C862', shape: 'roundRect', band: 4, objective: 'destroy', ...V1 },
+  { name: 'seed0x4E464F4C-level31', runSeed: 0x4e464f4c, levelIndex: 31, hash: '4C5F7555', shape: 'hexagon', band: 4, objective: 'survive', ...V1 },
 ];
 
+const V2_PINS: readonly Pin[] = [
+  { name: 'seed42-level13-v2', runSeed: 42, levelIndex: 13, hash: '18B193B3', shape: 'circle', band: 2, objective: 'destroy', ...V2 },
+  { name: 'seed0xDEADBEEF-level18-v2', runSeed: 0xdeadbeef, levelIndex: 18, hash: '752D043E', shape: 'rectObstacles', band: 3, objective: 'scoreInTime', ...V2 },
+  { name: 'seed0xDEADBEEF-level36-v2', runSeed: 0xdeadbeef, levelIndex: 36, hash: 'D5F84118', shape: 'roundRect', band: 4, objective: 'destroy', ...V2 },
+  { name: 'seed0x4E464F4C-level31-v2', runSeed: 0x4e464f4c, levelIndex: 31, hash: 'EED91C70', shape: 'hexagon', band: 4, objective: 'survive', ...V2 },
+];
+
+const ALL_PINS: readonly Pin[] = [...PINS, ...V2_PINS];
+
 describe('LevelDef pins', () => {
-  describe.each(PINS)('$name', (pin) => {
-    const def = generateLevel(pin.runSeed, pin.levelIndex);
+  describe.each(ALL_PINS)('$name', (pin) => {
+    const def = generateLevel(pin.runSeed, pin.levelIndex, pin.cfg);
 
     it('has the hard coded levelHash', () => {
       expect(levelHash(def)).toBe(pin.hash);
@@ -47,7 +65,7 @@ describe('LevelDef pins', () => {
 
     it('was recorded at the current format versions (regenerate pins after a bump)', () => {
       expect(def.version).toBe(LEVELDEF_VERSION);
-      expect(def.generatorVersion).toBe(GENERATOR_VERSION);
+      expect(def.generatorVersion).toBe(pin.generatorVersion);
     });
 
     it('validates and needed no re-derive', () => {
@@ -67,17 +85,17 @@ describe('LevelDef pins', () => {
   });
 
   it('the pinned hashes are distinct', () => {
-    expect(new Set(PINS.map((p) => p.hash)).size).toBe(PINS.length);
+    expect(new Set(ALL_PINS.map((p) => p.hash)).size).toBe(ALL_PINS.length);
   });
 
   it('generation order does not matter (no hidden state between calls)', () => {
-    const reversed = [...PINS].reverse().map((p) => levelHash(generateLevel(p.runSeed, p.levelIndex)));
-    expect(reversed.reverse()).toEqual(PINS.map((p) => p.hash));
+    const reversed = [...ALL_PINS].reverse().map((p) => levelHash(generateLevel(p.runSeed, p.levelIndex, p.cfg)));
+    expect(reversed.reverse()).toEqual(ALL_PINS.map((p) => p.hash));
   });
 
   it('summaries are JSON round trip safe', () => {
-    for (const p of PINS) {
-      const s = summariseLevel(generateLevel(p.runSeed, p.levelIndex));
+    for (const p of ALL_PINS) {
+      const s = summariseLevel(generateLevel(p.runSeed, p.levelIndex, p.cfg));
       expect(JSON.parse(JSON.stringify(s))).toEqual(s);
     }
   });

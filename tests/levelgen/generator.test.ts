@@ -2,7 +2,7 @@
 // section 1; generateEndless(seed) of docs/05 is the additive Endless game definition.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as gen from '../../src/levelgen/generator';
-import { BANDS, DEFAULT_GEN_CONFIG, ENDLESS_ARENA, MAX_RETRIES, bandOf, levelSeed } from '../../src/levelgen/leveldef';
+import { BANDS, DEFAULT_GEN_CONFIG, ENDLESS_ARENA, MAX_RETRIES, V1_GEN_CONFIG, bandOf, levelSeed } from '../../src/levelgen/leveldef';
 import type { GenConfig, LevelDef } from '../../src/levelgen/leveldef';
 import {
   FOLD_SAFE_RECTS,
@@ -210,7 +210,7 @@ describe('generator', { timeout: 30_000 }, () => {
     });
 
     it('GenConfig cuts are respected', () => {
-      const cfg: GenConfig = { enableSnake: false, enableSpawner: false, drones: ['attack'], supers: ['turbo'] };
+      const cfg: GenConfig = { enableSnake: false, enableSpawner: false, drones: ['attack'], supers: ['turbo'], enableV2Enemies: true };
       for (const s of seeds(200)) {
         const d = gen.generateLevel(s, 40, cfg);
         expect(d.roster.map((e) => e.kind)).not.toContain('snake');
@@ -239,9 +239,12 @@ describe('generator', { timeout: 30_000 }, () => {
     // docs/06 says index 0 and 7. Level indices start at 1 (docs/02 section 2, validator J4), so
     // the first and eighth levels are levelIndex 1 and 8. Captured on the first green run of
     // GENERATOR_VERSION 1: a change here means generator output changed and needs a version bump.
+    // V2-C: pinned to enableV2Enemies false, the v1 generator. The flag on goldens are in
+    // v2enemies.test.ts; level 1 (band 1) is the same either way.
     it('hard coded hashes for seeds 1, 42, 0xDEADBEEF at levels 1 and 8', () => {
       const got: Record<string, string> = {};
-      for (const s of [1, 42, 0xdeadbeef]) for (const n of [1, 8]) got[`${s}:${n}`] = gen.levelHash(gen.generateLevel(s, n));
+      for (const s of [1, 42, 0xdeadbeef]) for (const n of [1, 8]) got[`${s}:${n}`] = gen.levelHash(gen.generateLevel(s, n, V1_GEN_CONFIG));
+      for (const s of [1, 42, 0xdeadbeef]) expect(gen.levelHash(gen.generateLevel(s, 1))).toBe(got[`${s}:1`]);
       expect(got).toEqual({
         '1:1': 'E0D43B03',
         '1:8': '71455C7D',
@@ -318,7 +321,11 @@ describe('generator', { timeout: 30_000 }, () => {
         expect(d.surface).toBe('flat');
         expect(d.hazards).toEqual({ wells: [], spawners: [] });
         expect(d.budgetPerSegment).toBeGreaterThan(0);
-        expect(d.roster.map((e) => e.kind)).toEqual(['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake']);
+        expect(d.roster.map((e) => e.kind)).toEqual([
+          ...['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake'],
+          ...['charger', 'bulwark', 'blink', 'swirl', 'sower', 'splime'],
+        ]);
+        expect(gen.generateEndless(s, V1_GEN_CONFIG).roster.map((e) => e.kind)).toEqual(['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake']);
         expect(Object.isFrozen(d.arena)).toBe(true);
         expect(JSON.parse(JSON.stringify(d))).toEqual(d);
         expect(validateEndless(d).errors).toEqual([]);
@@ -327,7 +334,7 @@ describe('generator', { timeout: 30_000 }, () => {
     });
 
     it('respects the snake cut and reports a broken def', () => {
-      const cut = gen.generateEndless(5, { enableSnake: false, enableSpawner: false, drones: ['attack'], supers: ['turbo'] });
+      const cut = gen.generateEndless(5, { enableSnake: false, enableSpawner: false, drones: ['attack'], supers: ['turbo'], enableV2Enemies: true });
       expect(cut.roster.map((e) => e.kind)).not.toContain('snake');
       const bad = { ...structuredClone(gen.generateEndless(5)), objective: { kind: 'none' as const }, budgetPerSegment: 0 };
       expect(validateEndless(bad).errors.some((e) => e.startsWith('E1:'))).toBe(true);
