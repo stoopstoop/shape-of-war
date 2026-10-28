@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-A running (Forge: space-physics, Ledger: space-setting, Chorus: engine) on main 645f8d5. v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GA (space physics feel on device) after wave A merges
+- Wave: V2-A merged at 4f61c3b (glue). GA pending on device. Then wave B (Swarm: weapons, Ledger: weapon HUD, Glow: weapon visuals). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GA (space physics feel, Off unchanged, wall slide, persist, fps)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -48,4 +48,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Read .agents/runs/0139-forge-space-physics, 0140-ledger-space-setting, 0141-chorus-engine. Review and merge in order Forge, Ledger, Chorus (docs/10 wave A merge order). Then device gate GA from docs/10.
+If GA not pasted: give Ryan the GA device check from docs/10. If passed: record GA, apply D4 (physics numbers) if Ryan's ratings call for a Forge SPACE_TABLE tweak, then dispatch wave B from docs/10 briefs. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).
