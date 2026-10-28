@@ -1,0 +1,431 @@
+{
+  "hash": "752D043E",
+  "identity": {
+    "version": 1,
+    "generatorVersion": 2,
+    "runSeed": 3735928559,
+    "levelIndex": 18,
+    "seed": 1321375722,
+    "band": 3,
+    "retries": 0,
+    "surface": "flat"
+  },
+  "arena": {
+    "shape": "rectObstacles",
+    "width": 1460,
+    "height": 1000,
+    "cornerRadius": 0,
+    "obstacles": [
+      {
+        "cx": -490,
+        "cy": -10,
+        "w": 180,
+        "h": 24
+      },
+      {
+        "cx": 530,
+        "cy": 220,
+        "w": 210,
+        "h": 24
+      }
+    ],
+    "spawnPoint": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "roster": [
+    {
+      "kind": "grunt",
+      "weight": 25
+    },
+    {
+      "kind": "dart",
+      "weight": 18
+    },
+    {
+      "kind": "snake",
+      "weight": 15
+    },
+    {
+      "kind": "bulwark",
+      "weight": 12
+    },
+    {
+      "kind": "splime",
+      "weight": 10
+    }
+  ],
+  "speedScale": 1.1,
+  "drone": "attack",
+  "superType": "homing",
+  "lives": 3,
+  "bombs": 3,
+  "objective": {
+    "kind": "scoreInTime",
+    "target": 165000,
+    "timeLimitSec": 90
+  },
+  "hazards": {
+    "wells": [
+      {
+        "x": -418.4,
+        "y": 185.3
+      }
+    ],
+    "spawners": []
+  },
+  "par": 206500,
+  "stars": [
+    206500,
+    413000,
+    826000
+  ],
+  "schedule": {
+    "maxLiveEnemies": 120,
+    "intervalStartSec": 4.5,
+    "intervalEndSec": 2.5,
+    "rampSec": 120,
+    "rampExponent": 1.4,
+    "budgetStart": 6,
+    "budgetEnd": 16,
+    "waveCount": 57,
+    "loopFromIndex": 23,
+    "loopPeriodSec": 88.3,
+    "spawnTotal": 381,
+    "spawnsByKind": {
+      "grunt": 166,
+      "wanderer": 0,
+      "weaver": 0,
+      "pinwheel": 0,
+      "dart": 211,
+      "snake": 4,
+      "splime": 162,
+      "bulwark": 233
+    },
+    "firstWave": {
+      "index": 0,
+      "atSec": 2.5,
+      "pattern": "corners",
+      "entries": [
+        {
+          "kind": "splime",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": 650,
+          "y": 420,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "splime",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": -650,
+          "y": 420,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "bulwark",
+          "tOffsetSec": 0.5,
+          "mode": "fixed",
+          "x": 670,
+          "y": 286.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "bulwark",
+          "tOffsetSec": 0.65,
+          "mode": "fixed",
+          "x": 670,
+          "y": 326.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "bulwark",
+          "tOffsetSec": 1,
+          "mode": "fixed",
+          "x": -83,
+          "y": -440,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "bulwark",
+          "tOffsetSec": 1.15,
+          "mode": "fixed",
+          "x": -43,
+          "y": -440,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        }
+      ]
+    },
+    "lastWave": {
+      "index": 56,
+      "atSec": 178,
+      "pattern": "cluster",
+      "entries": [
+        {
+          "kind": "dart",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": -430.8,
+          "y": 374.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": -413.4,
+          "y": 381.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.3,
+          "mode": "fixed",
+          "x": -379.6,
+          "y": 389.8,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.45,
+          "mode": "fixed",
+          "x": -364.4,
+          "y": 372.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.6,
+          "mode": "fixed",
+          "x": -368.1,
+          "y": 422.5,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.75,
+          "mode": "fixed",
+          "x": -439.7,
+          "y": 413.6,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.9,
+          "mode": "fixed",
+          "x": -430.7,
+          "y": 426.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.05,
+          "mode": "fixed",
+          "x": -377.3,
+          "y": 386.2,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.2,
+          "mode": "fixed",
+          "x": -414.3,
+          "y": 424.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.35,
+          "mode": "fixed",
+          "x": -428.9,
+          "y": 370.2,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.5,
+          "mode": "fixed",
+          "x": -406.3,
+          "y": 368.8,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.65,
+          "mode": "fixed",
+          "x": -436.9,
+          "y": 363.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.8,
+          "mode": "fixed",
+          "x": -364.3,
+          "y": 429,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.95,
+          "mode": "fixed",
+          "x": -379.4,
+          "y": 360.3,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.5,
+          "mode": "fixed",
+          "x": 632.7,
+          "y": -217.3,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.65,
+          "mode": "fixed",
+          "x": 652.4,
+          "y": -188.5,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.8,
+          "mode": "fixed",
+          "x": 622.1,
+          "y": -175.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 0.95,
+          "mode": "fixed",
+          "x": 657.2,
+          "y": -220,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.1,
+          "mode": "fixed",
+          "x": 600,
+          "y": -152.3,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.25,
+          "mode": "fixed",
+          "x": 660.8,
+          "y": -188.5,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.4,
+          "mode": "fixed",
+          "x": 632,
+          "y": -193.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.55,
+          "mode": "fixed",
+          "x": 625.4,
+          "y": -194.5,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.7,
+          "mode": "fixed",
+          "x": 667.4,
+          "y": -222.8,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 1.85,
+          "mode": "fixed",
+          "x": 619,
+          "y": -176.1,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "dart",
+          "tOffsetSec": 2,
+          "mode": "fixed",
+          "x": 606.9,
+          "y": -213.2,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        }
+      ]
+    }
+  }
+}

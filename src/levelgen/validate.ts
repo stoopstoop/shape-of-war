@@ -9,6 +9,7 @@ import {
   ENDLESS_SEGMENT_SEC,
   ENEMY_KINDS,
   GENERATOR_VERSION,
+  GENERATOR_VERSION_V2,
   LEVELDEF_VERSION,
   MAX_RETRIES,
   SPAWN_PATTERNS,
@@ -33,6 +34,7 @@ import type {
   Vec2,
   WaveSchedule,
 } from './leveldef';
+import { ALL_ENEMY_KINDS, isV2Kind } from './v2enemies';
 
 // Constants shared with the W2 generator. docs/02 sections 6, 7, 8, 9, 11.
 export const ARENA_MIN_HEIGHT = 700;
@@ -305,7 +307,8 @@ class Collector {
 
 const f1 = (v: number): string => v.toFixed(1);
 const isInt = (v: number): boolean => Number.isInteger(v);
-const isKind = (k: string): k is EnemyKind => (ENEMY_KINDS as readonly string[]).includes(k);
+/** Any EnemyKind, v1 or v2. Mine and Slime are hazards with no EnemyKind, so they fail here. */
+const isKind = (k: string): k is EnemyKind => (ALL_ENEMY_KINDS as readonly string[]).includes(k);
 const inRange = (v: number, lo: number, hi: number): boolean => v >= lo - EPS && v <= hi + EPS;
 const onStep = (v: number, lo: number, step: number): boolean => Math.abs((v - lo) / step - Math.round((v - lo) / step)) < EPS;
 
@@ -322,8 +325,32 @@ function checkJson(c: Collector, def: unknown): void {
 function checkVersions(c: Collector, version: number, generatorVersion: number): void {
   c.check('J3', (report) => {
     if (version !== LEVELDEF_VERSION) report(`version ${version} !== ${LEVELDEF_VERSION}`);
-    if (generatorVersion !== GENERATOR_VERSION) report(`generatorVersion ${generatorVersion} !== ${GENERATOR_VERSION}`);
+    if (generatorVersion !== GENERATOR_VERSION && generatorVersion !== GENERATOR_VERSION_V2) {
+      report(`generatorVersion ${generatorVersion} not ${GENERATOR_VERSION} or ${GENERATOR_VERSION_V2}`);
+    }
   });
+}
+
+/**
+ * J6: the generator version matches the content. Version 1 (the v1 algorithm alone) never names a
+ * v2 kind; version 2 (the v2 enemy stage ran) never applies to band 1. band is null for an
+ * EndlessDef, which spans every band.
+ */
+function checkV2Content(c: Collector, generatorVersion: number, band: Band | null, kinds: () => readonly string[]): void {
+  c.check('J6', (report) => {
+    if (generatorVersion === GENERATOR_VERSION) {
+      const v2 = [...new Set(kinds().filter(isV2Kind))];
+      if (v2.length > 0) report(`generatorVersion ${GENERATOR_VERSION} names v2 kinds ${v2.join(', ')}`);
+    }
+    if (generatorVersion === GENERATOR_VERSION_V2 && band === 1) report(`generatorVersion ${GENERATOR_VERSION_V2} in band 1`);
+  });
+}
+
+/** Every kind a schedule and roster name, for J6. */
+function namedKinds(roster: readonly RosterEntry[], ws: WaveSchedule): string[] {
+  const out: string[] = roster.map((e) => e.kind);
+  for (const w of ws.waves) for (const e of w.entries) out.push(e.kind);
+  return out;
 }
 
 function checkRoster(c: Collector, roster: readonly RosterEntry[], band: Band): void {
@@ -632,6 +659,7 @@ export function validateLevel(def: LevelDef): ValidationResult {
   checkHazards(c, def, band);
   checkLoadout(c, def);
   checkSurface(c, def.surface);
+  checkV2Content(c, def.generatorVersion, band, () => namedKinds(def.roster, def.waves));
   c.check('J5', (report) => {
     const r = def.retries;
     if (r === undefined || !isInt(r) || r < 0 || r > MAX_RETRIES) report(`retries ${String(r)} not an integer 0 to ${MAX_RETRIES}`);
@@ -672,8 +700,11 @@ export function validateEndless(def: EndlessDef): ValidationResult {
       seen.add(e.kind);
     }
     if (!seen.has('grunt')) report('roster lacks grunt');
-    if (def.roster.length < 3 || def.roster.length > 6) report(`roster size ${def.roster.length} outside 3 to 6`);
+    // The catalogue: the v1 six, plus the six v2 kinds when the v2 enemy stage is on.
+    const max = def.generatorVersion === GENERATOR_VERSION_V2 ? ALL_ENEMY_KINDS.length : ENEMY_KINDS.length;
+    if (def.roster.length < 3 || def.roster.length > max) report(`roster size ${def.roster.length} outside 3 to ${max}`);
   });
+  checkV2Content(c, def.generatorVersion, null, () => def.roster.map((e) => e.kind));
   return c.result();
 }
 
@@ -703,5 +734,6 @@ export function validateSegment(seg: EndlessSegmentDef): ValidationResult {
       if (!(w.atSec >= 0 && w.atSec < ENDLESS_SEGMENT_SEC)) report(`wave ${i} atSec ${w.atSec} outside 0 to ${ENDLESS_SEGMENT_SEC}`);
     });
   });
+  checkV2Content(c, seg.generatorVersion, band, () => namedKinds(seg.roster, seg.waves));
   return c.result();
 }
