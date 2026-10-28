@@ -30,6 +30,9 @@ export const enum Kind {
   Swirl,
   Sower,
   Mine,
+  // V2 contract stubs part 2: the sixth V2 enemy (Splime) and its spawn (Slime). Appended after Mine.
+  Splime,
+  Slime,
 }
 
 export const ENTITY_CAP = 512;

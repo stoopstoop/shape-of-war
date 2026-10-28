@@ -35,6 +35,8 @@ export const BASE_PALETTE = {
   blink: [335, 0.75, 0.6],
   swirl: [160, 0.75, 0.55],
   sower: [75, 0.75, 0.55],
+  splime: [110, 0.75, 0.55],
+  slime: [95, 0.75, 0.55],
   rapid: [165, 0.8, 0.65],
   pierce: [20, 0.8, 0.7],
   orbit: [295, 0.8, 0.7],

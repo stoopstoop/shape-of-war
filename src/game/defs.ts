@@ -66,6 +66,8 @@ export function kindOf(k: EnemyKind): Kind {
       return Kind.Swirl;
     case 'sower':
       return Kind.Sower;
+    case 'splime':
+      return Kind.Splime;
   }
 }
 

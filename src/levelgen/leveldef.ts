@@ -19,7 +19,8 @@ export type EnemyKind =
   | 'bulwark'
   | 'blink'
   | 'swirl'
-  | 'sower';
+  | 'sower'
+  | 'splime';
 export type DroneKind = 'attack' | 'collect' | 'ram';
 export type SuperKind = 'homing' | 'detonate' | 'turbo';
 export type SpawnPattern = 'edges' | 'corners' | 'ring' | 'cluster';
@@ -189,7 +190,7 @@ export interface ValidationResult {
 
 export const ENEMY_KINDS: readonly EnemyKind[] = ['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake'];
 /** V2 enemy names. Deliberately not part of ENEMY_KINDS, so v1 generator loops never see them. */
-export const V2_ENEMY_KINDS: readonly EnemyKind[] = ['charger', 'bulwark', 'blink', 'swirl', 'sower'];
+export const V2_ENEMY_KINDS: readonly EnemyKind[] = ['charger', 'bulwark', 'blink', 'swirl', 'sower', 'splime'];
 export const ARENA_SHAPES: readonly ArenaShape[] = ['rect', 'roundRect', 'circle', 'hexagon', 'rectObstacles'];
 export const DRONE_KINDS: readonly DroneKind[] = ['attack', 'collect', 'ram'];
 export const SUPER_KINDS: readonly SuperKind[] = ['homing', 'detonate', 'turbo'];
@@ -208,6 +209,7 @@ export const ENEMY_BASE: Record<EnemyKind, number> = {
   blink: 0,
   swirl: 0,
   sower: 0,
+  splime: 0,
 };
 
 export const ENEMY_GEOMS: Record<EnemyKind, number> = {
@@ -223,6 +225,7 @@ export const ENEMY_GEOMS: Record<EnemyKind, number> = {
   blink: 0,
   swirl: 0,
   sower: 0,
+  splime: 0,
 };
 
 /** Shared by par calculation and sim loop handling. Expands loops up to tEnd. Sorted by t. */
@@ -329,7 +332,7 @@ const NO_SPAWNERS = {
 } as const;
 
 /** V2 stub: every band gives the V2 enemies weight 0, so v1 generator output is byte identical. */
-const NO_V2_ENEMIES = { charger: 0, bulwark: 0, blink: 0, swirl: 0, sower: 0 } as const;
+const NO_V2_ENEMIES = { charger: 0, bulwark: 0, blink: 0, swirl: 0, sower: 0, splime: 0 } as const;
 
 export const BANDS: Readonly<Record<Band, BandParams>> = {
   1: {
