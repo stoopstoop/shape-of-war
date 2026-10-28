@@ -13,6 +13,7 @@ import {
   enemyFxGates,
   mapEffectsOn,
   burstMulFor,
+  hitFxOn,
   dustOn,
   latticeCapFor,
   latticeOn,
@@ -288,5 +289,13 @@ describe('effects tier: lattice, dust and burst density (wave D)', () => {
     expect(tierBurstCount(200, 'high', 4096)).toBe(300);
     expect(tierBurstCount(4000, 'high', 4096)).toBe(4096);
     expect(tierBurstCount(-3, 'high', 4096)).toBe(0);
+  });
+
+  it('hit feedback (flash and deflect arc, run 0198) is off on low, on for standard and high', () => {
+    expect(hitFxOn('low')).toBe(false);
+    expect(hitFxOn('standard')).toBe(true);
+    expect(hitFxOn('high')).toBe(true);
+    // It follows the same gate as the trails the deflect sparks ride on.
+    for (const t of EFFECTS_TIERS) expect(hitFxOn(t)).toBe(trailsOn(t));
   });
 });

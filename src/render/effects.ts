@@ -40,6 +40,14 @@ export function mapEffectsOn(t: EffectsTier): boolean {
   return t !== 'low';
 }
 
+/**
+ * Pure: hit feedback (run 0198) is off on low, on otherwise: the tiny hit flash on multi HP
+ * enemies and the Bulwark deflect arc with its sparks. Low reproduces the v1 look.
+ */
+export function hitFxOn(t: EffectsTier): boolean {
+  return t !== 'low';
+}
+
 /** Lattice spacing in arena units per tier, before the node cap and the governor. 0 is off. */
 const LATTICE_SPACING: Readonly<Record<EffectsTier, number>> = {
   low: 0,
