@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-B merged at aff933f (glue). GB pending on device. Then wave C (Swarm: enemies, Foundry: weights, Glow: enemy visuals). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GB (weapons: pickup, rapid, pierce, orbit, death reset, toggle)
+- Wave: V2-C running (Swarm: enemies, Foundry: v2-enemies, Glow: enemy-fx) on main 1612a53. GB passed. v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GC (enemies) after wave C merges
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -14,6 +14,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 | G2 | 2:50 | pass | level_start=ok enemies_spawn=ok results_screen=ok; bloom path kept (60 fps both screens) |
 | G3 | 6:35 | pass | build=5bef4ae crisp=yes/yes L2 unlock=yes differs=yes endless=yes table=yes slider=yes persisted=yes audio=yes/yes/yes vibrate=yes offline=yes scores=yes fps=60/60 |
 | G5 (v1.1) | 25:55 | pass | e231b6d: main_cross 2 s, cover_cross 2 s, main=same, overlap none, label clip no; level 16 wells_feel ok, escape yes, drift none |
+| GB (v2) | 28:45 | pass | 1612a53: pickup, rapid, pierce, orbit, death reset, toggle, drift orbit all ok; fps_main 60 |
 | GA (v2) | 27:30 | pass | 4f61c3b: off_ok yes, low 4/1/5, medium 4/3/4/4, high 4/4/4/4, wall ok, persist yes, fps 60/60 |
 | G4 | 23:05 | pass | fec4b4f: 55 of 57 pass; U4 fixed 0c1f98e, stars fixed a25cec1 plus 6841677, B8 fixed 4fbdaf7; retests pass on 6841677 and 4fbdaf7; P1 accepted at 60 fps (motion Adaptive) |
 
@@ -51,4 +52,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-If GB not pasted: give Ryan the GB device check from docs/10 (build aff933f). If passed: record GB, D5 and D6 defaults stand, dispatch wave C from docs/10 briefs. Not done: the ?music=1 debug hook (docs/10 wave B glue item); Chorus wires music in wave D instead. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).
+Read .agents/runs/0154-swarm-enemies, 0155-foundry-v2-enemies, 0156-glow-enemy-fx. Review, merge in order Foundry, Swarm, Glow, glue, then gate GC from docs/10. Not done: the ?music=1 debug hook (docs/10 wave B glue item); Chorus wires music in wave D instead. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).

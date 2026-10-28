@@ -35,3 +35,4 @@ One line per decision: clock time, who raised it, what was decided, why.
 | 27:15 | Fable | Wave A merged (forge-space-physics $0.87, ledger-space-setting $1.42, chorus-engine $2.29) and glue 4f61c3b wires the setting to setShipSpace. GA open | Merge order per docs/10 |
 | 27:30 | Ryan | GA pass on 4f61c3b. D4: SPACE_TABLE accepted as is (High drift rated 4, control 4; no fix run). Wave B dispatched | Device paste |
 | 28:30 | Fable | Wave B merged (glow-weapon-fx, swarm-weapons, ledger-weapon-hud) plus glue aff933f. The ?music=1 debug hook is deferred to wave D (Chorus wires main.ts with Ledger's port) to keep glue under 20 lines. Swarm skipped wells transferring momentum under space physics: docs/11 rule 8 forbids it, stays | Review |
+| 28:45 | Ryan | GB pass on 1612a53, all items ok. D5 pickup based weapons and D6 enableV2Enemies on stand. Wave C dispatched | Device paste |
