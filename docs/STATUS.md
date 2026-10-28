@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-A merged at 4f61c3b (glue). GA pending on device. Then wave B (Swarm: weapons, Ledger: weapon HUD, Glow: weapon visuals). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GA (space physics feel, Off unchanged, wall slide, persist, fps)
+- Wave: V2-B running (Swarm: weapons, Ledger: weapon-hud, Glow: weapon-fx) on main 4f61c3b. GA passed. v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GB (weapons) after wave B merges
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -14,6 +14,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 | G2 | 2:50 | pass | level_start=ok enemies_spawn=ok results_screen=ok; bloom path kept (60 fps both screens) |
 | G3 | 6:35 | pass | build=5bef4ae crisp=yes/yes L2 unlock=yes differs=yes endless=yes table=yes slider=yes persisted=yes audio=yes/yes/yes vibrate=yes offline=yes scores=yes fps=60/60 |
 | G5 (v1.1) | 25:55 | pass | e231b6d: main_cross 2 s, cover_cross 2 s, main=same, overlap none, label clip no; level 16 wells_feel ok, escape yes, drift none |
+| GA (v2) | 27:30 | pass | 4f61c3b: off_ok yes, low 4/1/5, medium 4/3/4/4, high 4/4/4/4, wall ok, persist yes, fps 60/60 |
 | G4 | 23:05 | pass | fec4b4f: 55 of 57 pass; U4 fixed 0c1f98e, stars fixed a25cec1 plus 6841677, B8 fixed 4fbdaf7; retests pass on 6841677 and 4fbdaf7; P1 accepted at 60 fps (motion Adaptive) |
 
 ## Merged branches
@@ -48,4 +49,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-If GA not pasted: give Ryan the GA device check from docs/10. If passed: record GA, apply D4 (physics numbers) if Ryan's ratings call for a Forge SPACE_TABLE tweak, then dispatch wave B from docs/10 briefs. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).
+Read .agents/runs/0147-swarm-weapons, 0148-ledger-weapon-hud, 0149-glow-weapon-fx. Review, merge in docs/10 wave B order, glue, then gate GB from docs/10. v3 backlog: High effects tier, 3D, curved surfaces (DECISIONS 27:10).
