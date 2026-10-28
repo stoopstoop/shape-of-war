@@ -23,3 +23,5 @@ One line per decision: clock time, who raised it, what was decided, why.
 | 6:35 | Ryan | G3 pass on build 5bef4ae, all items yes, 60 fps both screens; stick rings to be removed; super ring out of the arena and labelled; dynamic music to v2 | Device paste |
 | 21:45 | Ryan | G4: 55 of 57 pass on fec4b4f; U4 (fullscreen lost after fold) fixed by glue 0c1f98e; stars bug traced by Foundry to scoreInTime ending at 0.8 x par; P1 (120 fps target) accepted at 60 with motion Adaptive | Device paste plus Foundry analysis |
 | 21:50 | Fable | scoreInTime levels run the full timer; target is the win line, stars from the final score (option a). docs/01 section 8 updated; par formula unchanged | Keeps par and the generator goldens stable; matches the genre's score attack convention |
+| 23:05 | Ryan | G4 retests pass on 4fbdaf7 (super ring steady, super fires); v1.0.0 tagged | All never cut items pass on device; v2 needs a rollback point |
+| 23:05 | Ryan | New: B9 stick feel regression (v1.1); Space Physics setting (low, medium, high) is a v2 feature | Ryan's retest notes |
