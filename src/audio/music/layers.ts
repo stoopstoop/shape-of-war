@@ -48,7 +48,11 @@ export type TimbreId =
   | 'glass'
   | 'spiral'
   | 'tick'
-  | 'wobble';
+  | 'wobble'
+  // Kill accents only (kills.ts): gravity well, spawner, and the kill chord.
+  | 'gong'
+  | 'clank'
+  | 'chime';
 
 export interface Partner {
   readonly wave: OscillatorType;
@@ -146,6 +150,9 @@ export const TIMBRES: Readonly<Record<TimbreId, Timbre>> = {
   spiral: timbre('spiral', 'triangle', { wave: 'triangle', detune: 12 }, 'lowpass', 3500, 1, 0.003, 0.09),
   tick: timbre('tick', 'sine', null, 'highpass', 1200, 0.7, 0.001, 0.02),
   wobble: timbre('wobble', 'sine', { wave: 'sawtooth', detune: 14 }, 'lowpass', 600, 3, 0.08, 0.25, 0.45),
+  gong: timbre('gong', 'sine', { wave: 'triangle', detune: 700 }, 'lowpass', 1800, 0.8, 0.003, 0.4),
+  clank: timbre('clank', 'square', { wave: 'square', detune: 1902 }, 'bandpass', 2200, 2.5, 0.001, 0.12),
+  chime: timbre('chime', 'triangle', { wave: 'sine', detune: 1200 }, 'lowpass', 4200, 0.7, 0.004, 0.5),
 };
 
 // ---------------------------------------------------------------------------------------

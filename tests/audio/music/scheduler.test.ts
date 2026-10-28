@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mixFor } from '../../../src/audio/music/intensity';
 import {
+  ARP_LIFT_SEMITONES,
+  ARP_LIFT_VEL,
   createScheduler,
   LOOKAHEAD_SEC,
   nextBarLine,
@@ -53,7 +55,7 @@ describe('lookahead scheduler', () => {
     expect(r.timer.live).toBe(1);
   });
 
-  it('event times are strictly increasing and never more than 100 ms ahead', () => {
+  it('event times are strictly increasing and never more than the lookahead ahead', () => {
     const r = rig();
     r.sched.start();
     r.run(20, true);
@@ -88,7 +90,7 @@ describe('lookahead scheduler', () => {
     r.clock.t += 1; // the main thread froze for a second
     r.timer.fire();
     const burst = r.recs.slice(before);
-    expect(burst.length).toBeLessThanOrEqual(1);
+    expect(burst.length).toBeLessThanOrEqual(Math.ceil(LOOKAHEAD_SEC / STEP_SEC));
     for (const e of burst) expect(e.time).toBeGreaterThanOrEqual(e.now);
   });
 
@@ -131,6 +133,43 @@ describe('lookahead scheduler', () => {
     const steps = r.recs.map((e) => e.step);
     expect(new Set(steps).size).toBe(steps.length);
     expect(r.timer.live).toBe(1);
+  });
+
+  it('a 250 ms lookahead rides out 200 ms stalls that made a 100 ms lookahead drop steps', () => {
+    expect(LOOKAHEAD_SEC).toBe(0.25);
+    const drive = (lookaheadSec: number): { skipped: number; steps: number[] } => {
+      const clock = { t: 3 };
+      const timer = new FakeTimer();
+      const steps: number[] = [];
+      const s = createScheduler({ clock: { now: () => clock.t }, timer, lookaheadSec, onStep: (st, time) => {
+        expect(time).toBeGreaterThanOrEqual(clock.t);
+        steps.push(st);
+      } });
+      s.start();
+      for (let i = 0; i < 2000; i++) {
+        // Every 37th tick is a 200 ms stall (a heavy frame), the rest land 0 to 30 ms late.
+        clock.t += TICK_MS / 1000 + (i % 37 === 36 ? 0.2 : ((i * 7919) % 31) / 1000);
+        timer.fire();
+      }
+      return { skipped: s.skipped, steps };
+    };
+    const old = drive(0.1);
+    expect(old.skipped).toBeGreaterThan(0);
+    const now = drive(LOOKAHEAD_SEC);
+    expect(now.skipped).toBe(0);
+    // Every step from 0 on, once, in order.
+    expect(now.steps).toEqual(now.steps.map((_, i) => i));
+  });
+
+  it('timeOf and stepAtOrAfter follow the grid', () => {
+    const r = rig();
+    r.sched.start();
+    const t0 = r.sched.timeOf(0);
+    expect(r.sched.timeOf(8) - t0).toBeCloseTo(8 * STEP_SEC, 12);
+    expect(r.sched.stepAtOrAfter(t0)).toBe(0);
+    expect(r.sched.stepAtOrAfter(t0 + 8 * STEP_SEC)).toBe(8);
+    expect(r.sched.stepAtOrAfter(t0 + 8 * STEP_SEC + 0.001)).toBe(9);
+    expect(r.sched.stepAtOrAfter(t0 + 7.5 * STEP_SEC)).toBe(8);
   });
 
   it('stop clears the timer and start restarts from step 0', () => {
@@ -178,5 +217,14 @@ describe('planStep', () => {
       expect(n.gain).toBeGreaterThan(0);
     }
     expect(notes.find((n) => n.layer === 'pad')?.dur).toBe(2);
+  });
+
+  it('the lift plays the arp an octave up and softer, and lets the perc in', () => {
+    const plain = planStep(bar, 0, mixFor(0.9, false), 1).find((n) => n.layer === 'arp');
+    const lifted = planStep(bar, 0, mixFor(0.9, true), 1).find((n) => n.layer === 'arp');
+    expect(lifted?.midi).toBe((plain?.midi ?? 0) + ARP_LIFT_SEMITONES);
+    expect(lifted?.gain).toBeCloseTo((plain?.gain ?? 0) * ARP_LIFT_VEL, 12);
+    expect(planStep(bar, 4, mixFor(0.9, false), 1).some((n) => n.layer === 'perc')).toBe(false);
+    expect(planStep(bar, 4, mixFor(0.9, true), 1).some((n) => n.layer === 'perc')).toBe(true);
   });
 });

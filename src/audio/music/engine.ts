@@ -1,13 +1,14 @@
 // Music voices on Web Audio (SPEC 3.9 item 5). Each note is an oscillator or noise source,
 // an envelope gain and an output gain, disconnected when the note ends. At most 16 music
-// voices; the 17th steals the oldest motif voice, or the oldest voice when no motif sounds.
+// voices sound at once; a voice over the cap steals the oldest kill accent first, then the
+// oldest motif voice, and a bed voice only when nothing else sounds. Kill accents ask for
+// room first (accentRoom) and are dropped rather than steal, so in play the bed is never cut.
 // The graph is
-//   bed voices -> layer buses (bass lowpass, pad lowpass with LFO, hat highpass) -> master
-//   lowpass -> music gain (at most 0.35) -> synth master;
-//   motif and stinger voices (own filter each) -> motif bus -> music gain.
+//   bed voices -> layer buses (bass lowpass, pad lowpass with LFO, perc bandpass, hat
+//   highpass) -> master lowpass -> music gain (at most 0.35) -> synth master;
+//   motif, stinger and accent voices (own filter each) -> motif bus -> music gain.
 // The context is a narrow structural type: a real AudioContext satisfies it and tests pass a fake.
 import { hash01 } from '../../core/rng';
-import { voiceToSteal } from '../cues';
 import { MUSIC_MASTER_MAX } from './intensity';
 import { midiToHz } from './scale';
 import type { PlannedNote } from './scheduler';
@@ -99,6 +100,39 @@ export interface PoolEntry<T> {
   readonly data: T;
 }
 
+/** Pure: true when an entry sounds at instant x (start inclusive, end exclusive, with slack). */
+function liveAt<T>(e: PoolEntry<T>, x: number): boolean {
+  return e.start <= x + PRUNE_EPS && e.end > x + PRUNE_EPS;
+}
+
+/**
+ * Pure: the most entries sounding at once inside [start, end), and the instant it happens.
+ * Concurrency only rises at a start time, so checking `start` and every entry start inside
+ * the span is exact. `filter` limits the count to some entries.
+ */
+export function peakIn<T>(
+  entries: readonly PoolEntry<T>[],
+  start: number,
+  end: number,
+  filter?: (d: T) => boolean,
+): { count: number; at: number } {
+  let best = { count: 0, at: start };
+  const probe = (x: number): void => {
+    let n = 0;
+    for (const e of entries) if ((!filter || filter(e.data)) && liveAt(e, x)) n++;
+    if (n > best.count) best = { count: n, at: x };
+  };
+  probe(start);
+  for (const e of entries) if (e.start > start && e.start < end - PRUNE_EPS) probe(e.start);
+  return best;
+}
+
+/**
+ * Voice bookkeeping. Voices may be added out of start order (kill accents land inside the
+ * already scheduled window), so the cap is checked as the peak concurrency over the new
+ * voice's span, not as the number of entries. Entries are kept until the audio clock passes
+ * their end.
+ */
 export class VoicePool<T> {
   private entries: PoolEntry<T>[] = [];
 
@@ -109,24 +143,36 @@ export class VoicePool<T> {
     this.entries = this.entries.filter((e) => e.end > now + PRUNE_EPS);
   }
 
+  /** Most voices (optionally of some kind) sounding at once inside [start, end). */
+  peak(start: number, end: number, filter?: (d: T) => boolean): number {
+    return peakIn(this.entries, start, end, filter).count;
+  }
+
   /**
-   * Add a voice. When the pool is full, the oldest by start time is removed and returned
-   * so the caller can silence it.
+   * Add a voice. While the new voice would push the peak over the cap, the oldest voice
+   * sounding at the peak instant (the oldest `prefer` accepts, when there is one) is removed.
+   * Returns the removed voices so the caller can silence them.
    */
-  add(start: number, end: number, data: T, prefer?: (d: T) => boolean): T | null {
-    let stolen: T | null = null;
-    let idx = voiceToSteal(
-      this.entries.map((e) => e.start),
-      this.cap,
-    );
-    if (idx >= 0 && prefer) idx = oldestPreferred(this.entries, prefer, idx);
-    if (idx >= 0) {
-      const old = this.entries[idx];
-      if (old) stolen = old.data;
-      this.entries.splice(idx, 1);
+  insert(start: number, end: number, data: T, prefer?: (d: T) => boolean): T[] {
+    const stolen: T[] = [];
+    for (let guard = 0; guard <= this.cap; guard++) {
+      const pk = peakIn(this.entries, start, end);
+      if (pk.count < this.cap) break;
+      const live = this.entries.filter((e) => liveAt(e, pk.at));
+      const fallback = oldestPreferred(live, () => true, -1);
+      const pick = prefer ? oldestPreferred(live, prefer, fallback) : fallback;
+      const victim = live[pick];
+      if (!victim) break;
+      this.entries.splice(this.entries.indexOf(victim), 1);
+      stolen.push(victim.data);
     }
     this.entries.push({ start, end, data });
     return stolen;
+  }
+
+  /** As insert, returning only the first stolen voice (or null). */
+  add(start: number, end: number, data: T, prefer?: (d: T) => boolean): T | null {
+    return this.insert(start, end, data, prefer)[0] ?? null;
   }
 
   /** Remove every voice and return them. */
@@ -163,6 +209,8 @@ export const KICK_F1 = 45;
 export const KICK_SWEEP_SEC = 0.12;
 export const KICK_DECAY_SEC = 0.32;
 export const HAT_DECAY_SEC = 0.045;
+export const PERC_DECAY_SEC = 0.14;
+export const PERC_BP_HZ = 1700;
 export const ARP_DECAY_SEC = 0.11;
 export const PAD_ATTACK_SEC = 0.25;
 export const PAD_RELEASE_SEC = 0.4;
@@ -179,6 +227,8 @@ export function voiceLength(layer: Layer, dur: number): number {
       return KICK_DECAY_SEC;
     case 'hat':
       return HAT_DECAY_SEC;
+    case 'perc':
+      return PERC_DECAY_SEC;
     case 'arp':
       return Math.min(dur, ARP_DECAY_SEC) + 0.01;
     case 'bass':
@@ -194,9 +244,21 @@ export function voicePeak(layer: Layer, gain: number): number {
 // ---------------------------------------------------------------------------------------
 // Engine.
 
-export type VoiceClass = 'bed' | 'motif';
+/** bed: the base track. motif: motifs and stingers. accent: kill notes and kill chords. */
+export type VoiceClass = 'bed' | 'motif' | 'accent';
+
+/** Voice spans for tests and the debug overlay: a start, and a cut when a voice is stolen. */
+export interface VoiceTrace {
+  start(id: number, cls: VoiceClass, start: number, end: number, scheduledAt: number): void;
+  cut(id: number, at: number): void;
+}
+
+export interface EngineOptions {
+  readonly trace?: VoiceTrace;
+}
 
 interface Voice {
+  id: number;
   cls: VoiceClass;
   sources: SourceLike[];
   nodes: NodeLike[];
@@ -234,12 +296,41 @@ export function voiceShape(n: VoiceNote): VoiceShape {
 }
 
 const isMotif = (v: Voice): boolean => v.cls === 'motif';
+const isAccent = (v: Voice): boolean => v.cls === 'accent';
+
+/** Voices kept free for a stinger, which can arrive at any moment and is never dropped. */
+export const STINGER_RESERVE = 1;
+
+/** A voice that will sound but is not scheduled yet: bed and motif notes past the horizon. */
+export interface Span {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * Pure: free voices for kill accents over [t, t + len). Counts the peak of every voice already
+ * scheduled plus every bed and motif note that will start in the span but is not scheduled
+ * yet (the track is composed, so it is known), and keeps STINGER_RESERVE free. Accents only
+ * take what is left, so they never force a steal.
+ */
+export function accentRoomFor<T>(scheduled: readonly PoolEntry<T>[], upcoming: readonly Span[], t: number, len: number): number {
+  const all: PoolEntry<null>[] = [];
+  for (const e of scheduled) all.push({ start: e.start, end: e.end, data: null });
+  for (const u of upcoming) all.push({ start: u.start, end: u.end, data: null });
+  const peak = peakIn(all, t, t + Math.max(0.01, len)).count;
+  return Math.max(0, MUSIC_VOICE_CAP - STINGER_RESERVE - peak);
+}
 
 export interface MusicEngine {
   /** Schedule one planned bed note on the audio clock. */
   play(n: PlannedNote): void;
-  /** Schedule one motif or stinger note. When the pool is full the oldest motif voice is stolen first. */
-  playVoice(n: VoiceNote): void;
+  /**
+   * Schedule one motif, stinger (class 'motif', the default) or kill accent (class 'accent').
+   * When the pool is full the oldest accent is stolen first, then the oldest motif voice.
+   */
+  playVoice(n: VoiceNote, cls?: 'motif' | 'accent'): void;
+  /** Voices kill accents may take over [t, t + len), given the notes not scheduled yet. */
+  accentRoom(t: number, len: number, upcoming: readonly Span[]): number;
   /** Music master gain, clamped to 0 to 0.35, ramped from the current time. */
   setMaster(gain: number): void;
   /** Master lowpass cutoff, Hz, ramped from the current time. */
@@ -273,12 +364,18 @@ function disconnectAll(nodes: readonly NodeLike[]): void {
   }
 }
 
-function makeNoise(ctx: MusicContext): BufferLike {
+/** One noise buffer per context, built once at engine creation (never during a tick). */
+const noiseCache = new WeakMap<MusicContext, BufferLike>();
+
+function noiseFor(ctx: MusicContext): BufferLike {
+  const hit = noiseCache.get(ctx);
+  if (hit) return hit;
   const len = Math.max(1, Math.floor(ctx.sampleRate * NOISE_SEC));
   const b = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = b.getChannelData(0);
   // Stateless hash, not a PRNG, salted apart from the sfx noise.
   for (let i = 0; i < len; i++) data[i] = hash01(i, 0x6d75) * 2 - 1;
+  noiseCache.set(ctx, b);
   return b;
 }
 
@@ -290,21 +387,24 @@ function filter(ctx: MusicContext, type: BiquadFilterType, hz: number, q = 0.707
   return f;
 }
 
-export function createMusicEngine(ctx: MusicContext, destination: NodeLike, masterGain = 0): MusicEngine {
+export function createMusicEngine(ctx: MusicContext, destination: NodeLike, masterGain = 0, opts: EngineOptions = {}): MusicEngine {
   const pool = new VoicePool<Voice>(MUSIC_VOICE_CAP);
+  const trace = opts.trace ?? null;
   const out = ctx.createGain();
   out.gain.value = Math.min(MUSIC_MASTER_MAX, Math.max(0, masterGain));
   const master = filter(ctx, 'lowpass', 600);
   const bassBus = filter(ctx, 'lowpass', BASS_LP_HZ);
   const padBus = filter(ctx, 'lowpass', PAD_LP_HZ, 1.2);
   const hatBus = filter(ctx, 'highpass', HAT_HP_HZ);
+  const percBus = filter(ctx, 'bandpass', PERC_BP_HZ, 0.9);
   master.connect(out);
   out.connect(destination);
   bassBus.connect(master);
   padBus.connect(master);
   hatBus.connect(master);
-  // Motifs and stingers carry their own filters and skip the threat lowpass, so a lone enemy's
-  // motif is audible at low threat.
+  percBus.connect(master);
+  // Motifs, stingers and accents carry their own filters and skip the threat lowpass, so a lone
+  // enemy's motif is audible at low threat.
   const motifBus = ctx.createGain();
   motifBus.gain.value = 1;
   motifBus.connect(out);
@@ -317,15 +417,17 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   lfo.connect(lfoDepth);
   lfoDepth.connect(padBus.frequency);
   lfo.start(ctx.currentTime);
-  const graph: NodeLike[] = [lfo, lfoDepth, bassBus, padBus, hatBus, motifBus, master, out];
-  let noise: BufferLike | null = null;
+  const graph: NodeLike[] = [lfo, lfoDepth, bassBus, padBus, hatBus, percBus, motifBus, master, out];
+  const noise = noiseFor(ctx);
   let disposed = false;
-  const stealCount: Record<VoiceClass, number> = { bed: 0, motif: 0 };
+  let nextId = 1;
+  const stealCount: Record<VoiceClass, number> = { bed: 0, motif: 0, accent: 0 };
 
   const busFor = (layer: Layer): NodeLike => {
     if (layer === 'bass') return bassBus;
     if (layer === 'pad') return padBus;
     if (layer === 'hat') return hatBus;
+    if (layer === 'perc') return percBus;
     return master;
   };
 
@@ -364,9 +466,9 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
         k.frequency.exponentialRampToValueAtTime(KICK_F1, t + KICK_SWEEP_SEC);
         return [k];
       }
-      case 'hat': {
+      case 'hat':
+      case 'perc': {
         const s = ctx.createBufferSource();
-        noise = noise ?? makeNoise(ctx);
         s.buffer = noise;
         s.loop = true;
         return [s];
@@ -390,12 +492,14 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     v.out.gain.cancelScheduledValues(now);
     v.out.gain.setTargetAtTime(0, now, STEAL_TC);
     for (const s of v.sources) safeStop(s, now + STEAL_STOP);
+    trace?.cut(v.id, now + STEAL_STOP);
   }
 
   /**
    * Wire sources into env, env into a fresh output gain, the output into `bus`, add the voice
-   * to the pool (counting from t to t + len, the audible span; notes arrive in time order so
-   * the pool is pruned at t) and start it.
+   * to the pool (counting from t to t + len, the audible span) and start it. The pool is
+   * pruned at the audio clock, not at t, because accents can land before notes already
+   * scheduled ahead.
    */
   function launch(cls: VoiceClass, sources: SourceLike[], chain: NodeLike[], env: GainLike, bus: NodeLike, t: number, len: number): void {
     const now = ctx.currentTime;
@@ -404,13 +508,14 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     env.connect(vout);
     vout.connect(bus);
     const nodes: NodeLike[] = [...sources, ...chain, env, vout];
-    const voice: Voice = { cls, sources, nodes, out: vout };
-    pool.prune(Math.max(now, t));
-    const stolen = pool.add(t, t + len, voice, isMotif);
-    if (stolen) {
+    const voice: Voice = { id: nextId++, cls, sources, nodes, out: vout };
+    pool.prune(now);
+    const preferAccent = pool.list().some((e) => isAccent(e.data));
+    for (const stolen of pool.insert(t, t + len, voice, preferAccent ? isAccent : isMotif)) {
       stealCount[stolen.cls] += 1;
       steal(stolen, now);
     }
+    trace?.start(voice.id, cls, t, t + len, now);
     for (const s of sources) {
       s.start(t);
       s.stop(t + len + 0.02);
@@ -429,7 +534,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
       for (const s of sources) s.connect(env);
       launch('bed', sources, [], env, busFor(n.layer), t, len);
     },
-    playVoice(n: VoiceNote): void {
+    playVoice(n: VoiceNote, cls: 'motif' | 'accent' = 'motif'): void {
       if (disposed || !(n.gain > 0) || !(n.dur > 0)) return;
       const t = Math.max(ctx.currentTime, n.time);
       const sh = voiceShape(n);
@@ -454,7 +559,12 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
       const sources: SourceLike[] = [mk(tb.wave, 0)];
       if (tb.partner) sources.push(mk(tb.partner.wave, tb.partner.detune));
       f.connect(env);
-      launch('motif', sources, [f], env, motifBus, t, len);
+      launch(cls, sources, [f], env, motifBus, t, len);
+    },
+    accentRoom(t: number, len: number, upcoming: readonly Span[]): number {
+      if (disposed) return 0;
+      pool.prune(ctx.currentTime);
+      return accentRoomFor(pool.list(), upcoming, t, len);
     },
     setMaster(gain: number): void {
       if (disposed) return;
@@ -475,16 +585,18 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
       for (const v of pool.drain()) {
         for (const s of v.sources) safeStop(s, now);
         disconnectAll(v.nodes);
+        trace?.cut(v.id, now);
       }
       safeStop(lfo, now);
       disconnectAll(graph);
       disposed = true;
     },
     get voiceCount(): number {
-      return pool.size;
+      // Most voices that will sound at once from now on, counting notes scheduled ahead.
+      return pool.peak(ctx.currentTime, Infinity);
     },
     get motifVoiceCount(): number {
-      return pool.list().filter((e) => isMotif(e.data)).length;
+      return pool.peak(ctx.currentTime, Infinity, isMotif);
     },
     get steals(): Readonly<Record<VoiceClass, number>> {
       return { ...stealCount };

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LAYER_KINDS, LAYERS_FULL, cutMotifs } from '../../../src/audio/music/layers';
 import { LAYER_RAMPS, layerGains, sumGains } from '../../../src/audio/music/intensity';
 import {
+  ACCENT_RESERVE,
   barLineAfter,
   barLineAtOrAfter,
   enterLayer,
@@ -158,7 +159,7 @@ describe('gain budget', () => {
         const bed = sumGains(layerGains(lv));
         const m = layerMix(bed, set, LAYERS_FULL, 100);
         expect(m.motifTotal).toBeLessThanOrEqual(MOTIF_TOTAL_MAX + 1e-12);
-        expect(bed * m.bedScale + m.motifTotal + STINGER_GAIN).toBeLessThanOrEqual(GAIN_CEILING + 1e-12);
+        expect(bed * m.bedScale + m.motifTotal + STINGER_GAIN + ACCENT_RESERVE).toBeLessThanOrEqual(GAIN_CEILING + 1e-12);
         expect(m.bedScale).toBeGreaterThan(0.6);
       }
     }
@@ -167,7 +168,7 @@ describe('gain budget', () => {
   it('leaves the wave A bed untouched while it already fits', () => {
     const bedMax = Object.values(LAYER_RAMPS).reduce((a, r) => a + r.max, 0);
     expect(layerMix(0.5, [], LAYERS_FULL, 0).bedScale).toBe(1);
-    expect(layerMix(bedMax, [], LAYERS_FULL, 0).bedScale).toBeCloseTo((1 - STINGER_GAIN) / bedMax, 9);
+    expect(layerMix(bedMax, [], LAYERS_FULL, 0).bedScale).toBeCloseTo((1 - STINGER_GAIN - ACCENT_RESERVE) / bedMax, 9);
   });
 
   it('cut motifs and departed layers take no budget', () => {

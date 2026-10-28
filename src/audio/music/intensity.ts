@@ -1,6 +1,12 @@
-// Threat to mix (SPEC 3.9, docs/10 wave A). Pure. Threat 0 to 1 from 'sim:threat' is smoothed
-// with a one pole follower (attack 0.5 s, release 3 s to 95 percent), then mapped to layer
-// gains and a master lowpass cutoff. Also the music volume to music master gain mapping.
+// Threat to mix (SPEC 3.9, docs/10 wave A, v2 fixes). Pure. Threat 0 to 1 from 'sim:threat' is
+// smoothed with a one pole follower (attack 0.5 s, release 3 s to 95 percent), then mapped to
+// layer gains, a lift flag and a master lowpass cutoff. Also the music volume to music master
+// gain mapping.
+//
+// Dynamic range (v2 fixes): an empty arena is the bed only (pad, then the sub bass). Kick, hat
+// and arp enter one by one as threat rises. At high threat the lift turns on (with hysteresis so
+// it never flickers): the hat goes to sixteenths, the perc layer (backbeat clap) comes in, the
+// arp moves up an octave and the lowpass opens a further step.
 import type { Layer } from './track';
 
 /** Seconds to cover 95 percent of a rise. */
@@ -10,10 +16,19 @@ export const RELEASE_SEC = 3;
 /** ln(20): a one pole reaches 95 percent after 3 time constants (exactly ln 20). */
 const LN20 = Math.log(20);
 
-export const CUTOFF_MIN_HZ = 600;
-export const CUTOFF_MAX_HZ = 6000;
-/** Threat at or above which the hat plays in between sixteenths. */
-export const HAT16_FROM = 0.7;
+export const CUTOFF_MIN_HZ = 450;
+/** Cutoff at threat 1 without the lift. */
+export const CUTOFF_MAX_HZ = 5500;
+/** The lift opens the lowpass by this factor on top of the threat curve. */
+export const LIFT_CUTOFF_MUL = 1.6;
+/** Curve exponent: the low end stays dark longer, so the top end reads as an opening. */
+const CUTOFF_CURVE = 1.3;
+/** The lift turns on at or above this smoothed threat ... */
+export const LIFT_ON = 0.7;
+/** ... and off again only below this one. */
+export const LIFT_OFF = 0.6;
+/** Kept for wave A callers: the hat sixteenths follow the lift. */
+export const HAT16_FROM = LIFT_ON;
 
 export interface LayerRamp {
   /** Threat at which the layer starts to sound. */
@@ -27,11 +42,12 @@ export interface LayerRamp {
 }
 
 export const LAYER_RAMPS: Readonly<Record<Layer, LayerRamp>> = {
-  pad: { from: 0, span: 1, floor: 0.16, max: 0.22 },
-  bass: { from: 0.05, span: 0.15, floor: 0, max: 0.26 },
-  kick: { from: 0.15, span: 0.15, floor: 0, max: 0.24 },
-  hat: { from: 0.3, span: 0.15, floor: 0, max: 0.1 },
-  arp: { from: 0.45, span: 0.15, floor: 0, max: 0.14 },
+  pad: { from: 0, span: 1, floor: 0.13, max: 0.18 },
+  bass: { from: 0.06, span: 0.14, floor: 0, max: 0.22 },
+  kick: { from: 0.15, span: 0.15, floor: 0, max: 0.21 },
+  hat: { from: 0.28, span: 0.14, floor: 0, max: 0.08 },
+  arp: { from: 0.42, span: 0.14, floor: 0, max: 0.11 },
+  perc: { from: LIFT_ON, span: 0.12, floor: 0, max: 0.08 },
 };
 
 export type LayerGains = Readonly<Record<Layer, number>>;
@@ -39,6 +55,8 @@ export type LayerGains = Readonly<Record<Layer, number>>;
 export interface Mix {
   readonly gains: LayerGains;
   readonly hat16: boolean;
+  /** High threat lift: arp an octave up, perc layer allowed, lowpass opened further. */
+  readonly lift: boolean;
   readonly cutoffHz: number;
 }
 
@@ -75,21 +93,47 @@ export function layerGains(level: number): LayerGains {
     kick: layerGain('kick', level),
     hat: layerGain('hat', level),
     arp: layerGain('arp', level),
+    perc: layerGain('perc', level),
   };
 }
 
 export function sumGains(g: LayerGains): number {
-  return g.bass + g.pad + g.kick + g.hat + g.arp;
+  return g.bass + g.pad + g.kick + g.hat + g.arp + g.perc;
 }
 
-/** Master lowpass, exponential from 600 Hz at threat 0 to 6 kHz at threat 1. */
-export function masterCutoff(level: number): number {
-  return CUTOFF_MIN_HZ * Math.pow(CUTOFF_MAX_HZ / CUTOFF_MIN_HZ, clamp01(level));
+/**
+ * Master lowpass: 450 Hz at threat 0 rising on a curve to 5.5 kHz at threat 1, times 1.6 while
+ * the lift is on (about 8.8 kHz at the top).
+ */
+export function masterCutoff(level: number, lift = false): number {
+  const base = CUTOFF_MIN_HZ * Math.pow(CUTOFF_MAX_HZ / CUTOFF_MIN_HZ, Math.pow(clamp01(level), CUTOFF_CURVE));
+  return lift ? base * LIFT_CUTOFF_MUL : base;
 }
 
-export function mixFor(level: number): Mix {
+/** Pure: the lift flag after one update, with hysteresis between LIFT_OFF and LIFT_ON. */
+export function nextLift(prev: boolean, level: number): boolean {
   const l = clamp01(level);
-  return { gains: layerGains(l), hat16: l >= HAT16_FROM, cutoffHz: masterCutoff(l) };
+  return prev ? l >= LIFT_OFF : l >= LIFT_ON;
+}
+
+/** Relative change below which a new cutoff is not sent (keeps the automation list short). */
+export const CUTOFF_EPS = 0.02;
+
+/** Pure: true when a new cutoff differs enough from the last one sent to be worth sending. */
+export function cutoffChanged(last: number | null, next: number): boolean {
+  if (last === null || !(last > 0)) return true;
+  return Math.abs(next - last) / last >= CUTOFF_EPS;
+}
+
+/**
+ * Pure: the mix at a smoothed threat. `lift` defaults to the plain threshold; the session passes
+ * its hysteresis state. Without the lift the perc layer is silent whatever its ramp says.
+ */
+export function mixFor(level: number, lift: boolean = clamp01(level) >= LIFT_ON): Mix {
+  const l = clamp01(level);
+  const g = layerGains(l);
+  const gains = lift ? g : { ...g, perc: 0 };
+  return { gains, hat16: lift, lift, cutoffHz: masterCutoff(l, lift) };
 }
 
 export const MUSIC_VOLUME_DEFAULT = 50;

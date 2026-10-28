@@ -51,7 +51,7 @@ describe('every base track note is in the scale', () => {
       for (let bar = 0; bar < LOOP_BARS; bar++) {
         for (const n of buildBar(seed, bar).notes) {
           if (n.midi === null) {
-            expect(['kick', 'hat']).toContain(n.layer);
+            expect(['kick', 'perc', 'hat']).toContain(n.layer);
             continue;
           }
           pitched++;
