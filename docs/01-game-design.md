@@ -227,9 +227,10 @@ Weight 0 means the type is not eligible in that band. The generator samples the 
 |---|---|
 | Base radius | 24 u |
 | Pull radius | 320 u |
-| Pull on ship | acceleration toward well = 900 x (1 minus d / 320) u/s^2 |
-| Pull on player bullets | 1800 x (1 minus d / 320) u/s^2 |
-| Pull on enemies | 600 x (1 minus d / 320) u/s^2 (snakes and spawners excluded) |
+| Pull on ship | settled pull speed toward well = 160 x (1 minus d / 320)^2 u/s (at most 38 percent of ship speed); pull velocity relaxes toward it at 32 per s, so under 5 percent remains 100 ms after leaving |
+| Pull on player bullets | 960 x (1 minus d / 320)^2 u/s^2 |
+| Pull on enemies | settled pull speed 107 x (1 minus d / 320)^2 u/s, same 32 per s relaxation (snakes and spawners excluded) |
+| Escape | moving directly away, the ship always makes at least 260 u/s (62 percent) |
 | Feeding | An enemy whose centre enters the well radius is consumed: mass plus 1, radius plus 2 u, no score |
 | Mass limit | 20; at mass 20 the well explodes |
 | Explosion | Kills every enemy within 220 u (no score), kills the ship if within 220 u and not invulnerable, then the well is removed |

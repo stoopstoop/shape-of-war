@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: v1.0.0 tagged at 4fbdaf7. Next: v1.1 fix wave (B9) and v2 planning
-- Open gate: none (v1 complete)
+- Wave: v1.1 B9 fixes merged (swarm-wells, ledger-hud-scale); device retest pending. docs/10-v2-plan.md drafted (not approved)
+- Open gate: B9 retest on device (wells feel, main vs cover speed, HUD overlap)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -23,10 +23,11 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - W3: feat/proctor-qa ($3.62), feat/glow-fx ($4.21), feat/swarm-polish ($3.17), feat/ledger-complete ($3.46)
 - W3 fixes: feat/thumbs-overlay ($0.43), feat/swarm-fixes ($0.96), feat/glow-quality (stale at ~$?; committed a16a8bc, merged)
 - W4: proctor-harden ($1.78), ledger-fixes ($2.67), foundry-par ($1.04), swarm-objective ($0.26)
-- Spend so far about $55 of $192; tagged v1.0.0 at 4fbdaf7
+- v1.1: thumbs-feel ($1.73), forge-feel ($1.60), scribe-v2-plan ($3.03), swarm-wells ($0.90), ledger-hud-scale ($1.45)
+- Spend so far about $64 of $192; tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
-- B9 (P1, Ryan at 4fbdaf7): left stick movement feels limited or resisted, slower to react than earlier builds. Suspects: dead zone or response curve changes in feat/thumbs-overlay, ship accel or drag added in Swarm polish, fixed timestep divisor. Owner: Thumbs and Forge to investigate; v1.1.
+- B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Retest pending. Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
 - B5: closed (G4 pass).
 - B6, B7, B8: closed (G4 and retests pass).
 - B1 (P1, was P0): Ryan confirms the ?debug=1 slider does change glow brightness; the gap is that the Settings screen has no neon slider. Ledger W3 builds it. G1 slider item therefore passes on the dev panel.
@@ -45,4 +46,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-v1.1: dispatch Thumbs: feel (B9) and Forge: feel-review in parallel (input vs ship physics). v2: Scribe drafts docs/10-v2-plan.md from Fable's spec: space physics setting, dynamic music, weapon upgrades, advanced enemies, visual pass toward the GW3 reference, curved surfaces (docs/09).
+If B9 retest not yet pasted: give Ryan the combined device check (wells on ?seed=2&level=6, main vs cover crossing on L1, HUD overlap). If passed: tag v1.1.0, then review docs/10-v2-plan.md and answer its questions with Ryan (D1 SPEC addendum, D2 closed).
