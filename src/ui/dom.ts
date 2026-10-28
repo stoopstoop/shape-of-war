@@ -40,7 +40,7 @@ export const UI_CSS = `
 .sow-choice .sow-btn { min-width: 0; min-height: ${MIN_HIT_PX}px; font-size: 14px; padding: 6px 4px; flex: 1 1 0; }
 .sow-btn.sow-on { background: hsl(185, 90%, 28%); border-color: hsl(185, 100%, 78%); color: #fff; font-weight: 700;
   box-shadow: 0 0 16px hsl(185, 90%, 60%); }
-.sow-slider { display: flex; align-items: center; gap: 12px; min-height: 44px; touch-action: none; }
+.sow-slider { display: flex; align-items: center; gap: 12px; min-height: ${MIN_HIT_PX}px; touch-action: none; }
 .sow-slider-label { min-width: 92px; font-size: 16px; }
 .sow-slider-track { position: relative; flex: 1; height: 8px; border-radius: 4px; background: hsla(190, 60%, 90%, 0.2); }
 .sow-slider-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: hsl(185, 90%, 55%);
