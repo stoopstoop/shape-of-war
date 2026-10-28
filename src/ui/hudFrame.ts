@@ -6,7 +6,11 @@
 // lives, bombs, super ring with its label, and the bomb button.
 // Main (10:9): top band for the text rows, then either a right column or a bottom band for the
 // bomb and super buttons, whichever leaves the larger arena.
-import { layoutButtons } from '../input/buttons';
+// B9: the main screen bands are measured from the real HUD elements (text row heights, and the
+// button hit rects that Thumbs lays out) instead of fixed generous bands, so the main screen
+// arena is as large as the HUD allows. The arena on main is usually width limited, so the right
+// column costs arena scale directly while the top band is often free.
+import { BOMB_HIT, layoutButtons, PAUSE_HIT, SUPER_HIT } from '../input/buttons';
 import type { ButtonRects, Insets, Rect } from '../input/types';
 import { fitArena, type Fit } from '../render/layout';
 
@@ -63,10 +67,22 @@ type Partial0 = Omit<HudFrame, 'fit' | 'arena' | 'content'>;
 /** Cover column widths in CSS px. */
 export const COVER_LEFT = 160;
 export const COVER_RIGHT = 112;
-/** Main top band height, and the button column width or button band height. */
-export const MAIN_TOP = 76;
-export const MAIN_RIGHT = 124;
-export const MAIN_BOTTOM = 160;
+/** Main top band text rows: score 28 px on a 32 px line at 6, multiplier 18 px on 22 at 38. */
+export const MAIN_ROWS = 60;
+/** Gap each side of the widest button hit rect in the main right column. */
+export const MAIN_COLUMN_PAD = 2;
+/** Main right column width: the widest button hit rect plus a small gap each side. */
+export const MAIN_RIGHT = Math.max(BOMB_HIT, SUPER_HIT, PAUSE_HIT) + 2 * MAIN_COLUMN_PAD;
+
+/** Pure: main top band height below the top inset: text rows or the pause hit rect, whichever is lower. */
+export function mainTop(buttons: ButtonRects, ins: Insets): number {
+  return Math.max(MAIN_ROWS, buttons.pause.y + buttons.pause.h - ins.top);
+}
+
+/** Pure: main bottom band height above the bottom inset: up to the top of the bomb and super hit rects. */
+export function mainBottom(buttons: ButtonRects, H: number, ins: Insets): number {
+  return Math.max(0, H - ins.bottom - Math.min(buttons.bomb.y, buttons.super.y));
+}
 
 function box(x: number, y: number, w: number, h: number, size: number, align: TextAlign = 'left', wrap = false): HudBox {
   return { x, y, w: Math.max(0, w), h, size, align, wrap };
@@ -94,14 +110,30 @@ interface Base {
   ins: Insets;
 }
 
-/** Super label and hint stacked just above the super hit circle. */
-function superBoxes(buttons: ButtonRects, x: number, w: number, labelSize: number, hintSize: number): Pick<HudBoxes, 'superLabel' | 'superHint'> {
-  const hintH = hintSize + 4;
-  const labelH = labelSize + 4;
+/** Height of a text box with `lines` lines: one line uses size + 4, wrapped lines size + 3 each (hud.ts setBox). */
+function textH(size: number, lines: number): number {
+  return lines <= 1 ? size + 4 : lines * (size + 3) + 2;
+}
+
+/**
+ * Super label and hint stacked just above the super hit circle. `lines` greater than 1 lets both
+ * wrap (a narrow column: "SUPER:" over "DETONATE").
+ */
+function superBoxes(
+  buttons: ButtonRects,
+  x: number,
+  w: number,
+  labelSize: number,
+  hintSize: number,
+  lines = 1,
+): Pick<HudBoxes, 'superLabel' | 'superHint'> {
+  const wrap = lines > 1;
+  const hintH = textH(hintSize, lines);
+  const labelH = textH(labelSize, lines);
   const hintY = buttons.super.y - 2 - hintH;
   return {
-    superLabel: box(x, hintY - labelH, w, labelH, labelSize, 'center'),
-    superHint: box(x, hintY, w, hintH, hintSize, 'center'),
+    superLabel: box(x, hintY - labelH, w, labelH, labelSize, 'center', wrap),
+    superHint: box(x, hintY, w, hintH, hintSize, 'center', wrap),
   };
 }
 
@@ -155,27 +187,30 @@ function topRows(b: Base): Omit<HudBoxes, 'superLabel' | 'superHint'> {
   const objW = Math.max(120, Math.min(320, innerW - 2 * 200));
   const sideW = Math.max(60, Math.min(200, (innerW - objW) / 2 - 32));
   const livesRight = W - ins.right - 80;
+  // Rows measured to end at MAIN_ROWS: the score line is the tallest pair (32 + 22 from 6).
   return {
-    score: box(ins.left + 24, t + 8, sideW, 34, 28),
-    mult: box(ins.left + 24, t + 44, sideW, 24, 18),
-    bar: box(cx - objW / 2, t + 12, objW, 20, 14),
-    objLabel: box(cx - objW / 2, t + 12, objW, 20, 14, 'center'),
-    par: box(cx - objW / 2, t + 38, objW, 20, 14, 'center'),
-    lives: box(livesRight - sideW, t + 12, sideW, 20, 16, 'right'),
-    bombs: box(livesRight - sideW, t + 36, sideW, 18, 14, 'right'),
+    score: box(ins.left + 24, t + 6, sideW, 32, 28),
+    mult: box(ins.left + 24, t + 38, sideW, MAIN_ROWS - 38, 18),
+    bar: box(cx - objW / 2, t + 8, objW, 20, 14),
+    objLabel: box(cx - objW / 2, t + 8, objW, 20, 14, 'center'),
+    par: box(cx - objW / 2, t + 32, objW, 20, 14, 'center'),
+    lives: box(livesRight - sideW, t + 8, sideW, 20, 16, 'right'),
+    bombs: box(livesRight - sideW, t + 32, sideW, 18, 14, 'right'),
   };
 }
 
-function mainBase(b: Base, arrangement: Arrangement, playRect: Rect, buttonInsets: Insets): Partial0 {
+/** Main frame from the button insets: the play rect is whatever the measured bands leave. */
+function mainBase(b: Base, arrangement: Arrangement, buttonInsets: Insets, playOf: (buttons: ButtonRects) => Rect): Partial0 {
+  const buttons = layoutButtons(b.W, b.H, buttonInsets);
   return {
     cls: 'main',
     arrangement,
     cssW: b.W,
     cssH: b.H,
     insets: b.ins,
-    playRect: clampRect(playRect),
+    playRect: clampRect(playOf(buttons)),
     buttonInsets,
-    buttons: layoutButtons(b.W, b.H, buttonInsets),
+    buttons,
     bombD: 72,
     superD: 64,
     pauseIcon: 24,
@@ -185,24 +220,22 @@ function mainBase(b: Base, arrangement: Arrangement, playRect: Rect, buttonInset
 
 function topRight(b: Base): Partial0 {
   const { W, H, ins } = b;
-  const f = mainBase(
-    b,
-    'topRight',
-    { x: ins.left, y: ins.top + MAIN_TOP, w: W - ins.left - ins.right - MAIN_RIGHT, h: H - ins.top - ins.bottom - MAIN_TOP },
-    { ...ins, left: W - ins.right - MAIN_RIGHT },
-  );
-  const x = W - ins.right - MAIN_RIGHT + 4;
-  return { ...f, boxes: { ...f.boxes, ...superBoxes(f.buttons, x, MAIN_RIGHT - 8, 13, 11) } };
+  const f = mainBase(b, 'topRight', { ...ins, left: W - ins.right - MAIN_RIGHT }, (buttons) => {
+    const top = mainTop(buttons, ins);
+    return { x: ins.left, y: ins.top + top, w: W - ins.left - ins.right - MAIN_RIGHT, h: H - ins.top - ins.bottom - top };
+  });
+  // The column is only a little wider than the bomb, so the label and hint wrap onto two lines.
+  const x = W - ins.right - MAIN_RIGHT + MAIN_COLUMN_PAD;
+  return { ...f, boxes: { ...f.boxes, ...superBoxes(f.buttons, x, MAIN_RIGHT - 2 * MAIN_COLUMN_PAD, 12, 10, 2) } };
 }
 
 function topBottom(b: Base): Partial0 {
   const { W, H, ins } = b;
-  const f = mainBase(
-    b,
-    'topBottom',
-    { x: ins.left, y: ins.top + MAIN_TOP, w: W - ins.left - ins.right, h: H - ins.top - ins.bottom - MAIN_TOP - MAIN_BOTTOM },
-    ins,
-  );
+  const f = mainBase(b, 'topBottom', ins, (buttons) => {
+    const top = mainTop(buttons, ins);
+    const bottom = mainBottom(buttons, H, ins);
+    return { x: ins.left, y: ins.top + top, w: W - ins.left - ins.right, h: H - ins.top - ins.bottom - top - bottom };
+  });
   // Label to the left of the super ring, right aligned, vertically centred on it.
   const s = f.buttons.super;
   const w = 180;
