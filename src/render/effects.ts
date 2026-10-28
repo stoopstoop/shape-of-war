@@ -1,8 +1,8 @@
 // Effects tier (v2 SPEC addendum 3.8, docs/10 "Performance budget"). Pure, no pixi.js import.
 // The tier sets the particle cap and switches trails. Ledger persists sow.settings.effects and
 // calls setEffectsTier in wave D; until then the default 'standard' applies. Low reproduces the
-// v1 look: trails off, map effects off, 2048 particles. The lattice grid columns of the table
-// arrive in wave D.
+// v1 look: trails off, map effects off, 2048 particles, the v1 grid and ripple. Wave D adds the
+// lattice columns: spacing and node cap per tier, dust, and denser bursts on high.
 
 export type EffectsTier = 'low' | 'standard' | 'high';
 
@@ -38,6 +38,58 @@ export function trailsOn(t: EffectsTier): boolean {
 /** Pure: threat driven map effects (wall pulse and wall flash) are off on low, on otherwise. */
 export function mapEffectsOn(t: EffectsTier): boolean {
   return t !== 'low';
+}
+
+/** Lattice spacing in arena units per tier, before the node cap and the governor. 0 is off. */
+const LATTICE_SPACING: Readonly<Record<EffectsTier, number>> = {
+  low: 0,
+  standard: 25,
+  high: 16,
+};
+
+/** Lattice node cap per tier (docs/10 "Performance budget"). */
+const LATTICE_CAP: Readonly<Record<EffectsTier, number>> = {
+  low: 0,
+  standard: 4096,
+  high: 8192,
+};
+
+/** Burst count multiplier per tier: high is denser, always limited by the particle cap. */
+const BURST_MUL: Readonly<Record<EffectsTier, number>> = {
+  low: 1,
+  standard: 1,
+  high: 1.5,
+};
+
+/** Pure: the deforming lattice replaces the v1 grid on standard and high. Low keeps the v1 grid. */
+export function latticeOn(t: EffectsTier): boolean {
+  return t !== 'low';
+}
+
+/** Pure: preferred lattice spacing for a tier in arena units, 0 on low. */
+export function latticeSpacingFor(t: EffectsTier): number {
+  return LATTICE_SPACING[t];
+}
+
+/** Pure: lattice node cap for a tier, 0 on low. */
+export function latticeCapFor(t: EffectsTier): number {
+  return LATTICE_CAP[t];
+}
+
+/** Pure: dim drifting dust behind the grid on standard and high. */
+export function dustOn(t: EffectsTier): boolean {
+  return t !== 'low';
+}
+
+/** Pure: burst count multiplier for a tier. */
+export function burstMulFor(t: EffectsTier): number {
+  return BURST_MUL[t];
+}
+
+/** Pure: a burst count on a tier, scaled and limited by the live cap. Never negative. */
+export function tierBurstCount(count: number, t: EffectsTier, cap: number): number {
+  const n = Math.round(Math.max(0, count) * BURST_MUL[t]);
+  return Math.max(0, Math.min(Math.floor(cap), n));
 }
 
 /** What the v2 enemy fx draw on a tier (docs/10 wave C Glow item 5). */

@@ -12,6 +12,12 @@ import {
   type EffectsTier,
   enemyFxGates,
   mapEffectsOn,
+  burstMulFor,
+  dustOn,
+  latticeCapFor,
+  latticeOn,
+  latticeSpacingFor,
+  tierBurstCount,
 } from '../../src/render/effects';
 import { ENEMY_TRAIL_CHARGER, ENEMY_TRAIL_SWIRL, enemyTrailParticle } from '../../src/render/trails';
 import {
@@ -252,5 +258,35 @@ describe('enemy trails in the shared pool', () => {
     expect(trailsLeft).toBe(0);
     expect(bursts).toBe(85);
     expect(p.live).toBe(85);
+  });
+});
+
+describe('effects tier: lattice, dust and burst density (wave D)', () => {
+  it('low keeps the v1 grid; standard and high run the lattice and dust', () => {
+    expect(latticeOn('low')).toBe(false);
+    expect(latticeOn('standard')).toBe(true);
+    expect(latticeOn('high')).toBe(true);
+    expect(dustOn('low')).toBe(false);
+    expect(dustOn('standard')).toBe(true);
+    expect(dustOn('high')).toBe(true);
+  });
+
+  it('maps tier to lattice spacing and node cap from the plan', () => {
+    expect(latticeSpacingFor('standard')).toBe(25);
+    expect(latticeCapFor('standard')).toBe(4096);
+    expect(latticeSpacingFor('high')).toBe(16);
+    expect(latticeCapFor('high')).toBe(8192);
+    expect(latticeCapFor('low')).toBe(0);
+  });
+
+  it('high raises burst counts by 1.5, limited by the cap', () => {
+    expect(burstMulFor('low')).toBe(1);
+    expect(burstMulFor('standard')).toBe(1);
+    expect(burstMulFor('high')).toBe(1.5);
+    expect(tierBurstCount(24, 'standard', 2048)).toBe(24);
+    expect(tierBurstCount(24, 'high', 4096)).toBe(36);
+    expect(tierBurstCount(200, 'high', 4096)).toBe(300);
+    expect(tierBurstCount(4000, 'high', 4096)).toBe(4096);
+    expect(tierBurstCount(-3, 'high', 4096)).toBe(0);
   });
 });

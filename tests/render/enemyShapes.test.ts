@@ -111,7 +111,9 @@ describe('v2 enemy glyphs', () => {
 
   it('each enemy wears its own palette key; the Mine wears its Sower colour', () => {
     expect(SHAPE_SPECS[Kind.Charger].tint).toBe('charger');
-    expect(SHAPE_SPECS[Kind.Bulwark].tint).toBe('bulwark');
+    // Bulwark bakes two colours: the body in its own key, the shield white (GC).
+    expect(SHAPE_SPECS[Kind.Bulwark].tint).toBeNull();
+    expect(SHAPE_SPECS[Kind.Bulwark].layers[0]?.colour).toBe('bulwark');
     expect(SHAPE_SPECS[Kind.Blink].tint).toBe('blink');
     expect(SHAPE_SPECS[Kind.Swirl].tint).toBe('swirl');
     expect(SHAPE_SPECS[Kind.Sower].tint).toBe('sower');
@@ -145,6 +147,27 @@ describe('v2 enemy glyphs', () => {
       expect(Math.atan2(arc.pts[arc.pts.length - 1] ?? 0, arc.pts[arc.pts.length - 2] ?? 0)).toBeCloseTo(Math.PI / 3, 2);
     }
     expect(SHAPE_SPECS[Kind.Bulwark].radius).toBeGreaterThanOrEqual(BULWARK_SHIELD_R);
+  });
+
+  it('Bulwark shield is unmistakable: a white filled plate over exactly the blocking arc, end ticks, bare flanks', () => {
+    const spec = SHAPE_SPECS[Kind.Bulwark];
+    const shield = spec.layers.slice(1);
+    for (const l of shield) expect(l.colour).toBe('white');
+    expect(spec.layers[0]?.colour).not.toBe('white');
+    const arc = spec.layers[1];
+    expect(arc?.width ?? 0).toBeGreaterThanOrEqual(4);
+    const plate = shield.find((l) => l.fill > 0);
+    expect(plate?.fill ?? 0).toBeGreaterThanOrEqual(0.3);
+    // Every shield point lies inside the front arc (plus and minus 60 degrees plus a hair).
+    for (const l of shield) {
+      for (const p of l.prims) {
+        if (p.t !== 'poly' && p.t !== 'line') continue;
+        for (let i = 0; i + 1 < p.pts.length; i += 2) {
+          const ang = Math.atan2(p.pts[i + 1] ?? 0, p.pts[i] ?? 0);
+          expect(Math.abs(ang)).toBeLessThanOrEqual(BULWARK_SHIELD_HALF + 0.01);
+        }
+      }
+    }
   });
 
   it('Blink ring has a gap toward the heading', () => {

@@ -1,5 +1,5 @@
 // Game renderer (docs/03-architecture.md section 6). Scene graph:
-//   stage > world > grid
+//   stage > world > gridLayer (alpha = gridAlpha): dust, grid (v1, low tier), lattice
 //                 > bloomLayer (bloom filter, reduced resolution): wallGlow, wallPulse,
 //                   wallFlash, glowSprites, particles, bulletTrails, enemyFxGlow, ringGlow
 //                 > lines (no filter, full resolution, MSAA): walls, floor, enemyFx, entities,
@@ -18,6 +18,10 @@
 // attached trails from the trail texture (bulletTrails): two draw calls for every bullet look.
 // Weapon pickups use per weapon visual slots (shapeSpecs.ts). Ship and bullet particle trails
 // go into the shared particle pool (particles.ts) and follow the effects tier.
+// v2 wave D: on the standard and high tiers the v1 grid and ripple are replaced by the spring
+// lattice (latticeView.ts, sim in lattice/): one position buffer, line-list meshes, impulses from
+// fx events, well pull and ship wake read from the World, and a governor that coarsens the
+// spacing under sustained load. The low tier keeps the v1 grid and ripple path as it was.
 // The app is created with autoStart false; draw() updates the scene and calls app.render().
 import {
   Application,
@@ -93,13 +97,34 @@ import {
   type BulletStyleVisual,
 } from './bulletStyles';
 import { bulletTrailRate, ENEMY_TRAIL_CHARGER, ENEMY_TRAIL_SWIRL, type Emitter } from './trails';
-import { getEffectsTier, mapEffectsOn } from './effects';
+import {
+  dustOn,
+  getEffectsTier,
+  latticeCapFor,
+  latticeOn,
+  latticeSpacingFor,
+  mapEffectsOn,
+  onEffectsTierChanged,
+  type EffectsTier,
+} from './effects';
+import { createLatticeView } from './latticeView';
+import { chooseSpacing } from './lattice/layout';
+import { addForce, addImpulse, addRing, clearForces } from './lattice/sim';
+import { latticeKickFor, MAX_WELLS, WAKE_RADIUS, wakeAccel, WELL_PULL_ACCEL, wellPullRadius } from './lattice/kicks';
+import { GAP_MS, initialGovernor, nextGovernor, smoothFrameMs, type GovernorState } from './lattice/governor';
 import {
   blinkArrived,
   blinkGhostAlpha,
   blinkRing,
+  CHARGER_CHEVRON_GAP,
+  CHARGER_CHEVRON_SIZE,
   CHARGER_DASH_TRAIL_RATE,
+  CHARGER_LANE_FILL,
+  CHARGER_LANE_HALF,
   CHARGER_LANE_LEN,
+  chargerChevrons,
+  splimeDropRing,
+  type SplimeRing,
   chargerDashing,
   chargerLaneAlpha,
   chargerStreak,
@@ -170,6 +195,9 @@ export interface RenderStats {
   bullets: number;
   particles: number;
   glowPath: GlowPath;
+  /** Lattice nodes and spacing in arena units; 0 on the low tier (v1 grid). */
+  latticeNodes: number;
+  latticeSpacing: number;
 }
 
 export interface GameRenderer {
@@ -352,6 +380,20 @@ function makeTrailTexture(app: Application): Texture {
   return tex;
 }
 
+/** Soft round dot, 8 px across, for the dust motes. */
+function makeDotTexture(app: Application): Texture {
+  const g = new Graphics()
+    .circle(0, 0, 4)
+    .fill({ color: 0xffffff, alpha: 0.25 })
+    .circle(0, 0, 2.6)
+    .fill({ color: 0xffffff, alpha: 0.6 })
+    .circle(0, 0, 1.4)
+    .fill({ color: 0xffffff, alpha: 1 });
+  const tex = app.renderer.generateTexture({ target: g, frame: new Rectangle(-4, -4, 8, 8), resolution: GEN_TEX_RES, antialias: true });
+  g.destroy({ context: true });
+  return tex;
+}
+
 /** WebGL context antialias attribute as the browser granted it, for the boot log. */
 function contextAntialias(r: Renderer): string {
   if ('gl' in r) {
@@ -383,7 +425,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   const world = new Container({ label: 'world' });
   world.interactiveChildren = false;
+  // Grid layer: its alpha is applyNeon's gridAlpha (bindNeon below). Holds the v1 grid (low
+  // tier) or the wave D lattice and dust (standard and high); neither sets its own base alpha.
+  const gridLayer = new Container({ label: 'gridLayer' });
   const grid = new Graphics({ label: 'grid' });
+  const dotTexture = makeDotTexture(app);
+  const lattice = createLatticeView(dotTexture);
   const bloomLayer = new Container({ label: 'bloomLayer' });
   const lines = new Container({ label: 'lines' });
   const walls = new Graphics({ label: 'walls' });
@@ -429,7 +476,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   bloomLayer.addChild(wallGlow, wallPulse, wallFlash, glowSprites, particles, trails, enemyFxGlow, ringGlow);
   lines.addChild(walls, floor, enemyFx, entities, bullets, rings);
-  world.addChild(grid, bloomLayer, lines);
+  gridLayer.addChild(lattice.dust, grid, lattice.lines);
+  world.addChild(gridLayer, bloomLayer, lines);
   app.stage.addChild(world, sticks);
   initParticles(particles, streak);
 
@@ -453,7 +501,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let explicitBullets: BulletPoolLike | null = null;
   let lastDraw = 0;
 
-  const stats: RenderStats = { entities: 0, bullets: 0, particles: 0, glowPath: 'bloom' };
+  const stats: RenderStats = { entities: 0, bullets: 0, particles: 0, glowPath: 'bloom', latticeNodes: 0, latticeSpacing: 0 };
+
+  // Lattice (wave D): on when the tier says so; the governor only coarsens inside a level.
+  let latticeActive = false;
+  let gov: GovernorState = initialGovernor();
+  let govNotchBuilt = 0;
+  let avgFrameMs = 0;
+  let wellsSeen = 0;
 
   // Entity view pool indexed by entity id. Kind and tint caches avoid redundant setter calls.
   let views: (Graphics | null)[] = [];
@@ -501,6 +556,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const enemyEmitters: Emitter[] = [];
   let enemyFxDirty = false;
   const ringScratch: BlinkRing = { r: 0, alpha: 0 };
+  const splimeRingScratch: SplimeRing = { r: 0, alpha: 0 };
   // Arrival and splat flashes: a fixed ring of expanding circles, no allocation per event.
   const pops: { x: number; y: number; age: number; life: number; r0: number; r1: number; colour: PaletteKey }[] = [];
   for (let i = 0; i < MAX_POPS; i++) pops.push({ x: 0, y: 0, age: 1, life: 0, r0: 0, r1: 0, colour: 'white' });
@@ -621,6 +677,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   function redrawGrid(): void {
+    // Standard and high draw the lattice instead; the v1 grid stays empty and hidden.
+    if (latticeActive) return;
     if (ripples.length === 0) {
       drawGrid(grid, gridSegs, palette.grid, fit.scale);
       gridRippling = false;
@@ -646,8 +704,57 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   function redrawArena(): void {
     redrawGrid();
-    grid.alpha = currentRender.gridAlpha;
+    gridLayer.alpha = currentRender.gridAlpha;
     redrawWalls(currentRender);
+  }
+
+  /**
+   * Switch between the v1 grid (low) and the lattice (standard, high) for the current arena,
+   * tier and governor notch. Allocates: called on arena, tier and governor changes only.
+   */
+  function applyLatticeTier(t: EffectsTier): void {
+    const on = latticeOn(t);
+    if (on) {
+      const s = chooseSpacing(arena, latticeSpacingFor(t), latticeCapFor(t), gov.notch);
+      if (!latticeActive || lattice.spacing !== s || govNotchBuilt !== gov.notch || lattice.sim === null) {
+        lattice.build(arena, s);
+      }
+      govNotchBuilt = gov.notch;
+      lattice.setColour(palette.grid);
+      ripples.length = 0;
+      if (!latticeActive) {
+        grid.clear();
+        gridRippling = false;
+      }
+      latticeActive = true;
+      grid.visible = false;
+      lattice.lines.visible = true;
+    } else {
+      lattice.clear();
+      latticeActive = false;
+      grid.visible = true;
+      lattice.lines.visible = false;
+      redrawGrid();
+    }
+    lattice.dust.visible = dustOn(t);
+    stats.latticeNodes = lattice.nodes;
+    stats.latticeSpacing = lattice.spacing;
+  }
+
+  /** Feed the frame interval to the governor; rebuild one notch coarser when it says so. */
+  function governLattice(dtSec: number, nowSec: number): void {
+    if (!latticeActive) return;
+    const ms = dtSec * 1000;
+    if (!(ms > 0) || ms > GAP_MS) {
+      // A pause, hidden tab or fold is not load: restart the streak.
+      if (gov.overSince >= 0) gov = { notch: gov.notch, overSince: -1 };
+      return;
+    }
+    avgFrameMs = smoothFrameMs(avgFrameMs, ms);
+    const next = nextGovernor(gov, { frameMs: avgFrameMs, nowSec });
+    if (next === gov) return;
+    gov = next;
+    if (gov.notch !== govNotchBuilt) applyLatticeTier(getEffectsTier());
   }
 
   function applyFit(): void {
@@ -658,14 +765,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const r = screenRectInWorld(cssW, cssH, fit);
     const pad = SHAKE_PAD_PX / Math.max(fit.scale, 0.01);
     bloomLayer.filterArea = new Rectangle(r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad);
+    lattice.setPixel(1 / Math.max(0.01, fit.scale * app.renderer.resolution));
     redrawArena();
   }
 
   // Neon: bindNeon writes bloom strength and threshold onto this live filter instance and the
-  // grid alpha onto the live grid, then calls these hooks for the shape, tint and sprite paths.
+  // grid alpha onto the live grid layer (v1 grid, lattice and dust), then calls these hooks for
+  // the shape, tint and sprite paths.
   const offNeon = bindNeon({
     bloom,
-    grid,
+    grid: gridLayer,
     shapes(r: Readonly<NeonRender>): void {
       const old = rebuildShapeContexts(r);
       for (let i = 0; i < views.length; i++) {
@@ -685,6 +794,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       bullets.update();
       trails.update();
       redrawGrid();
+      lattice.setColour(palette.grid);
     },
     sprites(): void {
       // Both sprite sets bake palette colours; rebuild lazily for the live path.
@@ -699,11 +809,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     burstFx(x, y, e);
     const plan = planFx(e);
     if (plan.shake) addShake(shake, plan.shake.amp, plan.shake.dur);
-    if (plan.ripple > 0) addRipple(ripples, x, y, plan.ripple);
+    if (latticeActive) kickLattice(x, y, e, plan.ripple);
+    else if (plan.ripple > 0) addRipple(ripples, x, y, plan.ripple);
     if (plan.ring !== null) {
       if (ringList.length >= MAX_RINGS) ringList.shift();
       ringList.push({ x, y, age: 0, colour: plan.ring });
     }
+  }
+
+  /** Lattice impulse for an fx event: a point kick, or an expanding ring for bombs and supers. */
+  function kickLattice(x: number, y: number, e: FxEvent, ripple: number): void {
+    const sim = lattice.sim;
+    if (!sim) return;
+    const k = latticeKickFor(e.type, ripple);
+    if (k === null) return;
+    if (k.t === 'point') addImpulse(sim, x, y, k.strength, k.radius);
+    else addRing(sim, x, y, k.strength, k.speed, k.life, k.width);
   }
 
   function superFx(x: number, y: number): void {
@@ -769,6 +890,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // Weapon pickup collected (Swarm, wave B): a burst in the weapon's bullet colour.
     bus.on('fx:pickup', (p) => burst(p.x, p.y, palette[weaponTint(p.weapon)], PICKUP_BURST_COUNT)),
   ];
+  offFx.push(onEffectsTierChanged((t) => applyLatticeTier(t)));
   registerParticleStress(setParticleStress);
 
   function stepEffects(dt: number): void {
@@ -898,6 +1020,52 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   /**
+   * Charger wind up lane (GC: make it unmistakable). A translucent band exactly as wide as the
+   * dash sweeps, two rails, a bright centre line, an end bar where the dash stops at a wall or
+   * at full length, and chevrons that crawl toward the dash direction. (x, y) is the Charger,
+   * (dx, dy) the unit heading, len the lane length, la the lane alpha, phase the w.t phase.
+   */
+  function drawChargerLane(x: number, y: number, dx: number, dy: number, len: number, la: number, phase: number): void {
+    const colour = palette.charger;
+    const nx = -dy * CHARGER_LANE_HALF;
+    const ny = dx * CHARGER_LANE_HALF;
+    const x0 = x + dx * 16;
+    const y0 = y + dy * 16;
+    const x1 = x + dx * len;
+    const y1 = y + dy * len;
+    if (len > 16) {
+      enemyFx
+        .moveTo(x0 + nx, y0 + ny)
+        .lineTo(x1 + nx, y1 + ny)
+        .lineTo(x1 - nx, y1 - ny)
+        .lineTo(x0 - nx, y0 - ny)
+        .closePath()
+        .fill({ color: colour, alpha: CHARGER_LANE_FILL * la });
+      fxLine(x0 + nx, y0 + ny, x1 + nx, y1 + ny, 1.4, colour, la * 0.75);
+      fxLine(x0 - nx, y0 - ny, x1 - nx, y1 - ny, 1.4, colour, la * 0.75);
+    }
+    fxLine(x0, y0, x1, y1, 2, colour, la);
+    fxLine(x1 + nx, y1 + ny, x1 - nx, y1 - ny, 2.4, colour, la);
+    const n = chargerChevrons(len);
+    const cs = CHARGER_CHEVRON_SIZE;
+    const crawl = (phase * 120) % CHARGER_CHEVRON_GAP;
+    for (let k = 0; k < n; k++) {
+      const d = 30 + crawl + k * CHARGER_CHEVRON_GAP;
+      if (d > len - 8) break;
+      const px = x + dx * d;
+      const py = y + dy * d;
+      const bx = px - dx * cs;
+      const by = py - dy * cs;
+      enemyFx
+        .moveTo(bx - dy * cs, by + dx * cs)
+        .lineTo(px, py)
+        .lineTo(bx + dy * cs, by - dx * cs)
+        .stroke({ width: 2, color: colour, alpha: la, cap: 'round', join: 'round' });
+    }
+    enemyFxDirty = true;
+  }
+
+  /**
    * Render contract for the v2 kinds (docs/10 wave C table): per kind alpha, scale and turn, plus
    * the tells (Charger lane, Blink ring and arrival, Slime splat) and the trails (Swirl, Charger
    * dash). Telegraphing entities draw no tells or trails. Reads the World, writes only render.
@@ -918,7 +1086,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const dy = Math.sin(ev.rot);
       if (la > 0) {
         const len = rayWallDistance(features, ev.x, ev.y, dx, dy, CHARGER_LANE_LEN);
-        fxLine(ev.x + dx * 16, ev.y + dy * 16, ev.x + dx * len, ev.y + dy * len, 1.6, palette.charger, la);
+        drawChargerLane(ev.x, ev.y, dx, dy, len, la, t);
       } else if (chargerDashing(t) && trailsActive()) {
         const len = chargerStreakLen(t);
         if (len > 4) fxLine(ev.x - dx * 8, ev.y - dy * 8, ev.x - dx * len, ev.y - dy * len, 4, palette.charger, 0.7 * chargerStreak(t));
@@ -939,6 +1107,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const sw = splimeSwell(t);
       ev.scaleX *= sw;
       ev.scaleY *= sw;
+      // Drop telegraph: a footprint ring growing to the puddle size where the Slime will land.
+      if (!tele) {
+        splimeDropRing(t, splimeRingScratch);
+        if (splimeRingScratch.alpha > 0) fxCircle(ev.x, ev.y, splimeRingScratch.r, 2, palette.splime, splimeRingScratch.alpha);
+      }
     } else if (kind === KIND_NUM.mine) {
       ev.alpha *= mineAlpha(t);
     } else if (kind === KIND_NUM.slime) {
@@ -1045,6 +1218,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       ev.rot = rot;
       ev.glowMul = 1;
       if (isV2) applyEnemyContract(w, i, kind, teleNow, timeSec, dt);
+      // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
+      if (kind === KIND_GRAVITY_WELL && !teleNow && wellsSeen < MAX_WELLS && lattice.sim) {
+        addForce(lattice.sim, ev.x, ev.y, wellPullRadius(w.radius[i] ?? 0), WELL_PULL_ACCEL);
+        wellsSeen++;
+      }
       v.position.set(ev.x, ev.y);
       v.rotation = ev.rot;
       v.scale.set(ev.scaleX, ev.scaleY);
@@ -1153,14 +1331,24 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
     watchSuper(w);
+    const sim = lattice.sim;
+    if (sim) clearForces(sim);
+    wellsSeen = 0;
     drawEntities(w, a, now / 1000, fxDt);
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
     // Ship trail: reads the sim velocity, writes only render particles.
-    if (w.alive[0] === 1 && shipActive(w)) emitShipTrail(shipX, shipY, w.vx[0] ?? 0, w.vy[0] ?? 0, fxDt);
-    else resetShipTrail();
+    if (w.alive[0] === 1 && shipActive(w)) {
+      emitShipTrail(shipX, shipY, w.vx[0] ?? 0, w.vy[0] ?? 0, fxDt);
+      // Ship wake through the lattice above 120 u/s.
+      const wake = sim ? wakeAccel(Math.hypot(w.vx[0] ?? 0, w.vy[0] ?? 0)) : 0;
+      if (sim && wake > 0) addForce(sim, shipX, shipY, WAKE_RADIUS, wake);
+    } else resetShipTrail();
     drawBullets(explicitBullets ?? bulletsFromWorld(w), a, shipX, shipY, fxDt);
     stepEffects(dt);
+    if (latticeActive) lattice.frame(dt);
+    if (lattice.dust.visible) lattice.dustFrame(fxDt, now / 1000);
+    governLattice(dt, now / 1000);
     stepParticles(dt);
     stats.particles = liveParticleCount();
     app.render();
@@ -1202,6 +1390,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     ringList.length = 0;
     shake.list.length = 0;
     resetEnemyAndMapFx();
+    // New level: the governor starts again from the tier spacing.
+    gov = initialGovernor();
+    avgFrameMs = 0;
+    lattice.clear();
+    applyLatticeTier(getEffectsTier());
+    lattice.seedDust(arena);
     applyFit();
   }
 
@@ -1235,6 +1429,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     for (const off of offFx) off();
     registerParticleStress(null);
     disposeParticles();
+    lattice.destroy();
+    dotTexture.destroy(true);
     for (const t of glowTextures) t?.destroy(true);
     for (const t of bloomTextures) t?.destroy(true);
     app.destroy(true, { children: true });
@@ -1243,6 +1439,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   gridSegs = arenaGridSegments(arena);
   features = wallFeatures(arena);
   setParticleBounds(arena.width, arena.height);
+  applyLatticeTier(getEffectsTier());
+  lattice.seedDust(arena);
   applyFit();
   setBloomEnabled(true);
   logRender();
