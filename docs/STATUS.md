@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-D running (Glow: lattice, Chorus: layers, Ledger: fx-music) on main fb25216. GC passed. Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GD (look and sound) after wave D merges
+- Wave: V2-D merged at 4113528 (glue), deploy success. GD pending on device. Then wave E (Proctor hardening, fixers). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GD (fps per tier at ?stress=400, visual ratings, music layers, pause and fold, slider 0)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -33,7 +33,8 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - v2 B: glow-weapon-fx ($3.93), swarm-weapons ($2.67), ledger-weapon-hud ($1.50); glue aff933f
 - v2 C: foundry-v2-enemies ($5.18), swarm-enemies ($4.43), glow-enemy-fx ($5.86); glue 1c2a3d1 (generator sweep)
 - GC fixes: foundry-gc-triage ($1.31), glue d117d8e, tune e6d6b66, ci c82eb1e
-- Spend so far about $99 of $192 (second $200 also usable per Ryan); tagged v1.0.0 at 4fbdaf7
+- v2 D: glow-lattice ($7.99), chorus-layers ($3.82), ledger-fx-music ($2.29); glue 4113528
+- Spend so far about $113 of $192 (second $200 also usable per Ryan); tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
 - B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
@@ -55,4 +56,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Read .agents/runs/0171-glow-lattice, 0172-chorus-layers, 0173-ledger-fx-music. Review, merge in order Glow, Chorus, Ledger, glue (setEffectsTier port, wireMusic port), read the deploy result, then gate GD from docs/10. Open small items: tests/qa/summary.ts spawnTotal; docs/02 section 11 J6; generator perf (Foundry); v3 backlog High tier, 3D, curved surfaces.
+If GD not pasted: give Ryan the GD device check (build 4113528). If passed: D8 (tier default from fps) and D9 (music default) recorded, dispatch wave E from docs/10 (Proctor hardening, fixers from the GD notes). If fps_standard under 60: Low becomes default via one Glow or Ledger run before E. Open small items unchanged.
