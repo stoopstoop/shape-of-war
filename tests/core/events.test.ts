@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Kind } from '../../src/game/world';
 import { Bus } from '../../src/core/events';
 
 describe('event bus', () => {
@@ -27,7 +28,7 @@ describe('event bus', () => {
     let n = 0;
     bus.on('fx:kill', () => n++);
     bus.clear();
-    bus.emit('fx:kill', { x: 0, y: 0, colour: 'blue' });
+    bus.emit('fx:kill', { x: 0, y: 0, colour: 'blue', kind: Kind.Grunt, id: 1 });
     expect(n).toBe(0);
   });
 });

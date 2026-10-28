@@ -1,5 +1,6 @@
 // Kill accents and the intensity lift through the real entry points, with a fake audio clock.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Kind } from '../../../src/game/world';
 import { LIFT_CUTOFF_MUL, masterCutoff } from '../../../src/audio/music/intensity';
 import { initMusic, musicState, setMusicVolume, startMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
 import { CHORD_TIMBRE, KILL_LEAD_SEC, KILL_SPECS, killMidi, killPasses } from '../../../src/audio/music/kills';
@@ -26,7 +27,7 @@ function advance(sec: number): void {
 }
 
 function kill(colour: Events['fx:kill']['colour']): void {
-  bus.emit('fx:kill', { x: 0, y: 0, colour });
+  bus.emit('fx:kill', { x: 0, y: 0, colour, kind: Kind.Grunt, id: 1 });
   bus.emit('sfx', 'explode');
 }
 
@@ -102,7 +103,7 @@ describe('kill accents in the music loop', () => {
   it('snake segment bursts (fx:kill without explode) and stray explodes are not kills', () => {
     startMusic(seedWithFirstKill());
     advance(0.5);
-    for (let i = 0; i < 8; i++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan' });
+    for (let i = 0; i < 8; i++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.Grunt, id: 1 });
     advance(0.2);
     bus.emit('sfx', 'shot');
     bus.emit('sfx', 'explode');

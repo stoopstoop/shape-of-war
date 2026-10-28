@@ -3,6 +3,7 @@
 // no note is ever scheduled in the past, the music never has more than 16 voices sounding,
 // no step is lost to a stall and the kill gate holds its budget. Jitter comes from hash01,
 // so every run is identical.
+import { Kind } from '../../../src/game/world';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MUSIC_VOICE_CAP, type VoiceClass, type VoiceTrace } from '../../../src/audio/music/engine';
 import { initMusic, musicState, startMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
@@ -115,8 +116,8 @@ function simulate(seconds: number): { kills: number; bombs: number } {
     const n = h < 0.03 ? 5 : h < 0.4 ? 1 : 0;
     for (let k = 0; k < n; k++) {
       const colour = COLOURS[Math.floor(hash01(i * 7 + k, 0xc010) * COLOURS.length)] ?? 'blue';
-      if (colour === 'cyan') for (let s = 0; s < 6; s++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan' });
-      bus.emit('fx:kill', { x: 0, y: 0, colour });
+      if (colour === 'cyan') for (let s = 0; s < 6; s++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.Grunt, id: 1 });
+      bus.emit('fx:kill', { x: 0, y: 0, colour, kind: Kind.Grunt, id: 1 });
       bus.emit('sfx', 'explode');
       kills++;
     }
