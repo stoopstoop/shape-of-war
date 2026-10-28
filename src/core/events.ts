@@ -1,8 +1,12 @@
 // Typed event bus (docs/03 section 9). UI and game never import each other; they share this.
 import type { Insets } from '../input/types';
+import type { EnemyKind } from '../levelgen/leveldef';
 import type { NeonParams, PaletteKey } from '../render/neon';
 
 export type SfxName = 'shot' | 'explode' | 'geom' | 'bomb' | 'death' | 'spawn';
+
+/** V2 weapon styles (docs/10-v2-plan.md). Matches BulletPool.style: 0 spread, 1 rapid, 2 pierce, 3 orbit. */
+export type WeaponKind = 'spread' | 'rapid' | 'pierce' | 'orbit';
 
 /** Arena fit inside the safe play rect (docs/04 section 4). x, y is the arena centre in CSS px. */
 export interface ArenaFit {
@@ -35,6 +39,17 @@ export interface Events {
   'fx:death': { x: number; y: number };
   'fx:bomb': { x: number; y: number };
   'fx:geom': { x: number; y: number };
+  // V2 contract stubs (docs/10-v2-plan.md Appendix B). Nothing emits these until waves B and C.
+  /** Swarm (C) to Chorus: the telegraph ended and no other live entity of this kind existed. */
+  'sim:enemyEnter': { kind: EnemyKind; live: number };
+  /** Swarm (C) to Chorus: the last live entity of this kind was removed. */
+  'sim:enemyExit': { kind: EnemyKind };
+  /** Swarm (C) to Chorus and Glow: level in 0 to 1, at most every 100 ms. */
+  'sim:threat': { level: number };
+  /** Swarm (B) to Glow: a weapon pickup was collected at (x, y). */
+  'fx:pickup': { x: number; y: number; weapon: WeaponKind };
+  /** Swarm (B) to Ledger: at most every 100 ms and on change. */
+  'hud:weapon': { kind: WeaponKind; remaining: number; total: number };
 }
 
 export type EventKey = keyof Events;

@@ -5,7 +5,7 @@ import { BASE_PALETTE } from '../../src/render/neon';
 import { ALL_KINDS, SHAPE_SPECS, specFor, UNKNOWN_SPEC, type DrawnKind } from '../../src/render/shapeSpecs';
 
 // Every Kind value after None, by numeric range so a gap in ALL_KINDS is caught.
-const LAST_KIND = Kind.Drone;
+const LAST_KIND = Kind.Mine;
 
 describe('shape registry', () => {
   it('has an entry for every Kind except None', () => {

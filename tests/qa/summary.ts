@@ -49,16 +49,21 @@ export interface LevelSummary {
     loopFromIndex: number;
     loopPeriodSec: number;
     spawnTotal: number;
-    spawnsByKind: Record<EnemyKind, number>;
+    spawnsByKind: Partial<Record<EnemyKind, number>>;
     firstWave: WaveDef | null;
     lastWave: WaveDef | null;
   };
 }
 
-/** Pure: spawn entries per enemy kind over the stored waves (loop repeats not expanded). */
-export function spawnsByKind(def: Readonly<LevelDef>): Record<EnemyKind, number> {
-  const out: Record<EnemyKind, number> = { grunt: 0, wanderer: 0, weaver: 0, pinwheel: 0, dart: 0, snake: 0 };
-  for (const wave of def.waves.waves) for (const e of wave.entries) out[e.kind] += 1;
+/**
+ * Pure: spawn entries per enemy kind over the stored waves (loop repeats not expanded). The v1 kinds
+ * are always present, in ENEMY_KINDS order, so the stored snapshots stay byte identical. A V2 kind
+ * appears only when the def spawns it.
+ */
+export function spawnsByKind(def: Readonly<LevelDef>): Partial<Record<EnemyKind, number>> {
+  const out: Partial<Record<EnemyKind, number>> = {};
+  for (const k of ENEMY_KINDS) out[k] = 0;
+  for (const wave of def.waves.waves) for (const e of wave.entries) out[e.kind] = (out[e.kind] ?? 0) + 1;
   return out;
 }
 
@@ -106,7 +111,7 @@ export function summariseLevel(def: Readonly<LevelDef>): LevelSummary {
       waveCount: waves.waves.length,
       loopFromIndex: waves.loopFromIndex,
       loopPeriodSec: waves.loopPeriodSec,
-      spawnTotal: ENEMY_KINDS.reduce((n, k) => n + byKind[k], 0),
+      spawnTotal: ENEMY_KINDS.reduce((n, k) => n + (byKind[k] ?? 0), 0),
       spawnsByKind: byKind,
       firstWave: first ?? null,
       lastWave: last ?? null,

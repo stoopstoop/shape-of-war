@@ -105,7 +105,21 @@ const OBSTACLE_THICK = 24;
 const OBSTACLE_MIN_LEN = 160;
 const OBSTACLE_MAX_LEN_FRACTION = 0.3;
 const OBSTACLE_ATTEMPTS = 40;
-const SPAWN_COST: Record<EnemyKind, number> = { grunt: 1, wanderer: 1, pinwheel: 1, weaver: 2, dart: 4, snake: 6 };
+const SPAWN_COST: Record<EnemyKind, number> = {
+  grunt: 1,
+  wanderer: 1,
+  pinwheel: 1,
+  weaver: 2,
+  dart: 4,
+  snake: 6,
+  // V2 stubs: infinite cost means never affordable. Unreachable today (weight 0 in every band);
+  // Foundry sets real costs in wave C.
+  charger: Infinity,
+  bulwark: Infinity,
+  blink: Infinity,
+  swirl: Infinity,
+  sower: Infinity,
+};
 const SNAKE_WINDOW_SEC = 30;
 const GROUP_START_STEP_SEC = 0.5;
 const ENTRY_STEP_SEC = 0.15;
@@ -373,6 +387,13 @@ function patternFor(r: Rng, kind: EnemyKind): SpawnPattern {
       return 'cluster';
     case 'snake':
       return 'corners';
+    // V2 stubs: no PRNG draw and unreachable today (weight 0). Foundry picks real patterns in wave C.
+    case 'charger':
+    case 'bulwark':
+    case 'blink':
+    case 'swirl':
+    case 'sower':
+      return 'edges';
   }
 }
 
