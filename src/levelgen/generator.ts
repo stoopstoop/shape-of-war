@@ -119,6 +119,7 @@ const SPAWN_COST: Record<EnemyKind, number> = {
   blink: Infinity,
   swirl: Infinity,
   sower: Infinity,
+  splime: Infinity,
 };
 const SNAKE_WINDOW_SEC = 30;
 const GROUP_START_STEP_SEC = 0.5;
@@ -393,6 +394,7 @@ function patternFor(r: Rng, kind: EnemyKind): SpawnPattern {
     case 'blink':
     case 'swirl':
     case 'sower':
+    case 'splime':
       return 'edges';
   }
 }

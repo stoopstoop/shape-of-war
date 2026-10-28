@@ -55,6 +55,8 @@ export const ALL_KINDS: readonly DrawnKind[] = [
   Kind.Swirl,
   Kind.Sower,
   Kind.Mine,
+  Kind.Splime,
+  Kind.Slime,
 ];
 
 interface LayerExtra {
@@ -186,6 +188,8 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   [Kind.Swirl]: placeholderSpec(),
   [Kind.Sower]: placeholderSpec(),
   [Kind.Mine]: placeholderSpec(),
+  [Kind.Splime]: placeholderSpec(),
+  [Kind.Slime]: placeholderSpec(),
 };
 
 /** Drawn for any kind value outside the registry: a magenta circle. */
