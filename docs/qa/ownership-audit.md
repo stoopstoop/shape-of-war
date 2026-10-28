@@ -73,3 +73,83 @@ Rule scan, same base:
 ```
 git diff g2...feat/glow-fx -U0 -- src tests | grep -E "^\+" | grep -nE "Math\.random|keydown|mousedown|gamepad|'click'|: any|as any|ts-ignore|localStorage"
 ```
+
+---
+
+# Shape of War: v2 ownership audit (wave E)
+
+Owner: Proctor. Task: every file changed by each v2 wave branch against the owner table of its wave (docs/10 "Agents and ownership", docs/11 SPEC 7.3), plus the shared gate scans of docs/10 "Shared rules" item 7 at main 6f11afb. The v2 tables are `OWNERS_V2` in `tests/qa/ownership.ts`, one per wave A to E; `tests/qa/ownership.test.ts` checks them (who owns `ship.ts`, `scoring.ts`, `src/audio/` and the level pin test in each wave, that no path has two owners, that every nickname has a roster file).
+
+## Bad news first (v2 audit)
+
+- One path outside ownership: `docs/pixi8-cheatsheet.md`, changed by Glow in wave D (`f9e5083`). The Glow wave D brief asked for it itself (task 1: "record in the cheatsheet notes") while its "Own" line lists only `src/render/` and `tests/render/`, so the brief contradicts itself. Fable accepted the addition (DECISIONS 35:30). Recorded as an accepted exception, not a violation.
+- The audit covers committed work on merged branches only. Fable's glue commits are exempt from roster ownership (v1 audit rule): `4f61c3b`, `aff933f`, `1c2a3d1`, `d117d8e`, `e6d6b66`, `c82eb1e`, `4113528`. V2-W0 (the Scribe stubs and addendum) is not audited either: its ownership is "the files in the stubs table plus whatever `tsc` flags", which a static table cannot express.
+- The two wave E fixer branches (`feat/glow-v2-fixes`, `feat/chorus-v2-fixes`) had no commits when this ran, and their "files named in the brief" lists are not in the repo. Audit them with `--owns=` once Fable has the lists (commands at the end).
+- `grep -rn "mulberry32" src/game` as written in the GB and GC gate text matches `src/game/world.ts` lines 3 and 107, the v1 `w.simRng`. The intent is "no new use", and that holds (see the scans). The gate line as written can never print nothing.
+- `grep -rn "Math.random" src/ | grep -v src/core/rng.ts` as written prints one line, `src/levelgen/generator.ts:2`, a comment that says "no Math.random". It is not a call.
+
+## Baseline
+
+| Item | Value |
+|---|---|
+| Tag `v1.1.0` | e231b6d, the last v1 build (G5). 55 commits sit between it and 6f11afb |
+| `main` | a6c78e3 (docs only: STATUS and DECISIONS, "GD pass, wave E dispatched"); this branch is based on 6f11afb |
+| Build Ryan gated | GA 4f61c3b, GB 1612a53, GC fb25216, GD 6f11afb |
+
+## Results
+
+Each merge was audited with its own parents: base is the merge's first parent, branch is its second (`git diff <merge>^1...<merge>^2`), so the numbers are exactly what that branch brought in.
+
+| Wave | Merge | Branch | Agent | Changed paths | Outside |
+|---|---|---|---|---|---|
+| A | 15c8e1b | feat/forge-space-physics | Forge | 4 (the four named files) | 0 |
+| A | c888882 | feat/ledger-space-setting | Ledger | 7 | 0 |
+| A | 5e5045e | feat/chorus-engine | Chorus | 14 (`src/audio/`, `tests/audio/`) | 0 |
+| B | 1aed705 | feat/glow-weapon-fx | Glow | 14 | 0 |
+| B | 5f3d858 | feat/swarm-weapons | Swarm | 11 | 0 |
+| B | 5dd4062 | feat/ledger-weapon-hud | Ledger | 9 | 0 |
+| C | d2e534b | feat/foundry-v2-enemies | Foundry | 12 | 0 |
+| C | 1fe3a82 | feat/swarm-enemies | Swarm | 23 | 0 |
+| C | 43c42a1 | feat/glow-enemy-fx | Glow | 15 | 0 |
+| C | 050a6e7 | feat/foundry-gc-triage | Foundry | 1 | 0 |
+| D | f9e5083 | feat/glow-lattice | Glow | 21 | 1 (`docs/pixi8-cheatsheet.md`, accepted) |
+| D | 29b669e | feat/chorus-layers | Chorus | 9 | 0 |
+| D | f466758 | feat/ledger-fx-music | Ledger | 9 | 0 |
+
+Specific checks the brief asked for in docs/10 (Gate GA to GD "Fable verifies"), re-run at 6f11afb:
+
+- `src/game/ship.ts` is touched by exactly two merged branches: Forge in wave A (`15c8e1b`) and Swarm in wave B (`5f3d858`, the one line that dispatches fire). Swarm's wave C branch (`1fe3a82`) does not touch it, as the GC check requires. No Glow, Ledger, Chorus or Foundry branch touches it.
+- `git diff v1.1.0 HEAD -- package.json package-lock.json CLAUDE.md SPEC.md` is empty.
+- `tests/qa/__snapshots__/`: the only change since v1.1.0 is four added files (`seed42-level13-v2.json`, `seed0xDEADBEEF-level18-v2.json`, `seed0xDEADBEEF-level36-v2.json`, `seed0x4E464F4C-level31-v2.json`); no existing snapshot was modified.
+- `git ls-files | grep -E "\.(mp3|ogg|wav|flac|m4a|png|jpg)$"` prints the four PWA icons and nothing else (also `tests/qa/noAssets.test.ts`).
+
+## Rule scan at 6f11afb
+
+| Scan | Result |
+|---|---|
+| DoD v7 grep over `src/` and `tests/` | prints nothing |
+| `Math.random` outside `src/core/rng.ts` | one comment line, `src/levelgen/generator.ts:2`; no call |
+| `keydown`, `keyup`, `mousedown`, `getGamepads` in `src/` | nothing |
+| `: any`, `as any`, `ts-ignore` in `src/` and `tests/` | nothing |
+| Lines added since v1.1.0 under `src/game`, `src/render`, `src/audio` that mention `mulberry32` | nothing (the only use in `src/game` is the v1 `simRng` in `world.ts`) |
+| Em or en dashes in any `.ts`, `.md`, `.json`, `.html` or `.mjs` file outside `node_modules`, `dist`, `.git` and `.agents` | 0 lines |
+| `click` listeners | still the four in `src/render/devpanel.ts` (QA-009) |
+
+## How to re-run
+
+Needs Node 22.18 or newer. From the repo root, for any merged wave branch, with its merge commit `M`:
+
+```
+node tests/qa/ownershipAudit.ts M^1 M^2 <agent> <wave A to E>
+node tests/qa/ownershipAudit.ts 15c8e1b^1 15c8e1b^2 forge A
+node tests/qa/ownershipAudit.ts f9e5083^1 f9e5083^2 glow D
+```
+
+For a fixer branch, whose ownership is "only the files named in the brief", pass that list (a trailing slash means a directory):
+
+```
+node tests/qa/ownershipAudit.ts main feat/glow-v2-fixes glow --owns=src/render/,tests/render/
+node tests/qa/ownershipAudit.ts main feat/chorus-v2-fixes chorus --owns=src/audio/,tests/audio/
+```
+
+Each prints one line per changed path (`ok` or `OUTSIDE`) and exits 1 if any path is outside. Without a fourth argument the v1 table of the section above is used. The flake report for the suite is `node tests/qa/repeatSuite.ts 10` (see `docs/qa/suite-runs.md`).

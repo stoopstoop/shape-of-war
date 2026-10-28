@@ -188,9 +188,9 @@ describe('physics replay: Off is the frozen v1.0.0 formula on every arena shape'
 });
 
 describe('physics replay: the same input log gives the same ship path', { timeout: 120_000 }, () => {
-  const cases = ARENAS.flatMap((a) => LEVELS.map((space) => [a.name, a.runSeed, a.levelIndex, space] as const));
+  const cases = ARENAS.flatMap((a) => LEVELS.map((space) => ({ name: a.name, runSeed: a.runSeed, levelIndex: a.levelIndex, space })));
 
-  it.each(cases)('%s level %#: %s replays identically with enemies, hazards and weapons live', (_name, runSeed, levelIndex, space) => {
+  it.each(cases)('$name $space: replays identically with enemies, hazards and weapons live', ({ runSeed, levelIndex, space }) => {
     const level = generateLevel(runSeed, levelIndex, DEFAULT_GEN_CONFIG);
     const log = inputLog(TICKS, levelIndex + 100);
     const a = runPath(level, space, log);

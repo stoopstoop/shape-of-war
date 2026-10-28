@@ -112,3 +112,38 @@ Taken from `npm run build` on the W4 branch, source identical to main at 5bef4ae
 | All non map files in `dist/` | 771,644 raw | Service worker precache reports 21 entries, 736.54 KiB |
 
 Not measured: transfer size over the real GitHub Pages response headers, and cold start time on the Fold. The precache is about 0.7 MB, so the first offline ready launch needs that much data once.
+
+## 8. v2 device readings (Ryan's pastes, wave E)
+
+Numbers are copied from the gate rows of `docs/STATUS.md` and the GD paste Fable supplied. Proctor measured none of them. Each row is valid for its build id only. The motion setting was not recorded in any of these pastes, so none of them can be filed as an accepted cover screen 60 against the 120 target (section 1); P1 at G4 was accepted at 60 with Adaptive and nothing here changes that.
+
+| Gate | Build | Screen and scene | Reading | Note |
+|---|---|---|---|---|
+| GA | 4f61c3b | Cover and main, Medium physics, `?stress=400` | fps_cover 60, fps_main 60 | Pass |
+| GB | 1612a53 | Main, `?stress=400` | fps_main 60 | Pass |
+| GC | fb25216 | Main, `?stress=400` | fps_main 60 | Pass |
+| GD | 6f11afb | Main, `?stress=400`, Effects Low | 50 and 59 | Written `fps_low 50/59`; the template says average then bomb dip, which cannot give a dip above the average. Ambiguous, see V2-03 in `docs/qa/bugs.md` |
+| GD | 6f11afb | Main, `?stress=400`, Effects Standard | 59 average, 59 after a bomb | Written `fps_standard 59/59`. Below the 60 floor of docs/11 SPEC 5 by 1; accepted at D8 (DECISIONS 35:50). Standard stays the default |
+| GD | 6f11afb | Main, `?stress=400`, Effects High | 59 | Written `fps_high 59`, no bomb figure. High stays opt in |
+
+What the rows say together: Standard and High both read 59, which is the ceiling of the 60 Hz main screen, so this scene cannot tell them apart from a display cap. Low reading 50 is the outlier, and Low is the cheapest tier. Either Low carries a cost the lattice tiers do not (the v1 grid redraw, plus the tells that now draw on every tier), or the reading was cold or ordered first. That is a guess from the code, not a measurement. The V-D1 line of `docs/device-checklist.md` asks for Standard, then High, then Low last, average and bomb dip each, to settle it.
+
+Re-measure triggers added by v2, on top of section 6: a change to `SPACE_TABLE`, the effects tier caps, the lattice spacing or node caps, the particle cap per tier, the music voice cap or lookahead, and any Slime or Splime count.
+
+## 9. Bundle size (v2 harden)
+
+Taken from `npm run build` on `feat/proctor-v2-harden`, source identical to main at 6f11afb apart from tests and docs. Same method as section 7: every `.js` file in `dist/`, maps excluded, gzip level 9 measured with node. Flag rule from the wave E brief: gzipped JS over 1.5 MB.
+
+| Measure | Bytes | Against W4 (section 7) |
+|---|---|---|
+| JS files in `dist/` | 12 | same |
+| JS raw | 807,592 | plus 91,184 (12.7 percent) |
+| JS gzipped | 247,504 (241.7 KiB) | plus 31,808 (14.7 percent). 16.5 percent of 1,500,000, so **not flagged** |
+| JS brotli | 212,954 | plus about 27,000 |
+| Largest chunk | `index-*.js` 522,160 raw, 163,779 gzipped | was 430,976 raw |
+| All non map files in `dist/` | 862,828 raw | was 771,644 |
+| Service worker precache | 21 entries, 825.58 KiB | was 736.54 KiB |
+
+The build prints Vite's warning that a chunk is over 500 kB after minification (`index-*.js` crossed it with wave D). It is a warning, not a limit of this project; the gzipped total is what the flag rule uses.
+
+Not measured: transfer size over the real GitHub Pages headers, cold start time on the Fold, and the memory cost of the lattice and the music voices.
