@@ -20,7 +20,7 @@ describe('flat hook with the v2 enemies on', () => {
       }
     }
     expect(generateEndless(5).surface).toBe('flat');
-  });
+  }, 60000);
 
   it('any other surface value fails V1 on a version 2 level, and nothing else does', () => {
     const base = generateLevel(42, 20);

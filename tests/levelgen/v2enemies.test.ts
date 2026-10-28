@@ -180,16 +180,13 @@ describe('v2 enemy stage', { timeout: 60_000 }, () => {
     });
 
     it('no roster or wave ever names a hazard: every name is an EnemyKind, never mine or slime', () => {
-      for (const b of BAND_LIST) {
-        for (const d of sweep(b)) {
-          for (const k of namedKinds(d.roster, d.waves)) {
-            expect(ALL_ENEMY_KINDS).toContain(k);
-            expect(HAZARD_NAMES).not.toContain(k);
-          }
-        }
-      }
+      // One expect over the whole sweep: per entry expects took over 60 s on the CI runner.
+      const names = new Set<string>();
+      for (const b of BAND_LIST) for (const d of sweep(b)) for (const k of namedKinds(d.roster, d.waves)) names.add(k);
+      const bad = [...names].filter((k) => !ALL_ENEMY_KINDS.includes(k as EnemyKind) || HAZARD_NAMES.includes(k));
+      expect(bad).toEqual([]);
       expect(ALL_ENEMY_KINDS.filter((k) => HAZARD_NAMES.includes(k))).toEqual([]);
-    });
+    }, 120000);
 
     it('every new kind appears in some roster in its bands', () => {
       for (const b of [2, 3, 4] as const) {

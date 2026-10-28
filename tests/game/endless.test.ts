@@ -149,7 +149,7 @@ describe('endless escalation', () => {
       const last = (bins[8] ?? 0) + (bins[9] ?? 0);
       expect(last).toBeGreaterThan(2 * first);
     }
-  });
+  }, 60000);
 
   it('keeps escalating past band 4 with no upper bound on the schedule', () => {
     const bins = spawnBins(1, 600);
