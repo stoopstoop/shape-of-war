@@ -28,6 +28,10 @@ import {
   saveGlowPath,
   saveSpacePhysics,
   saveWeaponPickups,
+  saveEffects,
+  saveMusic,
+  EFFECTS_KEY,
+  MUSIC_KEY,
   SPACE_PHYSICS_KEY,
   WEAPON_PICKUPS_KEY,
   saveSetting,
@@ -50,6 +54,8 @@ const IMPLEMENTED_KEYS: readonly string[] = [
   'sow.settings.glowPath',
   'sow.settings.spacePhysics',
   'sow.settings.weaponPickups',
+  'sow.settings.effects',
+  'sow.settings.music',
   'sow.settings.neon',
   'sow.settings.showFps',
   'sow.settings.volume',
@@ -139,6 +145,8 @@ describe('declared storage keys', () => {
     GLOW_PATH_KEY,
     SPACE_PHYSICS_KEY,
     WEAPON_PICKUPS_KEY,
+    EFFECTS_KEY,
+    MUSIC_KEY,
     RUN_SEED_KEY,
     UNLOCKED_KEY,
     ADVENTURE_SCORES_KEY,
@@ -180,6 +188,8 @@ describe('keys written at run time', () => {
     saveGlowPath('fallback', store);
     saveSpacePhysics('medium', store);
     saveWeaponPickups(false, store);
+    saveEffects('low', store);
+    saveMusic(40, store);
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(1, 2500, 1, store);
@@ -217,6 +227,8 @@ describe('keys written at run time', () => {
     saveGlowPath('fallback', store);
     saveSpacePhysics('medium', store);
     saveWeaponPickups(false, store);
+    saveEffects('low', store);
+    saveMusic(40, store);
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(2, 2500, 2, store);

@@ -31,7 +31,7 @@ import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './
 import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio } from './audio/synth';
-import { initMusic, setMusicVolume as setMusicEngineVolume, startMusic, stopMusic } from './audio/music';
+import { setMusicVolume as setMusicEngineVolume, startMusic, stopMusic, wireMusic } from './audio/music';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
 // Glue: Ledger's scoring behind Swarm's ScoringPort.
@@ -42,6 +42,7 @@ import { VALID_FIXTURES } from './levelgen/fixtures';
 import type { LevelDef } from './levelgen/leveldef';
 import { generateEndless, generateEndlessSegment, levelHash } from './levelgen/generator';
 import { installDevPanel, setGlowPath, setShowFps } from './render/devpanel';
+import { setEffectsTier } from './render/effects';
 import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
@@ -271,14 +272,16 @@ async function boot(): Promise<void> {
   // not import it on purpose. It runs at boot (settingsModel.applyBoot) and once per change from the
   // Effects row. The tier is render state, not world state, so startLevel does not repeat it. Until
   // then it is a no-op.
-  const applyEffectsTier = (_tier: EffectsTierSetting): void => undefined;
+  const applyEffectsTier = (tier: EffectsTierSetting): void => setEffectsTier(tier);
   // V2-D glue point, the one named port call for music wiring. Chorus's layers branch exports an
   // idempotent wireMusic(bus, opts) from src/audio/music/index.ts. Fable replaces the body with
   // wireMusic(bus, { volume }) after both branches merge, then drops the direct initMusic() call
   // below so the bus is wired once. It runs at boot (settingsModel.applyBoot) and on every change
   // from the Music slider, so it must be safe to call repeatedly. Until then it is a no-op: the
   // volume itself already reaches the engine through setMusicVolume in the settings effects.
-  const wireMusicPort = (_volume: number): void => undefined;
+  const wireMusicPort = (volume: number): void => {
+    wireMusic(bus, { volume }); // idempotent: the same bus returns the same wiring
+  };
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
@@ -723,7 +726,7 @@ async function boot(): Promise<void> {
   // V2-D: bus wiring for the music engine, after the audio unlock path is installed. It starts
   // nothing: startMusic runs from applyMusicCue at level start. Fable swaps this for the wireMusic
   // port above once Chorus's layers branch is merged.
-  initMusic({ volume: settingsModel.state.music });
+  wireMusicPort(settingsModel.state.music);
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 
   window.sowDebug = {

@@ -276,9 +276,10 @@ describe('main.ts wiring', () => {
     expect(code).toMatch(/const retryMusic = \(\): void => \{[^}]*flow\.screen !== 'playing'/);
   });
 
-  it('initMusic runs once, after installAudio, and starts nothing by itself', () => {
-    expect(count('initMusic(')).toBe(1);
-    expect(code.indexOf('initMusic(')).toBeGreaterThan(code.indexOf('installAudio('));
+  it('the music bus is wired once through the port, after installAudio, and starts nothing by itself', () => {
+    expect(count('initMusic(')).toBe(0); // glue: wireMusic owns initMusic
+    expect(count('wireMusic(bus')).toBe(1);
+    expect(code.indexOf('wireMusicPort(settingsModel.state.music)')).toBeGreaterThan(code.indexOf('installAudio('));
   });
 
   it('every pause and resume reaches the bus, so the music hears fold, hidden tab and the stress hook too', () => {
@@ -291,8 +292,8 @@ describe('main.ts wiring', () => {
 
   it('the Music slider calls the wireMusic port and the engine, and boot pushes through the same settings effect', () => {
     expect(code).toMatch(/setMusicVolume: \(v\) => \{[^}]*setMusicEngineVolume\(v\);[^}]*wireMusicPort\(v\);/);
-    expect(code).toMatch(/const wireMusicPort = \(_volume: number\): void => undefined;/);
-    expect(code).toMatch(/const applyEffectsTier = \(_tier: EffectsTierSetting\): void => undefined;/);
+    expect(code).toMatch(/const wireMusicPort = \(volume: number\): void => \{[^}]*wireMusic\(bus, \{ volume \}\)/);
+    expect(code).toMatch(/const applyEffectsTier = \(tier: EffectsTierSetting\): void => setEffectsTier\(tier\);/);
     expect(code).toMatch(/setEffectsTier: \(tier\) => applyEffectsTier\(tier\)/);
   });
 });
