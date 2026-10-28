@@ -84,6 +84,19 @@ export async function unlockAudio(): Promise<void> {
   s.start(0);
 }
 
+export interface AudioGraph {
+  readonly ctx: AudioContext;
+  readonly master: GainNode;
+}
+
+/**
+ * The lazily created AudioContext and synth master gain, or null before unlockAudio().
+ * Additive for the music engine (docs/10 wave A); cue behaviour is unchanged.
+ */
+export function getAudioGraph(): AudioGraph | null {
+  return ctx && master ? { ctx, master } : null;
+}
+
 /** Set the volume 0 to 100 (clamped). Returns the applied value. */
 export function setVolume(v: number): number {
   volume = clampVolume(v);
