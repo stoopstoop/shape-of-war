@@ -85,10 +85,12 @@ export function padNotes(chord: Chord): TrackNote[] {
   return chord.pad.map((m) => note('pad', 0, m, STEPS_PER_BAR, 1));
 }
 
-/** Kick: four on the floor, a pickup on the last bar of the loop. */
+/** Kick: four on the floor, a pickup one sixteenth after beat four in the last bar of the loop. */
 export function kickNotes(bar: number): TrackNote[] {
   const out = [0, 4, 8, 12].map((s) => note('kick', s, null, 1, s === 0 ? 1 : 0.9));
-  if (loopBar(bar) === LOOP_BARS - 1) out.push(note('kick', 14, null, 1, 0.7));
+  // Step 13, not 14: its decay ends before the downbeat, so the bed never holds more than
+  // BED_VOICE_MAX voices at the loop point and six motifs still fit in the cap.
+  if (loopBar(bar) === LOOP_BARS - 1) out.push(note('kick', 13, null, 1, 0.7));
   return out;
 }
 

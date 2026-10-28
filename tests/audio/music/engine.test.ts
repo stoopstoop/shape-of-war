@@ -4,10 +4,14 @@ import {
   KICK_F0,
   KICK_F1,
   MUSIC_VOICE_CAP,
+  oldestPreferred,
   voiceLength,
   voicePeak,
   VoicePool,
+  voiceShape,
 } from '../../../src/audio/music/engine';
+import { LAYERS_FULL } from '../../../src/audio/music/layers';
+import { midiToHz } from '../../../src/audio/music/scale';
 import type { PlannedNote } from '../../../src/audio/music/scheduler';
 import { FakeContext, FakeNode, FakeOsc } from './fakeAudio';
 
@@ -58,11 +62,12 @@ describe('music engine', () => {
   it('the 17th voice steals the oldest', () => {
     const { ctx, engine } = setup();
     const before = ctx.oscs.length;
-    for (let i = 0; i < 16; i++) engine.play(arp(0.01 * i));
+    // Overlapping notes: the pool counts voices sounding at the new note's start time.
+    for (let i = 0; i < 16; i++) engine.play(arp(0.001 * i));
     expect(engine.voiceCount).toBe(16);
     const first = ctx.oscs[before];
     expect(first?.stops).toHaveLength(1);
-    engine.play(arp(0.2));
+    engine.play(arp(0.02));
     expect(engine.voiceCount).toBe(16);
     // The oldest voice got a second, earlier stop and its output faded to 0.
     expect(first?.stops).toHaveLength(2);
@@ -141,6 +146,58 @@ describe('music engine', () => {
     const n = ctx.oscs.length;
     engine.play(arp(1));
     expect(ctx.oscs.length).toBe(n);
+  });
+
+  it('motif voices: timbre waveforms, glide, own filter, motif bus past the threat lowpass', () => {
+    const { ctx, engine } = setup();
+    const start = ctx.oscs.length;
+    const filtersBefore = ctx.filters.length;
+    const tb = LAYERS_FULL.splime.timbre; // sine plus detuned saw, glides
+    engine.playVoice({ time: 0.1, dur: 1, midi: 52, fromMidi: 48, gain: 0.07, timbre: tb });
+    const [a, b] = ctx.oscs.slice(start);
+    expect(a?.type).toBe('sine');
+    expect(b?.type).toBe('sawtooth');
+    expect(b?.detune.calls[0]?.v).toBe(tb.partner?.detune);
+    expect(a?.frequency.calls[0]?.v).toBeCloseTo(midiToHz(48), 6);
+    expect(a?.frequency.calls.at(-1)?.fn).toBe('exp');
+    expect(a?.frequency.calls.at(-1)?.v).toBeCloseTo(midiToHz(52), 6);
+    const f = ctx.filters[filtersBefore];
+    expect(f?.type).toBe(tb.filter);
+    expect(engine.motifVoiceCount).toBe(1);
+    // The output gain feeds the motif bus, which feeds the music out gain directly.
+    const out = ctx.gains[0];
+    const motifBus = ctx.gains[1];
+    expect(motifBus?.connected).toContain(out);
+    expect(a?.startAt).toBe(0.1);
+    expect(a?.stops[0]).toBeCloseTo(1.12, 9);
+  });
+
+  it('voiceShape fits attack, release and glide inside the note', () => {
+    const tb = LAYERS_FULL.snake.timbre;
+    const s = voiceShape({ time: 0, dur: 0.1, midi: 60, fromMidi: 57, gain: 0.1, timbre: tb });
+    expect(s.attack + s.release).toBeLessThanOrEqual(0.1);
+    expect(s.glide).toBeLessThanOrEqual(0.06 + 1e-12);
+    expect(voiceShape({ time: 0, dur: 1, midi: 60, fromMidi: null, gain: 0.1, timbre: tb }).glide).toBe(0);
+    expect(voiceShape({ time: 0, dur: 1, midi: 60, fromMidi: null, gain: 0.1, timbre: LAYERS_FULL.pinwheel.timbre }).peak).toBeCloseTo(0.05, 9);
+  });
+
+  it('when full, the oldest motif voice is stolen before any older bed voice', () => {
+    const { ctx, engine } = setup();
+    const tb = LAYERS_FULL.grunt.timbre;
+    for (let i = 0; i < 10; i++) engine.play({ layer: 'pad', midi: 57, time: 0.001 * i, dur: 2, gain: 0.2 });
+    const motifStart = ctx.oscs.length;
+    for (let i = 0; i < 6; i++) engine.playVoice({ time: 0.02 + 0.001 * i, dur: 1, midi: 57, fromMidi: null, gain: 0.05, timbre: tb });
+    expect(engine.voiceCount).toBe(16);
+    const firstMotif = ctx.oscs[motifStart];
+    engine.playVoice({ time: 0.05, dur: 0.3, midi: 60, fromMidi: null, gain: 0.07, timbre: tb });
+    expect(engine.voiceCount).toBe(16);
+    expect(firstMotif?.stops).toHaveLength(2);
+    expect(engine.steals).toEqual({ bed: 0, motif: 1 });
+    // A bed note arriving now also takes a motif slot first.
+    engine.play({ layer: 'pad', midi: 60, time: 0.06, dur: 2, gain: 0.2 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 2 });
+    expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }, { start: 3, end: 4, data: 'm' }], (d) => d === 'm', 0)).toBe(1);
+    expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }], (d) => d === 'm', 0)).toBe(0);
   });
 
   it('voice length and peak helpers', () => {
