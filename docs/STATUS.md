@@ -2,7 +2,7 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-C merged at 43c42a1. GC pending on device. Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Wave: V2-C merged at 43c42a1; GC partial, retest pending on the glue build (seed shown on intro card, ?seed and ?level). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
 - Open gate: GC (six enemies readable and fair, slime slow, hash stable, fps 60)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
