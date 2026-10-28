@@ -5,6 +5,8 @@ import { vi } from 'vitest';
 
 export interface FakeEvent {
   pointerId: number;
+  /** Pointer x in CSS px. Only the slider reads it. */
+  clientX: number;
   preventDefault(): void;
   stopPropagation(): void;
 }
@@ -21,6 +23,8 @@ export class FakeEl {
   maxLength = 0;
   readonly style: Record<string, string> = {};
   readonly children: FakeEl[] = [];
+  /** What getBoundingClientRect reports. A slider track needs a width before it can be dragged. */
+  rect = { left: 0, width: 0 };
   private readonly attrs = new Map<string, string>();
   private readonly classes = new Set<string>();
   private readonly listeners = new Map<string, Listener[]>();
@@ -74,9 +78,17 @@ export class FakeEl {
     // no focus model in the fake
   }
 
+  getBoundingClientRect(): { left: number; width: number } {
+    return this.rect;
+  }
+
+  setPointerCapture(_pointerId: number): void {
+    // no capture model in the fake
+  }
+
   /** Dispatch one pointer event to this element's own listeners (no bubbling). */
-  fire(type: string, pointerId = 1): void {
-    const ev: FakeEvent = { pointerId, preventDefault: () => undefined, stopPropagation: () => undefined };
+  fire(type: string, pointerId = 1, clientX = 0): void {
+    const ev: FakeEvent = { pointerId, clientX, preventDefault: () => undefined, stopPropagation: () => undefined };
     for (const fn of this.listeners.get(type) ?? []) fn(ev);
   }
 
@@ -106,6 +118,19 @@ export function asParent(root: FakeEl): HTMLElement {
 /** Every button under `root` whose label is exactly `text`. */
 export function buttonsLabelled(root: FakeEl, text: string): FakeEl[] {
   return root.all().filter((e) => e.tag === 'button' && e.textContent === text);
+}
+
+/**
+ * The slider whose label starts with `label` (the label reads "Music 50"), or undefined. The track
+ * is given a 200 px wide rect at x 0, so a pointer at x maps to the value x / 2 on a 0 to 100 range.
+ */
+export function sliderNamed(root: FakeEl, label: string): { root: FakeEl; label: FakeEl } | undefined {
+  const found = root.all().find((e) => e.classList.contains('sow-slider') && (e.children[0]?.textContent ?? '').startsWith(`${label} `));
+  const text = found?.children[0];
+  const track = found?.children[1];
+  if (found === undefined || text === undefined || track === undefined) return undefined;
+  track.rect = { left: 0, width: 200 };
+  return { root: found, label: text };
 }
 
 /** The buttons inside the element with role group and this aria-label, in DOM order. */

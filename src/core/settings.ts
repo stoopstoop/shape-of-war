@@ -174,6 +174,64 @@ export function saveWeaponPickups(on: boolean, storage: StorageLike | null = def
   writeRaw(storage, WEAPON_PICKUPS_KEY, encodeWeaponPickups(on));
 }
 
+// Effects tier (v2 addendum 3.8, docs/10 wave D): "low", "standard" or "high", default "standard".
+// EffectsTierSetting is the same literal union as EffectsTier in src/render/effects.ts (Glow). It is
+// declared here on purpose so the two branches never import each other; Fable glue matches them.
+// Kept out of Settings and DEFAULT_SETTINGS, like glowPath and spacePhysics.
+
+export type EffectsTierSetting = 'low' | 'standard' | 'high';
+/** Button order on the settings row. */
+export const EFFECTS_TIER_SETTINGS: readonly EffectsTierSetting[] = ['low', 'standard', 'high'];
+export const EFFECTS_KEY = `${SETTINGS_PREFIX}effects`;
+export const DEFAULT_EFFECTS: EffectsTierSetting = 'standard';
+
+/** Pure: anything other than the three exact lower case strings (and null) falls back to "standard". */
+export function parseEffects(raw: string | null): EffectsTierSetting {
+  return raw === 'low' || raw === 'standard' || raw === 'high' ? raw : DEFAULT_EFFECTS;
+}
+
+export function loadEffects(storage: StorageLike | null = defaultStorage()): EffectsTierSetting {
+  return parseEffects(readRaw(storage, EFFECTS_KEY));
+}
+
+export function saveEffects(tier: EffectsTierSetting, storage: StorageLike | null = defaultStorage()): void {
+  writeRaw(storage, EFFECTS_KEY, parseEffects(tier));
+}
+
+// Music volume (v2 addendum 3.9, docs/10 wave D): an integer 0 to 100, default 50, where 0 is off.
+// Stored as plain decimal text. Kept out of Settings and DEFAULT_SETTINGS on purpose, like the
+// other v2 keys, so the v1 settings shape and the storage key audit stay as they are.
+
+export const MUSIC_KEY = `${SETTINGS_PREFIX}music`;
+export const DEFAULT_MUSIC = 50;
+
+/** Pure: round and clamp to 0..100. A value that is not a finite number gives the default. */
+export function clampMusic(v: number): number {
+  return Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : DEFAULT_MUSIC;
+}
+
+/**
+ * Pure: a stored music volume. Only whole decimal text counts (an optional minus sign, then digits),
+ * and a whole number outside 0..100 is clamped. Null, empty, decimals, units and any other text give 50.
+ */
+export function parseMusic(raw: string | null): number {
+  if (raw === null || !/^-?\d{1,15}$/.test(raw)) return DEFAULT_MUSIC;
+  return clampMusic(Number(raw));
+}
+
+/** Pure: the string stored for a value (rounded and clamped, so the stored text always parses back). */
+export function encodeMusic(v: number): string {
+  return String(clampMusic(v));
+}
+
+export function loadMusic(storage: StorageLike | null = defaultStorage()): number {
+  return parseMusic(readRaw(storage, MUSIC_KEY));
+}
+
+export function saveMusic(v: number, storage: StorageLike | null = defaultStorage()): void {
+  writeRaw(storage, MUSIC_KEY, encodeMusic(v));
+}
+
 // Progress and scores (docs/03 section 8). Level indices are 1 based.
 
 export const RUN_SEED_KEY = 'sow.progress.runSeed';

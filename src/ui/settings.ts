@@ -1,22 +1,30 @@
 // Settings screen (docs/01 section 10, docs/03 sections 7 and 8, SPEC 4). Neon slider 0 to 100
-// over a live preview arena, Volume slider, Space physics (Off, Low, Medium, High; v2), Weapon
-// pickups (On, Off; v2), Show FPS, Bloom / Fallback, Play seed, Reset progress, and a hidden debug
-// menu behind five taps on the
+// over a live preview arena, Volume slider, Music slider (v2, 0 is off), Space physics (Off, Low,
+// Medium, High; v2), Weapon pickups (On, Off; v2), Effects (Low, Standard, High; v2), Show FPS,
+// Bloom / Fallback, Play seed, Reset progress, and a hidden debug menu behind five taps on the
 // version label. The same screen opens from the menu and from the pause screen.
 // The model is pure apart from injected effects, so tests drive it with fakes. applyNeon is
 // throttled to one call per animation frame while dragging; the value is saved on finger up.
 import {
+  clampMusic,
+  EFFECTS_TIER_SETTINGS,
+  loadEffects,
   loadGlowPath,
+  loadMusic,
   loadSettings,
   loadSpacePhysics,
   loadWeaponPickups,
+  parseEffects,
   parseSeedInput,
   parseSpacePhysics,
+  saveEffects,
   saveGlowPath,
+  saveMusic,
   saveSetting,
   saveSpacePhysics,
   saveWeaponPickups,
   SPACE_LEVELS,
+  type EffectsTierSetting,
   type GlowPathSetting,
   type SpaceLevelSetting,
   type StorageLike,
@@ -43,6 +51,17 @@ export interface SettingsEffects {
    * Swarm's setWeaponPickups(world, on); until then main.ts leaves it a no-op.
    */
   setWeaponPickups(on: boolean): void;
+  /**
+   * Effects tier (v2). Called at boot, then once per change. Fable glue maps it to Glow's tier
+   * export; until then main.ts leaves it a no-op.
+   */
+  setEffectsTier(tier: EffectsTierSetting): void;
+  /**
+   * Music volume 0 to 100, 0 is off (v2). Called at boot, then once per distinct value while the
+   * slider drags, so the level is audible as it moves. main.ts feeds src/audio/music/index.ts and
+   * the named wireMusic port.
+   */
+  setMusicVolume(v: number): void;
   /** requestAnimationFrame, injected for tests. */
   requestFrame(cb: () => void): void;
 }
@@ -54,6 +73,9 @@ export interface SettingsView {
   glowPath: GlowPathSetting;
   spacePhysics: SpaceLevelSetting;
   weaponPickups: boolean;
+  effects: EffectsTierSetting;
+  /** Music volume 0 to 100, 0 is off. */
+  music: number;
 }
 
 export interface SettingsModel {
@@ -72,6 +94,12 @@ export interface SettingsModel {
   setSpacePhysics(level: SpaceLevelSetting): void;
   /** Row tap: persist sow.settings.weaponPickups and call the effect once. Same value: no effect call. */
   setWeaponPickups(on: boolean): void;
+  /** Row tap: persist sow.settings.effects and call the effect once. Same tier: no effect call. */
+  setEffectsTier(tier: EffectsTierSetting): void;
+  /** Slider drag: state now, and the effect once per distinct value. Nothing is saved yet. */
+  musicInput(v: number): void;
+  /** Finger up: persist sow.settings.music. The effect is not called again for an unchanged value. */
+  musicCommit(v: number): void;
   toggleShowFps(): void;
   toggleGlowPath(): void;
   /** Record a glow change made elsewhere (the debug panel) without calling the renderer again. */
@@ -96,7 +124,11 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
     glowPath: loadGlowPath(storage),
     spacePhysics: loadSpacePhysics(storage),
     weaponPickups: loadWeaponPickups(storage),
+    effects: loadEffects(storage),
+    music: loadMusic(storage),
   };
+  /** The music value the effect last received, so a finger up never repeats it. */
+  let musicApplied = state.music;
   const neonThrottle = createFrameThrottle<number>((n) => fx.applyNeon(n), (cb) => fx.requestFrame(cb));
   const model: SettingsModel = {
     state,
@@ -107,6 +139,9 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       fx.setGlowPath(state.glowPath);
       fx.setSpacePhysics(state.spacePhysics);
       fx.setWeaponPickups(state.weaponPickups);
+      fx.setEffectsTier(state.effects);
+      musicApplied = state.music;
+      fx.setMusicVolume(state.music);
     },
     neonInput(n) {
       state.neon = clamp100(n);
@@ -148,6 +183,23 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       state.weaponPickups = on;
       saveWeaponPickups(on, storage); // always written, so a failed earlier write heals on the next tap
       if (changed) fx.setWeaponPickups(on);
+    },
+    setEffectsTier(tier) {
+      const next = parseEffects(tier);
+      const changed = next !== state.effects;
+      state.effects = next;
+      saveEffects(next, storage); // always written, so a failed earlier write heals on the next tap
+      if (changed) fx.setEffectsTier(next);
+    },
+    musicInput(v) {
+      state.music = clampMusic(v);
+      if (state.music === musicApplied) return;
+      musicApplied = state.music;
+      fx.setMusicVolume(state.music);
+    },
+    musicCommit(v) {
+      model.musicInput(v);
+      saveMusic(state.music, storage);
     },
     toggleShowFps() {
       model.setShowFps(!state.showFps);
@@ -222,6 +274,32 @@ export function weaponButtonStates(current: boolean): WeaponButtonState[] {
   return [true, false].map((on) => ({ on, label: weaponPickupsLabel(on), selected: on === current }));
 }
 
+export const EFFECTS_ROW_LABEL = 'Effects';
+
+const EFFECTS_LABELS: Readonly<Record<EffectsTierSetting, string>> = {
+  low: 'Low',
+  standard: 'Standard',
+  high: 'High',
+};
+
+/** Pure: the text on one Effects button. */
+export function effectsLabel(tier: EffectsTierSetting): string {
+  return EFFECTS_LABELS[tier];
+}
+
+export interface EffectsButtonState {
+  tier: EffectsTierSetting;
+  label: string;
+  selected: boolean;
+}
+
+/** Pure: the three Effects buttons in order (Low, Standard, High) with the current tier marked. */
+export function effectsButtonStates(current: EffectsTierSetting): EffectsButtonState[] {
+  return EFFECTS_TIER_SETTINGS.map((tier) => ({ tier, label: effectsLabel(tier), selected: tier === current }));
+}
+
+export const MUSIC_SLIDER_LABEL = 'Music';
+
 /**
  * Pure: count taps on the version label. Keeps taps inside the window; fires (and clears) when
  * `need` taps land within `windowMs`.
@@ -294,6 +372,14 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     onInput: (v) => model.volumeInput(v),
     onCommit: (v) => model.volumeCommit(v),
   });
+  const music = createSlider({
+    label: MUSIC_SLIDER_LABEL,
+    min: 0,
+    max: 100,
+    value: model.state.music,
+    onInput: (v) => model.musicInput(v),
+    onCommit: (v) => model.musicCommit(v),
+  });
 
   const fps = button('', () => {
     model.toggleShowFps();
@@ -333,6 +419,20 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
   const weaponBtns = el('div', 'sow-choice-btns');
   weaponBtns.append(...weaponButtons);
   weaponRow.append(el('div', 'sow-choice-label', WEAPON_ROW_LABEL), weaponBtns);
+
+  // Effects: label with Low, Standard and High buttons, the same row shape again.
+  const effectsRow = el('div', 'sow-choice');
+  effectsRow.setAttribute('role', 'group');
+  effectsRow.setAttribute('aria-label', EFFECTS_ROW_LABEL);
+  const effectsButtons = EFFECTS_TIER_SETTINGS.map((tier) =>
+    button(effectsLabel(tier), () => {
+      model.setEffectsTier(tier);
+      refresh();
+    }),
+  );
+  const effectsBtns = el('div', 'sow-choice-btns');
+  effectsBtns.append(...effectsButtons);
+  effectsRow.append(el('div', 'sow-choice-label', EFFECTS_ROW_LABEL), effectsBtns);
 
   const seedField = el('input', 'sow-input');
   seedField.type = 'text';
@@ -388,12 +488,13 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     if (r.fire) debugRow.style.display = debugRow.style.display === 'none' ? '' : 'none';
   });
 
-  panel.append(title, neon.root, volume.root, spaceRow, weaponRow, toggles, seedRow, seedLine, bottom, debugRow, version);
+  panel.append(title, neon.root, volume.root, music.root, spaceRow, weaponRow, effectsRow, toggles, seedRow, seedLine, bottom, debugRow, version);
   s.root.append(panel);
 
   function refresh(): void {
     neon.set(model.state.neon);
     volume.set(model.state.volume);
+    music.set(model.state.music);
     fps.textContent = fpsLabel(model.state.showFps);
     glow.textContent = glowLabel(model.state.glowPath);
     spaceButtonStates(model.state.spacePhysics).forEach((st, i) => {
@@ -404,6 +505,12 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     });
     weaponButtonStates(model.state.weaponPickups).forEach((st, i) => {
       const b = weaponButtons[i];
+      if (b === undefined) return;
+      b.classList.toggle('sow-on', st.selected);
+      b.setAttribute('aria-pressed', st.selected ? 'true' : 'false');
+    });
+    effectsButtonStates(model.state.effects).forEach((st, i) => {
+      const b = effectsButtons[i];
       if (b === undefined) return;
       b.classList.toggle('sow-on', st.selected);
       b.setAttribute('aria-pressed', st.selected ? 'true' : 'false');

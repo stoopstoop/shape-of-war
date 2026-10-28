@@ -23,6 +23,7 @@ import {
   saveSetting,
   unlockAfter,
   unlockLevel,
+  type EffectsTierSetting,
   type SpaceLevelSetting,
 } from './core/settings';
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
@@ -30,6 +31,7 @@ import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './
 import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio } from './audio/synth';
+import { initMusic, setMusicVolume as setMusicEngineVolume, startMusic, stopMusic } from './audio/music';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
 // Glue: Ledger's scoring behind Swarm's ScoringPort.
@@ -55,6 +57,7 @@ import { continueLabel, createMenuScreen } from './ui/menu';
 import { createPreviewWorld, previewRect, stepPreview } from './ui/preview';
 import { goalMet, objectiveProgress, objectiveStatus, type ObjectiveSnapshot } from './ui/objective';
 import { createPauseScreen } from './ui/pause';
+import { musicCue, type MusicCue } from './ui/musicFlow';
 import { createBootScreen } from './ui/boot';
 import { armIntro, createIntroScreen, introActive, introCard, NO_INTRO, skipIntro, tickIntro, type IntroGate } from './ui/intro';
 import { createResultsScreen } from './ui/results';
@@ -263,6 +266,19 @@ async function boot(): Promise<void> {
   // the Weapon pickups row, and whenever startLevel builds a new world, so the stored choice
   // reaches every world. Until then it is a no-op.
   const applyWeaponPickups = (on: boolean): void => setWeaponPickups(world, on);
+  // V2-D glue point, the one named port call for the effects tier. Fable replaces the body with
+  // Glow's tier export (setEffectsTier from src/render) after both branches merge; this branch does
+  // not import it on purpose. It runs at boot (settingsModel.applyBoot) and once per change from the
+  // Effects row. The tier is render state, not world state, so startLevel does not repeat it. Until
+  // then it is a no-op.
+  const applyEffectsTier = (_tier: EffectsTierSetting): void => undefined;
+  // V2-D glue point, the one named port call for music wiring. Chorus's layers branch exports an
+  // idempotent wireMusic(bus, opts) from src/audio/music/index.ts. Fable replaces the body with
+  // wireMusic(bus, { volume }) after both branches merge, then drops the direct initMusic() call
+  // below so the bus is wired once. It runs at boot (settingsModel.applyBoot) and on every change
+  // from the Music slider, so it must be safe to call repeatedly. Until then it is a no-op: the
+  // volume itself already reaches the engine through setMusicVolume in the settings effects.
+  const wireMusicPort = (_volume: number): void => undefined;
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
@@ -289,6 +305,46 @@ async function boot(): Promise<void> {
   let intro: IntroGate = NO_INTRO; // B7: level intro card or Endless Ready, holds the sim
   let endCheck = true; // fallback objective check; the stress hook turns it off
   let lastHudMs = Number.NEGATIVE_INFINITY;
+
+  // V2-D music. musicCue (ui/musicFlow.ts) says when a run starts or ends; pause, resume, a hidden
+  // tab and a fold reach the engine through the bus, so every pause and resume below goes out as
+  // game:pause or game:resume and the flow follows from the bus handlers. Music never plays in menus.
+  let musicSeed: number | null = null; // level seed of the live run, null outside a run
+  let musicLive = false; // startMusic found the audio context (it stays silent until the first tap)
+  const tryMusic = (fn: () => boolean): boolean => {
+    try {
+      return fn();
+    } catch (err) {
+      console.warn('[sow] music failed', describeError(err)); // audio is optional, the game runs silent
+      return false;
+    }
+  };
+  const applyMusicCue = (cue: MusicCue): void => {
+    if (cue === 'start') {
+      const seed = level.seed >>> 0; // the Adventure level seed, or the Endless seed
+      musicSeed = seed;
+      musicLive = tryMusic(() => startMusic(seed)); // restarts from bar 0 if a run was already playing
+    } else if (cue === 'stop') {
+      musicSeed = null;
+      musicLive = false;
+      tryMusic(() => {
+        stopMusic();
+        return false;
+      });
+    }
+  };
+  /** A level that began before the first tap had no audio context; try again once the tap made it. */
+  const retryMusic = (): void => {
+    const seed = musicSeed;
+    if (seed === null || musicLive || flow.screen !== 'playing') return;
+    musicLive = tryMusic(() => startMusic(seed));
+  };
+  const requestPause = (): void => {
+    if (flow.screen === 'playing') bus.emit('game:pause');
+  };
+  const requestResume = (): void => {
+    if (flow.screen === 'paused') bus.emit('game:resume');
+  };
 
   const emitHud = (): void => {
     const s = scoreOf(world);
@@ -416,6 +472,11 @@ async function boot(): Promise<void> {
     setVolume: (v) => audio.setVolume(v),
     setSpacePhysics: (level) => applySpacePhysics(level),
     setWeaponPickups: (on) => applyWeaponPickups(on),
+    setEffectsTier: (tier) => applyEffectsTier(tier),
+    setMusicVolume: (v) => {
+      setMusicEngineVolume(v); // src/audio/music/index.ts, clamps 0 to 100, 0 is silence
+      wireMusicPort(v);
+    },
     requestFrame: (cb) => {
       window.requestAnimationFrame(() => cb());
     },
@@ -439,7 +500,7 @@ async function boot(): Promise<void> {
     },
     stress: () => {
       dispatch({ type: 'closeSettings' });
-      if (flow.screen === 'paused') dispatch({ type: 'resume' });
+      requestResume(); // through the bus, so the music resumes with the flow
       window.sowDebug?.stress(400, 2000);
     },
     currentNeon: () => currentNeon,
@@ -510,6 +571,7 @@ async function boot(): Promise<void> {
     if (next.run !== prev.run) startLevel(next.mode, next.levelIndex);
     else if (next.screen !== prev.screen) syncScene();
     if (!simRunning(next)) renderer?.setSticks([]);
+    applyMusicCue(musicCue(prev, next)); // after startLevel, so a start reads the new level's seed
     paintScreens();
   }
 
@@ -658,6 +720,10 @@ async function boot(): Promise<void> {
   }
   settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path, space physics, weapon pickups
   installAudio({ volume: settings.volume }); // Glue: Glow's synth listens on the bus; unlock happens on the first gesture
+  // V2-D: bus wiring for the music engine, after the audio unlock path is installed. It starts
+  // nothing: startMusic runs from applyMusicCue at level start. Fable swaps this for the wireMusic
+  // port above once Chorus's layers branch is merged.
+  initMusic({ volume: settingsModel.state.music });
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 
   window.sowDebug = {
@@ -685,7 +751,7 @@ async function boot(): Promise<void> {
   if (renderer !== null) loop.start();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      dispatch({ type: 'hidden' }); // auto pause; the player resumes from the pause screen
+      requestPause(); // auto pause through the bus (the music hears it too); the player resumes from the pause screen
       loop.stop();
     } else {
       if (renderer !== null) loop.start(); // start() resets the clock: no 50 ms lurch
@@ -708,7 +774,7 @@ async function boot(): Promise<void> {
     const insets = f.insets;
     const fit = { scale: f.fit.scale, x: f.fit.x, y: f.fit.y };
     // Auto pause on aspect class change, that is a fold or unfold (docs/01 section 10).
-    if (appliedClass !== null && cls !== appliedClass) dispatch({ type: 'pause' });
+    if (appliedClass !== null && cls !== appliedClass) requestPause(); // through the bus, so the music suspends
     appliedClass = cls;
     const payload: ViewportInfo = { cssW: last.cssW, cssH: last.cssH, dpr: last.renderDpr, insets, fit };
     bus.emit('viewport:changed', payload);
@@ -769,6 +835,7 @@ async function boot(): Promise<void> {
     gestureDone = true;
     window.removeEventListener('pointerup', onFirstPointerUp, true);
     audio.unlock();
+    retryMusic(); // the unlock made the audio context, so a level that began before this tap gets its music now
     try {
       if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
