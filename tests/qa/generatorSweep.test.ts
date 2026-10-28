@@ -5,7 +5,7 @@
 // function of the loop counter.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { generateLevel, levelHash } from '../../src/levelgen/generator';
-import { ENEMY_KINDS, MAX_RETRIES, bandOf } from '../../src/levelgen/leveldef';
+import { ENEMY_KINDS, MAX_RETRIES, V2_ENEMY_KINDS, bandOf } from '../../src/levelgen/leveldef';
 import type { LevelDef } from '../../src/levelgen/leveldef';
 import { validateLevel } from '../../src/levelgen/validate';
 
@@ -112,7 +112,7 @@ describe('generateLevel x validateLevel sweep', { timeout: 120_000 }, () => {
     expect([...sweep.objectives].sort()).toEqual(['destroy', 'scoreInTime', 'survive']);
     expect([...sweep.drones].sort()).toEqual(['attack', 'collect', 'ram']);
     expect([...sweep.supers].sort()).toEqual(['detonate', 'homing', 'turbo']);
-    expect([...sweep.rosterKinds].sort()).toEqual([...ENEMY_KINDS].sort());
+    expect([...sweep.rosterKinds].sort()).toEqual([...ENEMY_KINDS, ...V2_ENEMY_KINDS].sort());
   });
 
   it('is not vacuous: it hits 0 to 3 gravity wells, 0 to 2 spawners and rosters of 3 to 6', () => {
