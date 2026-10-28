@@ -1,4 +1,5 @@
 // Typed event bus (docs/03 section 9). UI and game never import each other; they share this.
+import type { Kind } from '../game/world';
 import type { Insets } from '../input/types';
 import type { EnemyKind } from '../levelgen/leveldef';
 import type { NeonParams, PaletteKey } from '../render/neon';
@@ -35,7 +36,20 @@ export interface Events {
   'viewport:changed': ViewportInfo;
   sfx: SfxName;
   // Sim to fx and audio (Glow, W3).
-  'fx:kill': { x: number; y: number; colour: PaletteKey };
+  /**
+   * A scored kill, a Mine pop, a Snake segment in a head's death burst, or a Gravity well going
+   * down (shot or exploding). kind and id name what died (a Mine pop is Kind.Mine, so it no longer
+   * hides behind the Sower colour; a burst segment is Kind.SnakeBody). The payload object is
+   * reused by the sim, so handlers copy the fields they need.
+   */
+  'fx:kill': { x: number; y: number; colour: PaletteKey; kind: Kind; id: number };
+  /**
+   * Damage that did not kill: a multi HP enemy (or Gravity well) took a hit, or a Bulwark shield
+   * absorbed one (blocked true, no damage dealt). x, y is the impact point: the bullet or blade
+   * position for shots, the target centre for a drone ram. Emitted per hit with no rate limit;
+   * consumers throttle. The payload object is reused, so handlers copy the fields they need.
+   */
+  'fx:hit': { x: number; y: number; kind: Kind; id: number; blocked: boolean };
   'fx:death': { x: number; y: number };
   'fx:bomb': { x: number; y: number };
   'fx:geom': { x: number; y: number };
