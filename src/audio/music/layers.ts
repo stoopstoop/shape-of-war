@@ -52,7 +52,13 @@ export type TimbreId =
   // Kill accents only (kills.ts): gravity well, spawner, and the kill chord.
   | 'gong'
   | 'clank'
-  | 'chime';
+  | 'chime'
+  // Kill accents for a Snake segment, a Mine pop and a Slime pop (kills.ts).
+  | 'rattle'
+  | 'pop'
+  | 'blip'
+  // The Bulwark shield deflect (hits.ts).
+  | 'deflect';
 
 export interface Partner {
   readonly wave: OscillatorType;
@@ -153,6 +159,12 @@ export const TIMBRES: Readonly<Record<TimbreId, Timbre>> = {
   gong: timbre('gong', 'sine', { wave: 'triangle', detune: 700 }, 'lowpass', 1800, 0.8, 0.003, 0.4),
   clank: timbre('clank', 'square', { wave: 'square', detune: 1902 }, 'bandpass', 2200, 2.5, 0.001, 0.12),
   chime: timbre('chime', 'triangle', { wave: 'sine', detune: 1200 }, 'lowpass', 4200, 0.7, 0.004, 0.5),
+  rattle: timbre('rattle', 'sawtooth', null, 'bandpass', 1500, 6, 0.001, 0.05),
+  pop: timbre('pop', 'triangle', null, 'bandpass', 2600, 4, 0.001, 0.05),
+  blip: timbre('blip', 'sine', { wave: 'sine', detune: 500 }, 'lowpass', 2000, 0.7, 0.002, 0.08),
+  // A square and a triangle an inharmonic 2.45 apart through a narrow band: a ringing metal
+  // ping, with a short drop from a tone above.
+  deflect: timbre('deflect', 'square', { wave: 'triangle', detune: 1551 }, 'bandpass', 3200, 6, 0.001, 0.07, 0.012),
 };
 
 // ---------------------------------------------------------------------------------------

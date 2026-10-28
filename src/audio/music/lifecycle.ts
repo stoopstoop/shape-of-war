@@ -5,7 +5,8 @@
 //          an exit before the motif joined drops the motif (the stinger still sounds);
 //   enter again during the tail: the exit is cancelled and the motif ramps back to full from
 //          wherever its fade had got to, by the next bar line, without restarting.
-// Also the gain budget that keeps bed plus motifs plus a stinger plus a kill accent at or under 1.0.
+// Also the gain budget that keeps bed plus motifs plus a stinger plus a kill accent plus
+// the hit sounds at or under 1.0.
 import type { EnemyKind } from '../../levelgen/leveldef';
 import type { LayerRegistry } from './layers';
 import { STEPS_PER_BAR } from './track';
@@ -22,6 +23,8 @@ export const MOTIF_TOTAL_MAX = 0.28;
 export const STINGER_GAIN = 0.07;
 /** Kill accents (one note or one chord at a time, kills.ts); reserved in the budget at all times. */
 export const ACCENT_RESERVE = 0.09;
+/** Hit ticks and shield deflects (one at a time on a mono lane, hits.ts); reserved at all times. */
+export const HIT_RESERVE = 0.03;
 /** Summed layer gain ceiling (SPEC 3.9 item 5). */
 export const GAIN_CEILING = 1;
 
@@ -161,8 +164,8 @@ export interface LayerMix {
 
 /**
  * Pure: the budget. Every active motif counts at full gain (fades only lower it), motifs share
- * at most MOTIF_TOTAL_MAX, a stinger and a kill accent are always reserved, and the bed is
- * scaled so the sum of bed, motifs, stinger and accent is at most 1.0.
+ * at most MOTIF_TOTAL_MAX, a stinger, a kill accent and the hit sounds are always reserved,
+ * and the bed is scaled so the sum of bed, motifs, stinger, accent and hits is at most 1.0.
  */
 export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry, step: number): LayerMix {
   let raw = 0;
@@ -172,7 +175,7 @@ export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry,
   }
   const motifScale = raw > MOTIF_TOTAL_MAX ? MOTIF_TOTAL_MAX / raw : 1;
   const motifTotal = raw * motifScale;
-  const room = GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - motifTotal;
+  const room = GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - HIT_RESERVE - motifTotal;
   const bedScale = bedSum > room && bedSum > 0 ? room / bedSum : 1;
   return { bedScale, motifScale, motifTotal };
 }
