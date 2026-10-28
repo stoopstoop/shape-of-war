@@ -3,7 +3,9 @@
 import { bus } from '../core/events';
 import type { InputState } from '../input/types';
 import type { EndlessDef, LevelDef } from '../levelgen/leveldef';
-import { bulletHits, separate, shipHits, shipPickups } from './combat';
+import { bulletHits, orbitHits, separate, shipHits, shipPickups } from './combat';
+import { clearPickup } from './pickup';
+import { setWeaponPickups, stepWeapons } from './weapons';
 import { registerSwarmBehaviours } from './defs';
 import { stepDrone } from './drones';
 import { spawnWells, stepWells } from './enemies/gravitywell';
@@ -25,9 +27,14 @@ export interface GameOptions {
   /** Record every wave spawn in gs(w).spawnLog (tests and debugging; allocates). */
   logSpawns?: boolean;
   capacity?: number;
+  /** Settings "Weapon pickups" (docs/11). Default on. Same as calling setWeaponPickups after create. */
+  weaponPickups?: boolean;
 }
 
 export const HUD_INTERVAL = 0.1;
+
+/** Wiring port for Settings "Weapon pickups" (re-exported from weapons.ts). */
+export { setWeaponPickups };
 
 export function createGame(level: LevelDef, opts: GameOptions = {}): World {
   registerSwarmBehaviours();
@@ -37,6 +44,7 @@ export function createGame(level: LevelDef, opts: GameOptions = {}): World {
   if (opts.vibrate !== undefined) g.vibrate = opts.vibrate;
   if (opts.scoring !== undefined) g.scoring = opts.scoring;
   if (opts.logSpawns === true) g.spawnLog = [];
+  if (opts.weaponPickups !== undefined) setWeaponPickups(w, opts.weaponPickups);
   syncMultiplier(w);
   spawnWells(w);
   return w;
@@ -102,9 +110,11 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   const g = gs(w);
   if (g.outcome !== 'running') return;
   stepWorld(w, dt, input);
+  stepWeapons(w, dt);
   stepWells(w, dt);
   separate(w, dt);
   bulletHits(w);
+  orbitHits(w, dt);
   shipHits(w);
   shipPickups(w);
   stepPlayer(w, dt, input);
@@ -114,5 +124,6 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   stepSpawner(w, dt);
   stepEndlessAwards(w);
   stepObjective(w);
+  if (g.outcome !== 'running') clearPickup(w); // level end clears the weapon pickup
   emitHud(w, dt);
 }

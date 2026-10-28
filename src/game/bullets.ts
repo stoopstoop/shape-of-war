@@ -11,6 +11,21 @@ export const BULLET_RADIUS = 4;
 export const BULLET_LIFE = 1.2;
 export const SPREAD_RAD = (6 * Math.PI) / 180;
 export const MUZZLE_OFFSET = 16;
+/** Enemies one pierce bullet can hit: the first hit plus 3 more (docs/11 SPEC 3.5). */
+export const PIERCE_HITS = 4;
+
+export const STYLE_SPREAD = 0;
+export const STYLE_RAPID = 1;
+export const STYLE_PIERCE = 2;
+export const STYLE_ORBIT = 3;
+
+/** Collision radius per style, indexed by BulletPool.style. Style 0 is the v1 BULLET_RADIUS. */
+const STYLE_RADIUS: readonly number[] = [BULLET_RADIUS, 3, 6, 7];
+
+/** Collision radius for a bullet style. Unknown styles use the v1 radius. */
+export function styleRadius(style: number): number {
+  return STYLE_RADIUS[style] ?? BULLET_RADIUS;
+}
 
 export interface BulletPool {
   cap: number;
@@ -21,8 +36,16 @@ export interface BulletPool {
   vy: Float32Array;
   life: Float32Array;
   homing: Uint8Array;
-  /** V2 stub: weapon style per bullet. 0 spread, 1 rapid, 2 pierce, 3 orbit. Nothing writes it yet. */
+  /** Weapon style per bullet: 0 spread, 1 rapid, 2 pierce, 3 orbit blade (render contract, docs/10). */
   style: Uint8Array;
+  /** Pierce: hits left before the bullet stops. 0 for every other style. */
+  pierce: Uint8Array;
+  /** Last enemy id this bullet hit, -1 for none. */
+  lastHit: Int32Array;
+  /** Every enemy id a pierce bullet has hit, PIERCE_HITS slots per bullet, -1 empty. */
+  hitLog: Int32Array;
+  /** Orbit blade angle in radians, written each step from the ship. */
+  phase: Float32Array;
   free: Int32Array;
   freeTop: number;
   // Additive to 03 section 5.
@@ -47,6 +70,10 @@ export function createBulletPool(cap: number = BULLET_CAP): BulletPool {
     life: new Float32Array(cap),
     homing: new Uint8Array(cap),
     style: new Uint8Array(cap),
+    pierce: new Uint8Array(cap),
+    lastHit: new Int32Array(cap).fill(-1),
+    hitLog: new Int32Array(cap * PIERCE_HITS).fill(-1),
+    phase: new Float32Array(cap),
     free,
     freeTop: cap,
     prevX: new Float32Array(cap),
@@ -73,6 +100,10 @@ export function spawnBullet(p: BulletPool, x: number, y: number, vx: number, vy:
   p.vy[id] = vy;
   p.life[id] = life;
   p.homing[id] = 0;
+  p.style[id] = STYLE_SPREAD;
+  p.pierce[id] = 0;
+  p.lastHit[id] = -1;
+  p.phase[id] = 0;
   p.liveCount++;
   return id;
 }
@@ -103,10 +134,55 @@ export function fireSpread(w: World, x: number, y: number, aimAngle: number): vo
 
 const hitScratch = createConfineResult();
 
-/** Integrate, age and remove bullets that expire or touch a wall or obstacle. */
+/** Pierce bullet: arm it with PIERCE_HITS hits and an empty hit log. */
+export function armPierce(p: BulletPool, id: number): void {
+  if (id < 0 || id >= p.cap) return;
+  p.style[id] = STYLE_PIERCE;
+  p.pierce[id] = PIERCE_HITS;
+  const base = id * PIERCE_HITS;
+  for (let k = 0; k < PIERCE_HITS; k++) p.hitLog[base + k] = -1;
+}
+
+/** True if bullet id already hit enemy e (lastHit, or for pierce the full hit log). */
+export function hasHit(p: BulletPool, id: number, e: number): boolean {
+  if (p.lastHit[id] === e) return true;
+  if (p.style[id] !== STYLE_PIERCE) return false;
+  const base = id * PIERCE_HITS;
+  for (let k = 0; k < PIERCE_HITS; k++) if (p.hitLog[base + k] === e) return true;
+  return false;
+}
+
+/**
+ * Record a hit on enemy e. Non pierce bullets stop. A pierce bullet logs e, loses one hit and
+ * stops at 0. Returns true if the bullet stopped.
+ */
+export function recordHit(p: BulletPool, id: number, e: number): boolean {
+  p.lastHit[id] = e;
+  if (p.style[id] !== STYLE_PIERCE) {
+    killBullet(p, id);
+    return true;
+  }
+  const left = p.pierce[id] ?? 0;
+  const slot = PIERCE_HITS - left;
+  if (slot >= 0 && slot < PIERCE_HITS) p.hitLog[id * PIERCE_HITS + slot] = e;
+  const next = left > 0 ? left - 1 : 0;
+  p.pierce[id] = next;
+  if (next === 0) {
+    killBullet(p, id);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Integrate, age and remove bullets that expire or touch a wall or obstacle. Style 0 is the v1
+ * path. Orbit blades (style 3) are skipped: weapons.ts places them from the ship each step.
+ */
 export function stepBulletPool(p: BulletPool, arena: ArenaDef, dt: number): void {
   for (let i = 0; i < p.cap; i++) {
     if (p.alive[i] !== 1) continue;
+    const style = p.style[i] ?? 0;
+    if (style === STYLE_ORBIT) continue;
     const x = p.x[i] ?? 0;
     const y = p.y[i] ?? 0;
     p.prevX[i] = x;
@@ -121,7 +197,8 @@ export function stepBulletPool(p: BulletPool, arena: ArenaDef, dt: number): void
     const ny = y + (p.vy[i] ?? 0) * dt;
     p.x[i] = nx;
     p.y[i] = ny;
-    if (confine(arena, nx, ny, BULLET_RADIUS, hitScratch).hit) killBullet(p, i);
+    const r = style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style);
+    if (confine(arena, nx, ny, r, hitScratch).hit) killBullet(p, i);
   }
 }
 
