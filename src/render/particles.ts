@@ -9,7 +9,7 @@
 // percent live and are shed first, and are off on the low tier.
 import { Particle, type ParticleContainer, type Texture } from 'pixi.js';
 import { hash01 } from './color';
-import { getEffectsTier, MAX_PARTICLE_CAP, onEffectsTierChanged, particleCapFor, trailsOn, type EffectsTier } from './effects';
+import { getEffectsTier, MAX_PARTICLE_CAP, onEffectsTierChanged, particleCapFor, tierBurstCount, trailsOn, type EffectsTier } from './effects';
 import { planFx, type FxEvent } from './fx';
 import { currentRender, palette } from './neon';
 import {
@@ -46,6 +46,8 @@ interface Edge {
 const pool: ParticlePool = createParticlePool(MAX_PARTICLE_CAP, particleCapFor(getEffectsTier()));
 let edge: Edge | null = null;
 let trailsEnabled = trailsOn(getEffectsTier());
+/** Tier used for burst density: high scales burst counts by 1.5, limited by the live cap. */
+let burstTier: EffectsTier = getEffectsTier();
 const trailScratch: TrailSpec = { x: 0, y: 0, vx: 0, vy: 0, life: 0, drag: 0, colour: 0 };
 const shipEmitter: Emitter = { acc: 0 };
 let trailSeq = 0;
@@ -93,6 +95,7 @@ function syncAttached(E: Edge): void {
 function applyTier(t: EffectsTier): void {
   setPoolLimit(pool, particleCapFor(t));
   trailsEnabled = trailsOn(t);
+  burstTier = t;
   if (!trailsEnabled) shipEmitter.acc = 0;
   if (edge) syncAttached(edge);
 }
@@ -222,7 +225,7 @@ export function burstSmall(
 
 /** Spray count particles from (x, y) in arena units with default speeds. */
 export function burst(x: number, y: number, colour: number, count: number): void {
-  scratch.count = count;
+  scratch.count = tierBurstCount(count, burstTier, pool.limit);
   scratch.speedMin = 120;
   scratch.speedMax = 500;
   scratch.lifeMin = 0.45;
@@ -237,7 +240,7 @@ export function burst(x: number, y: number, colour: number, count: number): void
 /** Emit the particle part of an fx event. Shake, ripple and ring are the renderer's job. */
 export function burstFx(x: number, y: number, e: FxEvent): void {
   const b = planFx(e).burst;
-  scratch.count = b.count;
+  scratch.count = tierBurstCount(b.count, burstTier, pool.limit);
   scratch.speedMin = b.speedMin;
   scratch.speedMax = b.speedMax;
   scratch.lifeMin = b.lifeMin;
