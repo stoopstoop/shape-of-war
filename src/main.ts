@@ -737,6 +737,14 @@ async function boot(): Promise<void> {
     void unlockGesture();
   };
   window.addEventListener('pointerup', onFirstPointerUp, true);
+  // G4 bug U4: a fold or unfold drops Chrome out of fullscreen and the one shot gesture never
+  // re-arms. Re-arm on every exit from fullscreen so the next tap requests it again.
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement === null && gestureDone) {
+      gestureDone = false;
+      window.addEventListener('pointerup', onFirstPointerUp, true);
+    }
+  });
   async function unlockGesture(): Promise<void> {
     if (gestureDone) return;
     gestureDone = true;
