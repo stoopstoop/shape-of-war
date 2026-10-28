@@ -7,6 +7,7 @@
 // Impulses, rings and forces all act by moving the previous position (a velocity change), so the
 // integrator stays one loop. Every array is allocated in createLatticeSim; stepping allocates
 // nothing.
+import type { Ambient } from './ambient';
 import type { LatticeLayout } from './layout';
 
 export const SUB_HZ = 60;
@@ -28,8 +29,10 @@ export const MAX_DISP_MAX = 30;
 export const SLEEP_EPS = 0.02;
 export const MAX_IMPULSES = 16;
 export const MAX_RINGS = 4;
-/** Wells (at most 3) plus the ship wake. */
-export const MAX_FORCES = 4;
+/** Wells (at most 3), the ship wake and the sustained super distortion. */
+export const MAX_FORCES = 5;
+/** Share of a ring's strength left at the end of its life (see ringFade). */
+export const RING_END_FRAC = 0.25;
 /** Frame dt is clamped here before it enters the accumulator. */
 const MAX_FRAME_DT = 0.1;
 
@@ -293,6 +296,16 @@ function forceVisit(sim: LatticeSim, id: number, dx: number, dy: number, d: numb
 }
 
 /**
+ * Pure: ring strength fraction at fraction u of its life. Stays near full for the first half and
+ * ends at RING_END_FRAC, so a bomb front still visibly shoves the grid at the far walls.
+ */
+export function ringFade(u: number): number {
+  if (!(u > 0)) return 1;
+  if (u >= 1) return RING_END_FRAC;
+  return 1 - (1 - RING_END_FRAC) * u * u;
+}
+
+/**
  * Apply one live ring for a sub step and age it. A node crossed by the front gains about the
  * ring strength in total: the cosine band integrates to 4w/pi in distance, so each sub step
  * gives strength * speed * dt * pi / (4w) at the band centre.
@@ -304,7 +317,7 @@ function applyRing(sim: LatticeSim, r: number): void {
   const speed = sim.ringSpeed[r] ?? 0;
   const w = sim.ringW[r] ?? 1;
   const front = age * speed;
-  const fade = (1 - age / life) * (1 - age / life);
+  const fade = ringFade(age / life);
   const perStep = ((sim.ringS[r] ?? 0) * fade * speed * SUB_DT * Math.PI) / (4 * w);
   bandW = w;
   forEachNear(sim, sim.ringX[r] ?? 0, sim.ringY[r] ?? 0, front + w, ringVisit, front, perStep);
@@ -452,6 +465,38 @@ export function writePositions(sim: LatticeSim, out: Float32Array, alpha: number
   }
   sim.dirty = false;
   return true;
+}
+
+/**
+ * Write drawn node positions like writePositions plus the ambient drift (row offset on x, column
+ * offset on y) on every free node. Always writes: the drift moves every frame. Pinned ends stay
+ * at rest.
+ */
+export function writePositionsAmbient(sim: LatticeSim, out: Float32Array, alpha: number, amb: Ambient): void {
+  const L = sim.layout;
+  const rx = L.restX;
+  const ry = L.restY;
+  const n = L.free;
+  const ux = sim.ux;
+  const uy = sim.uy;
+  const px = sim.px;
+  const py = sim.py;
+  const colOf = amb.colOf;
+  const rowOf = amb.rowOf;
+  const dx = amb.dx;
+  const dy = amb.dy;
+  const t = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  for (let i = 0; i < n; i++) {
+    const p = px[i] ?? 0;
+    const q = py[i] ?? 0;
+    out[2 * i] = (rx[i] ?? 0) + p + ((ux[i] ?? 0) - p) * t + (dx[rowOf[i] ?? 0] ?? 0);
+    out[2 * i + 1] = (ry[i] ?? 0) + q + ((uy[i] ?? 0) - q) * t + (dy[colOf[i] ?? 0] ?? 0);
+  }
+  for (let i = n; i < L.count; i++) {
+    out[2 * i] = rx[i] ?? 0;
+    out[2 * i + 1] = ry[i] ?? 0;
+  }
+  sim.dirty = false;
 }
 
 /** Pure: largest displacement magnitude over the free nodes (tests and the dev panel). */

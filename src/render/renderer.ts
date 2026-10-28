@@ -28,6 +28,8 @@ import {
   BlurFilter,
   Container,
   Graphics,
+  Mesh,
+  MeshGeometry,
   Particle,
   ParticleContainer,
   Rectangle,
@@ -59,7 +61,7 @@ import {
   type PlayRect,
   type SuperWatch,
 } from './layout';
-import { planFx, type FxEvent } from './fx';
+import { planFx, RIPPLE_KILL_BIG, type FxEvent } from './fx';
 import { current, currentRender, palette, type NeonRender, type PaletteKey } from './neon';
 import { bindNeon } from './neonApply';
 import {
@@ -96,9 +98,57 @@ import {
   type BulletFrame,
   type BulletStyleVisual,
 } from './bulletStyles';
-import { bulletTrailRate, ENEMY_TRAIL_CHARGER, ENEMY_TRAIL_SWIRL, type Emitter } from './trails';
+import {
+  attachedTrailFor,
+  bulletTrailRate,
+  dartTrailRate,
+  ENEMY_TRAIL_CHARGER,
+  ENEMY_TRAIL_DART,
+  ENEMY_TRAIL_SWIRL,
+  geomTwinkle,
+  TAPER_TEX_H,
+  TAPER_TEX_LEN,
+  taperProfile,
+  V1_TRAIL_TEX_LEN,
+  type AttachedTrail,
+  type Emitter,
+} from './trails';
+import {
+  COMET_VERTS,
+  cometAlpha,
+  cometIndices,
+  cometUvs,
+  createComet,
+  pushComet,
+  resetComet,
+  writeCometStrip,
+} from './comet';
+import {
+  addPulse,
+  clearPulses,
+  createPulsePool,
+  PULSE_BAR,
+  PULSE_RING,
+  PULSE_STREAK,
+  pulseAlpha,
+  pulseLive,
+  SHOCK_BIG_MUL,
+  SHOCK_LIFE,
+  SHOCK_R0,
+  SHOCK_R1,
+  shockRadius,
+  stepPulses,
+  STREAK_LIFE,
+  WALL_GLOW_LEN,
+  WALL_GLOW_LIFE,
+  WALL_GLOW_THICK,
+  WALL_HIT_RANGE,
+} from './pulses';
+import { heatBombFor, HEAT_SUPER } from './lattice/heat';
+import { AMBIENT_AMP } from './lattice/ambient';
 import {
   dustOn,
+  trailsOn,
   getEffectsTier,
   latticeCapFor,
   latticeOn,
@@ -110,7 +160,20 @@ import {
 import { createLatticeView } from './latticeView';
 import { chooseSpacing } from './lattice/layout';
 import { addForce, addImpulse, addRing, clearForces } from './lattice/sim';
-import { latticeKickFor, MAX_WELLS, WAKE_RADIUS, wakeAccel, WELL_PULL_ACCEL, wellPullRadius } from './lattice/kicks';
+import {
+  bombKickFor,
+  heatPulseFor,
+  KICK_SUPER_PULSE,
+  latticeKickFor,
+  MAX_WELLS,
+  SUPER_FORCE_RADIUS,
+  superForceAccel,
+  superPulseDue,
+  WAKE_RADIUS,
+  wakeAccel,
+  WELL_PULL_ACCEL,
+  wellPullRadius,
+} from './lattice/kicks';
 import { GAP_MS, initialGovernor, nextGovernor, smoothFrameMs, type GovernorState } from './lattice/governor';
 import {
   blinkArrived,
@@ -154,10 +217,11 @@ import {
   threatPulse,
   wallFeatures,
   wallPulseAlpha,
+  wallTangent,
   type ThreatPulse,
   type WallFeature,
 } from './mapFx';
-import { burstSmall, emitEnemyTrail, trailsActive } from './particles';
+import { burstSmall, emitBlinkStreak, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
 import { isFloorSlot, KIND_NUM } from './shapeSpecs';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
@@ -222,8 +286,17 @@ export interface GameRenderer {
 
 const SIM_DT = 1 / 120;
 const PARK = -99999;
-const TRAIL_TEX_LEN = 32;
 const GLOW_PAD = 34;
+/** Run 0180: lattice heat glow layer alpha at full neon (scaled by mapFxNeonGain). */
+const HEAT_GLOW_ALPHA = 0.9;
+/** Comet halo alpha relative to the core (both scaled by trailAlpha and cometAlpha). */
+const COMET_HALO_ALPHA = 0.85;
+/** Share of yellow mixed into the orange comet halo. */
+const COMET_HALO_YELLOW = 0.35;
+/** Geom sparkle colour: geom green mixed toward white. */
+const GEOM_SPARKLE_WHITE = 0.5;
+/** Ring frame radius in the fx atlas, texture units: a pulse ring of radius r scales by r / this. */
+const FX_RING_R = 56;
 /** Render clock step used for trail emission is clamped like the particle step. */
 const MAX_FX_DT = 0.05;
 /** Resolution of every generated texture (dot, streak, trail, glow and bloom sources). */
@@ -248,7 +321,9 @@ const TAU = Math.PI * 2;
 
 // Kind values used for per kind visual scale; numeric literals avoid importing the const enum.
 const KIND_GRUNT = 2;
+const KIND_DART = 6;
 const KIND_GRAVITY_WELL = 9;
+const KIND_GEOM = 10;
 const WELL_BASE_RADIUS = 24;
 
 const DEFAULT_ARENA: ArenaDef = {
@@ -364,20 +439,118 @@ function makeStreakTexture(app: Application): Texture {
   return tex;
 }
 
-/** Bullet trail: fades in from the left, brightest at the right end (anchored on the bullet). */
-function makeTrailTexture(app: Application): Texture {
-  const L = TRAIL_TEX_LEN;
+interface TrailAtlas {
+  /** The whole atlas; the bulletTrails ParticleContainer binds its source. */
+  readonly texture: Texture;
+  /** v1 trail (low tier): constant thickness, fading in from the left. */
+  readonly v1: Texture;
+  /** Run 0180 trail (standard, high): a wedge, thin and faint at the tail, wide and hot at the head. */
+  readonly taper: Texture;
+}
+
+/** Draw a tapered streak (head at the right) of length L and height H with its top left at (x0, y0). */
+function drawTaper(g: Graphics, x0: number, y0: number, L: number, H: number, steps: number): void {
+  const prof = { haloH: 0, haloA: 0, coreH: 0, coreA: 0 };
+  const cy = y0 + H / 2;
+  for (let i = 0; i < steps; i++) {
+    taperProfile((i + 1) / steps, prof);
+    const x = x0 + (i * L) / steps;
+    const hh = (H / 2) * prof.haloH;
+    const ch = (H / 2) * prof.coreH;
+    if (hh > 0.05) g.rect(x, cy - hh, L / steps, 2 * hh).fill({ color: 0xffffff, alpha: prof.haloA });
+    g.rect(x, cy - ch, L / steps, 2 * ch).fill({ color: 0xffffff, alpha: prof.coreA });
+  }
+}
+
+/**
+ * Bullet trails, both looks in one texture so every attached trail stays in one ParticleContainer.
+ * The v1 frame is the wave B texture unchanged (low keeps its look); the taper frame sits below.
+ */
+function makeTrailAtlas(app: Application): TrailAtlas {
+  const L = V1_TRAIL_TEX_LEN;
   const steps = 16;
   const g = new Graphics();
   for (let i = 0; i < steps; i++) {
     const t = (i + 1) / steps;
     const x = (i * L) / steps;
-    g.rect(x, -3, L / steps, 6).fill({ color: 0xffffff, alpha: 0.24 * t });
-    g.rect(x, -1.4, L / steps, 2.8).fill({ color: 0xffffff, alpha: 0.95 * t * t });
+    g.rect(x, 0, L / steps, 6).fill({ color: 0xffffff, alpha: 0.24 * t });
+    g.rect(x, 1.6, L / steps, 2.8).fill({ color: 0xffffff, alpha: 0.95 * t * t });
   }
-  const tex = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, -3, L, 6), resolution: GEN_TEX_RES, antialias: true });
+  const ty = 8;
+  drawTaper(g, 0, ty, TAPER_TEX_LEN, TAPER_TEX_H, 32);
+  const w = Math.max(L, TAPER_TEX_LEN);
+  const h = ty + TAPER_TEX_H;
+  const texture = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, w, h), resolution: GEN_TEX_RES, antialias: true });
   g.destroy({ context: true });
-  return tex;
+  return {
+    texture,
+    v1: new Texture({ source: texture.source, frame: new Rectangle(0, 0, L, 6) }),
+    taper: new Texture({ source: texture.source, frame: new Rectangle(0, ty, TAPER_TEX_LEN, TAPER_TEX_H) }),
+  };
+}
+
+interface FxAtlas {
+  readonly texture: Texture;
+  /** Pulse frames by shape: ring (kill shockwave), bar (wall glow), streak (Blink jump). */
+  readonly frames: readonly [Texture, Texture, Texture];
+}
+
+/** The sprite pulse looks in one texture: one ParticleContainer, one draw call for all pulses. */
+function makeFxAtlas(app: Application): FxAtlas {
+  const g = new Graphics();
+  const R = FX_RING_R;
+  const c = R + 8;
+  g.circle(c, c, R).stroke({ width: 12, color: 0xffffff, alpha: 0.18 });
+  g.circle(c, c, R).stroke({ width: 6, color: 0xffffff, alpha: 0.4 });
+  g.circle(c, c, R).stroke({ width: 2.5, color: 0xffffff, alpha: 1 });
+  const ringW = 2 * c;
+  const bx = ringW + 2;
+  g.roundRect(bx, 0, 64, 16, 8).fill({ color: 0xffffff, alpha: 0.3 });
+  g.roundRect(bx + 5, 3.5, 54, 9, 4.5).fill({ color: 0xffffff, alpha: 0.6 });
+  g.roundRect(bx + 12, 6, 40, 4, 2).fill({ color: 0xffffff, alpha: 1 });
+  const sy = 20;
+  drawTaper(g, bx, sy, TAPER_TEX_LEN, TAPER_TEX_H, 32);
+  const w = bx + 64;
+  const texture = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, w, ringW), resolution: GEN_TEX_RES, antialias: true });
+  g.destroy({ context: true });
+  const sub = (x: number, y: number, fw: number, fh: number): Texture => new Texture({ source: texture.source, frame: new Rectangle(x, y, fw, fh) });
+  return { texture, frames: [sub(0, 0, ringW, ringW), sub(bx, 0, 64, 16), sub(bx, sy, TAPER_TEX_LEN, TAPER_TEX_H)] };
+}
+
+interface CometAtlas {
+  readonly texture: Texture;
+  /** u along the ribbon (0 head at the left), v across it. A wide soft halo and a hot core. */
+  readonly halo: Texture;
+  readonly core: Texture;
+}
+
+const COMET_TEX_LEN = 64;
+const COMET_TEX_H = 16;
+
+/** The comet ribbon looks: alpha falls from the head (left) to the tail (right). */
+function makeCometAtlas(app: Application): CometAtlas {
+  const g = new Graphics();
+  const L = COMET_TEX_LEN;
+  const H = COMET_TEX_H;
+  const steps = 32;
+  for (let i = 0; i < steps; i++) {
+    const u = (i + 0.5) / steps;
+    const along = Math.pow(1 - u, 1.6);
+    const x = (i * L) / steps;
+    const w = L / steps;
+    g.rect(x, 0, w, H).fill({ color: 0xffffff, alpha: 0.28 * along });
+    g.rect(x, H * 0.22, w, H * 0.56).fill({ color: 0xffffff, alpha: 0.45 * along });
+    const cy = H + 2;
+    g.rect(x, cy + H * 0.3, w, H * 0.4).fill({ color: 0xffffff, alpha: 0.6 * along });
+    g.rect(x, cy + H * 0.42, w, H * 0.16).fill({ color: 0xffffff, alpha: Math.pow(along, 0.8) });
+  }
+  const texture = app.renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, L, 2 * H + 2), resolution: GEN_TEX_RES, antialias: true });
+  g.destroy({ context: true });
+  return {
+    texture,
+    halo: new Texture({ source: texture.source, frame: new Rectangle(0, 0, L, H) }),
+    core: new Texture({ source: texture.source, frame: new Rectangle(0, H + 2, L, H) }),
+  };
 }
 
 /** Soft round dot, 8 px across, for the dust motes. */
@@ -439,13 +612,47 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const entities = new Container({ label: 'entities' });
   const atlas = makeBulletAtlas(app);
   const streak = makeStreakTexture(app);
-  const trail = makeTrailTexture(app);
+  const trailAtlas = makeTrailAtlas(app);
   const trails = new ParticleContainer({
     label: 'bulletTrails',
-    texture: trail,
+    texture: trailAtlas.texture,
     blendMode: 'add',
     dynamicProperties: { position: true, rotation: true, uvs: false, vertex: false, color: false },
   });
+  // Run 0180 trails and map effects. Pulses: kill shock rings, bullet wall glows and Blink jump
+  // streaks, at most PULSE_CAP sprites from one atlas in one container.
+  const fxAtlas = makeFxAtlas(app);
+  const pulseLayer = new ParticleContainer({
+    label: 'pulses',
+    texture: fxAtlas.texture,
+    blendMode: 'add',
+    dynamicProperties: { position: true, rotation: true, uvs: true, vertex: true, color: true },
+  });
+  const pulsePool = createPulsePool();
+  const pulseItems: Particle[] = [];
+  for (let i = 0; i < pulsePool.cap; i++) {
+    const p = new Particle({ texture: fxAtlas.frames[0], x: PARK, y: PARK, alpha: 0, anchorX: 0.5, anchorY: 0.5 });
+    pulseItems.push(p);
+    pulseLayer.addParticle(p);
+  }
+  // Comet: one ribbon geometry, drawn twice (warm halo, white core) from one atlas. Under 100
+  // vertices, so pixi batches both into the bloom layer's batch: no extra draw call.
+  const cometAtlas = makeCometAtlas(app);
+  const comet = createComet();
+  const cometGeom = new MeshGeometry({
+    positions: new Float32Array(COMET_VERTS * 2),
+    uvs: cometUvs(),
+    indices: cometIndices(),
+  });
+  const cometPositions = cometGeom.positions;
+  const cometHalo = new Mesh({ geometry: cometGeom, texture: cometAtlas.halo, label: 'cometHalo' });
+  const cometCore = new Mesh({ geometry: cometGeom, texture: cometAtlas.core, label: 'cometCore' });
+  cometHalo.blendMode = 'add';
+  cometCore.blendMode = 'add';
+  cometHalo.visible = false;
+  cometCore.visible = false;
+  const comets = new Container({ label: 'comet' });
+  comets.addChild(cometHalo, cometCore);
   // Bullet heads: one container, one atlas, one draw call. Rotation is dynamic because streaks
   // follow their velocity and orbit blades turn with the ship; frame, anchor, scale and tint are
   // static and re-uploaded only when a slot changes style (update() below).
@@ -474,7 +681,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   wallPulse.visible = false;
   wallFlash.visible = false;
 
-  bloomLayer.addChild(wallGlow, wallPulse, wallFlash, glowSprites, particles, trails, enemyFxGlow, ringGlow);
+  bloomLayer.addChild(lattice.glow, wallGlow, wallPulse, wallFlash, comets, glowSprites, particles, trails, pulseLayer, enemyFxGlow, ringGlow);
   lines.addChild(walls, floor, enemyFx, entities, bullets, rings);
   gridLayer.addChild(lattice.dust, grid, lattice.lines);
   world.addChild(gridLayer, bloomLayer, lines);
@@ -532,6 +739,21 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const bulletEmitters: Emitter[] = [];
   /** styleCode shown per bullet slot, -1 unknown, so frame, tint and trail change once. */
   let bulletCodeShown = new Int8Array(0);
+  /** Scratch for attachedTrailFor (no allocation per restyle). */
+  const trailShape: AttachedTrail = { len: 0, thick: 0, taper: false };
+
+  // Run 0180: last drawn position per entity slot (Blink jump streak), NaN until seen.
+  let lastDrawX = new Float32Array(0);
+  let lastDrawY = new Float32Array(0);
+  /** Timed super running (sustained lattice distortion), and the render time of the last frame. */
+  let superOn = false;
+  let lastFxSec = Number.NaN;
+  /** Shared wall hit scratch for bullet wall glows. */
+  const bulletHit = createWallHit();
+  /** True while any pulse sprite may still be on screen. */
+  let pulsesShown = false;
+  /** Geom sparkle colour for this frame (palette follows neon). */
+  let sparkleColour = 0xffffff;
 
   // Grid segments cached per arena; the ripple redraw traces them without allocating.
   let gridSegs: number[] = [];
@@ -591,6 +813,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const np = new Float32Array(cap).fill(Number.NaN);
     np.set(enemyPhase);
     enemyPhase = np;
+    const lx = new Float32Array(cap).fill(Number.NaN);
+    lx.set(lastDrawX);
+    lastDrawX = lx;
+    const ly = new Float32Array(cap).fill(Number.NaN);
+    ly.set(lastDrawY);
+    lastDrawY = ly;
     while (enemyEmitters.length < cap) enemyEmitters.push({ acc: 0 });
   }
 
@@ -606,8 +834,20 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     item.tint = tint;
     tail.tint = tint;
     tail.alpha = currentRender.trailAlpha;
-    tail.scaleX = v.trailLenU / TRAIL_TEX_LEN;
-    tail.scaleY = v.trailThick;
+    // Run 0180: standard and high draw the longer tapered trail; low keeps the v1 frame and size.
+    const at = attachedTrailFor(v, getEffectsTier(), trailShape);
+    tail.texture = at.taper ? trailAtlas.taper : trailAtlas.v1;
+    tail.scaleX = at.len / (at.taper ? TAPER_TEX_LEN : V1_TRAIL_TEX_LEN);
+    tail.scaleY = at.thick;
+  }
+
+  /** Restyle every bullet slot (palette, neon or tier change) and flag both containers. */
+  function restyleBullets(): void {
+    for (let i = 0; i < bulletItems.length; i++) {
+      styleSlot(i, visualForCode(bulletCodeShown[i] ?? -1));
+    }
+    bullets.update();
+    trails.update();
   }
 
   function ensureBulletItems(cap: number): void {
@@ -616,7 +856,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const p = new Particle({ texture: atlas.frames.dot, x: PARK, y: PARK, anchorX: 0.5, anchorY: 0.5 });
       bulletItems.push(p);
       bullets.addParticle(p);
-      const t = new Particle({ texture: trail, x: PARK, y: PARK, anchorX: 1, anchorY: 0.5 });
+      const t = new Particle({ texture: trailAtlas.v1, x: PARK, y: PARK, anchorX: 1, anchorY: 0.5 });
       trailItems.push(t);
       trails.addParticle(t);
       bulletEmitters.push({ acc: 0 });
@@ -729,11 +969,15 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       latticeActive = true;
       grid.visible = false;
       lattice.lines.visible = true;
+      lattice.glow.visible = mapEffectsOn(t);
+      lattice.setAmbient(mapEffectsOn(t) ? AMBIENT_AMP : 0);
     } else {
       lattice.clear();
       latticeActive = false;
       grid.visible = true;
       lattice.lines.visible = false;
+      lattice.glow.visible = false;
+      lattice.setAmbient(0);
       redrawGrid();
     }
     lattice.dust.visible = dustOn(t);
@@ -788,11 +1032,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     tint(): void {
       viewTint.fill(-1); // every live view retints from the new palette on the next draw
       // Bullets: every slot restyles from the new palette, with the new trail alpha.
-      for (let i = 0; i < bulletItems.length; i++) {
-        styleSlot(i, visualForCode(bulletCodeShown[i] ?? -1));
-      }
-      bullets.update();
-      trails.update();
+      restyleBullets();
       redrawGrid();
       lattice.setColour(palette.grid);
     },
@@ -815,16 +1055,143 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       if (ringList.length >= MAX_RINGS) ringList.shift();
       ringList.push({ x, y, age: 0, colour: plan.ring });
     }
+    if (mapEffectsOn(getEffectsTier())) mapPulse(x, y, e, plan.ripple);
+  }
+
+  /**
+   * Run 0180 map effects for an fx event: the shockwave ring sprite in the enemy hue (kills and
+   * deaths) and the colour pulse through the lattice. Standard and high only.
+   */
+  function mapPulse(x: number, y: number, e: FxEvent, ripple: number): void {
+    const hue = e.type === 'kill' ? palette[e.colour ?? 'white'] : e.type === 'death' ? palette.ship : e.type === 'bomb' ? palette.bomb : palette.geom;
+    if (e.type === 'kill' || e.type === 'death') {
+      const big = e.type === 'death' || ripple >= RIPPLE_KILL_BIG;
+      addPulse(pulsePool, PULSE_RING, x, y, 0, SHOCK_R0, SHOCK_R1 * (big ? SHOCK_BIG_MUL : 1), SHOCK_LIFE * (big ? 1.3 : 1), hue, 1);
+    }
+    if (!lattice.sim) return;
+    const hp = e.type === 'bomb' ? heatBombFor(arena.width, arena.height) : heatPulseFor(e.type, ripple);
+    if (hp) lattice.pulse(x, y, hue, hp);
   }
 
   /** Lattice impulse for an fx event: a point kick, or an expanding ring for bombs and supers. */
   function kickLattice(x: number, y: number, e: FxEvent, ripple: number): void {
     const sim = lattice.sim;
     if (!sim) return;
-    const k = latticeKickFor(e.type, ripple);
+    // Run 0180: the bomb ring lives until it has crossed the whole arena.
+    const k = e.type === 'bomb' ? bombKickFor(arena.width, arena.height) : latticeKickFor(e.type, ripple);
     if (k === null) return;
     if (k.t === 'point') addImpulse(sim, x, y, k.strength, k.radius);
     else addRing(sim, x, y, k.strength, k.speed, k.life, k.width);
+  }
+
+  /**
+   * Sustained super distortion: while a timed super runs, a throbbing field around the ship and a
+   * small ring with a colour pulse every SUPER_PULSE_SEC. Lattice tiers only.
+   */
+  function superDistort(shipX: number, shipY: number, nowSec: number): void {
+    const sim = lattice.sim;
+    if (!superOn || !sim || !mapEffectsOn(getEffectsTier())) return;
+    addForce(sim, shipX, shipY, SUPER_FORCE_RADIUS, superForceAccel(nowSec));
+    if (superPulseDue(lastFxSec, nowSec)) {
+      const k = KICK_SUPER_PULSE;
+      addRing(sim, shipX, shipY, k.strength, k.speed, k.life, k.width);
+      lattice.pulse(shipX, shipY, palette.geom, HEAT_SUPER);
+    }
+  }
+
+  /** A bullet that died within WALL_HIT_RANGE of a wall lights the wall there in its colour. */
+  function bulletWallGlow(x: number, y: number, colour: number): void {
+    nearestWall(features, x, y, bulletHit);
+    if (bulletHit.feature < 0 || !(bulletHit.dist <= WALL_HIT_RANGE)) return;
+    const rot = wallTangent(features[bulletHit.feature], bulletHit.x, bulletHit.y);
+    addPulse(pulsePool, PULSE_BAR, bulletHit.x, bulletHit.y, rot, WALL_GLOW_LEN, WALL_GLOW_THICK, WALL_GLOW_LIFE, colour, 1);
+  }
+
+  /** Mirror the pulse pool onto its Particles. Alpha is scaled by the neon glow, like map fx. */
+  function drawPulses(dt: number): void {
+    if (pulsePool.live === 0 && !pulsesShown) return;
+    stepPulses(pulsePool, dt);
+    const gain = mapFxNeonGain(current.glowAlpha);
+    let any = false;
+    for (let i = 0; i < pulsePool.cap; i++) {
+      const p = pulseItems[i];
+      if (!p) continue;
+      if (!pulseLive(pulsePool, i)) {
+        if (p.x !== PARK) {
+          p.x = PARK;
+          p.y = PARK;
+          p.alpha = 0;
+        }
+        continue;
+      }
+      any = true;
+      const shape = pulsePool.shape[i] ?? PULSE_RING;
+      const u = (pulsePool.age[i] ?? 0) / Math.max(1e-6, pulsePool.life[i] ?? 1);
+      if (pulsePool.fresh[i] === 1) {
+        pulsePool.fresh[i] = 0;
+        p.texture = fxAtlas.frames[shape === PULSE_BAR ? 1 : shape === PULSE_STREAK ? 2 : 0];
+        p.anchorX = shape === PULSE_STREAK ? 1 : 0.5;
+        p.anchorY = 0.5;
+        p.tint = pulsePool.colour[i] ?? 0xffffff;
+        p.rotation = pulsePool.rot[i] ?? 0;
+      }
+      p.x = pulsePool.x[i] ?? 0;
+      p.y = pulsePool.y[i] ?? 0;
+      const r0 = pulsePool.r0[i] ?? 0;
+      const r1 = pulsePool.r1[i] ?? 0;
+      if (shape === PULSE_RING) {
+        const s = shockRadius(r0, r1, u) / FX_RING_R;
+        p.scaleX = s;
+        p.scaleY = s;
+      } else if (shape === PULSE_BAR) {
+        // A wall glow swells a little along the wall as it fades.
+        p.scaleX = (r0 / 64) * (0.8 + 0.4 * u);
+        p.scaleY = r1 * (1.2 - 0.4 * u);
+      } else {
+        p.scaleX = r0 / TAPER_TEX_LEN;
+        p.scaleY = r1 * (1 - 0.5 * u);
+      }
+      p.alpha = pulseAlpha(shape, u) * (pulsePool.strength[i] ?? 1) * gain;
+    }
+    pulsesShown = any;
+  }
+
+  /** Drop every pulse and park its sprite (tier off, level change). */
+  function clearPulseFx(): void {
+    clearPulses(pulsePool);
+    for (const p of pulseItems) {
+      p.x = PARK;
+      p.y = PARK;
+      p.alpha = 0;
+    }
+    pulsesShown = false;
+  }
+
+  /** Ship comet: push the drawn position, rebuild the ribbon, fade by speed and neon. */
+  function drawComet(x: number, y: number, vx: number, vy: number, dt: number): void {
+    if (!trailsActive()) {
+      hideComet();
+      return;
+    }
+    pushComet(comet, x, y, dt);
+    const a = cometAlpha(Math.hypot(vx, vy)) * currentRender.trailAlpha;
+    const show = a > 0.01;
+    // Keep the ribbon geometry current even while hidden, so it reappears without a jump.
+    writeCometStrip(comet, x, y, cometPositions);
+    if (show) cometGeom.getBuffer('aPosition').update();
+    cometHalo.visible = show;
+    cometCore.visible = show;
+    if (!show) return;
+    cometCore.alpha = a;
+    cometHalo.alpha = a * COMET_HALO_ALPHA;
+    cometCore.tint = palette.ship;
+    cometHalo.tint = mixRgb(palette.orange, palette.yellow, COMET_HALO_YELLOW);
+  }
+
+  function hideComet(): void {
+    resetComet(comet);
+    cometHalo.visible = false;
+    cometCore.visible = false;
   }
 
   function superFx(x: number, y: number): void {
@@ -834,6 +1201,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   /** Fire superFx at the ship when the game state shows a super activation. */
   function watchSuper(w: World): void {
     const g = gameState(w);
+    superOn = g.superActive !== null && g.superTimer > 0;
     superCur.active = g.superActive;
     superCur.timer = g.superTimer;
     superCur.droneAbsent = g.droneAbsent;
@@ -890,7 +1258,15 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // Weapon pickup collected (Swarm, wave B): a burst in the weapon's bullet colour.
     bus.on('fx:pickup', (p) => burst(p.x, p.y, palette[weaponTint(p.weapon)], PICKUP_BURST_COUNT)),
   ];
-  offFx.push(onEffectsTierChanged((t) => applyLatticeTier(t)));
+  offFx.push(
+    onEffectsTierChanged((t) => {
+      applyLatticeTier(t);
+      // Attached trail frame and length follow the tier; the comet and pulses hide on low.
+      restyleBullets();
+      if (!trailsOn(t)) hideComet();
+      if (!mapEffectsOn(t)) clearPulseFx();
+    }),
+  );
   registerParticleStress(setParticleStress);
 
   function stepEffects(dt: number): void {
@@ -994,6 +1370,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const s = glowViews[i];
     if (s && s.visible) s.visible = false;
     enemyPhase[i] = Number.NaN;
+    lastDrawX[i] = Number.NaN;
     const em = enemyEmitters[i];
     if (em) em.acc = 0;
   }
@@ -1094,7 +1471,20 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       } else if (em) em.acc = 0;
     } else if (kind === KIND_NUM.blink) {
       ev.alpha *= blinkGhostAlpha(t);
+      // Jump streak (run 0180): the drawn position jumped since the last frame.
+      const lx = lastDrawX[i] ?? Number.NaN;
+      const ly = lastDrawY[i] ?? Number.NaN;
+      lastDrawX[i] = ev.x;
+      lastDrawY[i] = ev.y;
       if (tele) return;
+      if (trails && Number.isFinite(lx) && Number.isFinite(ly)) {
+        const jx = ev.x - lx;
+        const jy = ev.y - ly;
+        if (jx * jx + jy * jy > BLINK_SNAP_U * BLINK_SNAP_U) {
+          addPulse(pulsePool, PULSE_STREAK, ev.x, ev.y, Math.atan2(jy, jx), Math.hypot(jx, jy), 0.9, STREAK_LIFE, palette.blink, 1);
+          emitBlinkStreak(lx, ly, ev.x, ev.y, palette.blink);
+        }
+      }
       blinkRing(t, ringScratch);
       if (ringScratch.alpha > 0) fxCircle(w.vx[i] ?? 0, w.vy[i] ?? 0, ringScratch.r, 2, palette.blink, ringScratch.alpha);
       if (blinkArrived(prevT, t)) {
@@ -1130,6 +1520,28 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         burstSmall(ev.x, ev.y, palette.splime, 10, 60, 200, 0.35);
       }
     }
+  }
+
+  /**
+   * Run 0180 trails and sparkle on two v1 kinds: the Dart leaves a trail in its orange while it
+   * moves fast, and a geom twinkles (glow alpha through ev.glowMul) and sheds tiny sparkles.
+   * Trails and sparkles are off on low; the twinkle is a multiplier on the glow sprite only.
+   */
+  function applyV1Sparkle(w: World, i: number, kind: number, tele: boolean, timeSec: number, dt: number): void {
+    const em = enemyEmitters[i];
+    if (!em) return;
+    if (tele || !trailsActive()) {
+      em.acc = 0;
+      return;
+    }
+    if (kind === KIND_DART) {
+      const vx = ((w.x[i] ?? 0) - (w.prevX[i] ?? 0)) / SIM_DT;
+      const vy = ((w.y[i] ?? 0) - (w.prevY[i] ?? 0)) / SIM_DT;
+      emitEnemyTrail(em, dartTrailRate(Math.hypot(vx, vy)), ev.x, ev.y, vx, vy, ENEMY_TRAIL_DART, palette.orange, dt);
+      return;
+    }
+    ev.glowMul = geomTwinkle(timeSec, hash01(i * 7 + 3));
+    emitGeomSparkle(em, ev.x, ev.y, sparkleColour, dt);
   }
 
   /** Expanding flash circles (arrival, splat). Drawn after the entity pass. */
@@ -1218,6 +1630,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       ev.rot = rot;
       ev.glowMul = 1;
       if (isV2) applyEnemyContract(w, i, kind, teleNow, timeSec, dt);
+      else if (kind === KIND_DART || kind === KIND_GEOM) applyV1Sparkle(w, i, kind, teleNow, timeSec, dt);
       // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
       if (kind === KIND_GRAVITY_WELL && !teleNow && wellsSeen < MAX_WELLS && lattice.sim) {
         addForce(lattice.sim, ev.x, ev.y, wellPullRadius(w.radius[i] ?? 0), WELL_PULL_ACCEL);
@@ -1240,7 +1653,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       if (!s.visible) s.visible = true;
       s.tint = tint;
-      s.alpha = glowAlpha * ev.alpha * ev.glowMul;
+      const ga = glowAlpha * ev.alpha * ev.glowMul;
+      s.alpha = ga > 1 ? 1 : ga;
       s.position.set(ev.x, ev.y);
       s.rotation = ev.rot;
       s.scale.set(ev.scaleX * glowScale, ev.scaleY * glowScale);
@@ -1265,6 +1679,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const prevY = pool.prevY;
     let live = 0;
     let restyled = false;
+    const wallGlowOn = mapEffectsOn(getEffectsTier());
     for (let i = 0; i < bulletItems.length; i++) {
       const item = bulletItems[i];
       const tail = trailItems[i];
@@ -1310,6 +1725,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         if (vis.emitsTrail) emitBulletTrail(em, bulletTrailRate(st), x, y, vx, vy, st, palette[vis.tint], dt);
         else em.acc = 0;
       } else if (item.x !== PARK) {
+        // Just died: a bullet that ended at a wall lights it there (orbit blades never do).
+        if (wallGlowOn) {
+          const vis = visualForCode(bulletCodeShown[i] ?? -1);
+          if (vis.orient === 'velocity') bulletWallGlow(item.x, item.y, palette[vis.tint]);
+        }
         item.x = PARK;
         item.y = PARK;
         tail.x = PARK;
@@ -1331,23 +1751,37 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
     watchSuper(w);
+    const nowSec = now / 1000;
     const sim = lattice.sim;
     if (sim) clearForces(sim);
     wellsSeen = 0;
-    drawEntities(w, a, now / 1000, fxDt);
+    sparkleColour = mixRgb(palette.geom, 0xffffff, GEOM_SPARKLE_WHITE);
+    drawEntities(w, a, nowSec, fxDt);
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
-    // Ship trail: reads the sim velocity, writes only render particles.
+    // Ship trail: reads the sim velocity, writes only render particles and the comet ribbon.
     if (w.alive[0] === 1 && shipActive(w)) {
-      emitShipTrail(shipX, shipY, w.vx[0] ?? 0, w.vy[0] ?? 0, fxDt);
+      const svx = w.vx[0] ?? 0;
+      const svy = w.vy[0] ?? 0;
+      emitShipTrail(shipX, shipY, svx, svy, fxDt);
+      drawComet(shipX, shipY, svx, svy, fxDt);
       // Ship wake through the lattice above 120 u/s.
-      const wake = sim ? wakeAccel(Math.hypot(w.vx[0] ?? 0, w.vy[0] ?? 0)) : 0;
+      const wake = sim ? wakeAccel(Math.hypot(svx, svy)) : 0;
       if (sim && wake > 0) addForce(sim, shipX, shipY, WAKE_RADIUS, wake);
-    } else resetShipTrail();
+      superDistort(shipX, shipY, nowSec);
+    } else {
+      resetShipTrail();
+      hideComet();
+    }
+    lastFxSec = nowSec;
     drawBullets(explicitBullets ?? bulletsFromWorld(w), a, shipX, shipY, fxDt);
     stepEffects(dt);
-    if (latticeActive) lattice.frame(dt);
-    if (lattice.dust.visible) lattice.dustFrame(fxDt, now / 1000);
+    drawPulses(fxDt);
+    if (latticeActive) {
+      lattice.glow.alpha = HEAT_GLOW_ALPHA * mapFxNeonGain(current.glowAlpha);
+      lattice.frame(dt, nowSec);
+    }
+    if (lattice.dust.visible) lattice.dustFrame(fxDt, nowSec);
     governLattice(dt, now / 1000);
     stepParticles(dt);
     stats.particles = liveParticleCount();
@@ -1390,6 +1824,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     ringList.length = 0;
     shake.list.length = 0;
     resetEnemyAndMapFx();
+    hideComet();
+    clearPulseFx();
     // New level: the governor starts again from the tier spacing.
     gov = initialGovernor();
     avgFrameMs = 0;
@@ -1430,10 +1866,20 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     registerParticleStress(null);
     disposeParticles();
     lattice.destroy();
+    for (const t of fxAtlas.frames) t.destroy(false);
+    fxAtlas.texture.destroy(true);
+    cometAtlas.halo.destroy(false);
+    cometAtlas.core.destroy(false);
+    cometAtlas.texture.destroy(true);
+    trailAtlas.v1.destroy(false);
+    trailAtlas.taper.destroy(false);
+    trailAtlas.texture.destroy(true);
     dotTexture.destroy(true);
     for (const t of glowTextures) t?.destroy(true);
     for (const t of bloomTextures) t?.destroy(true);
     app.destroy(true, { children: true });
+    // Mesh.destroy leaves its geometry; free the comet ribbon once both meshes are gone.
+    cometGeom.destroy();
   }
 
   gridSegs = arenaGridSegments(arena);

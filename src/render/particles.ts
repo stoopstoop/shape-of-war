@@ -20,11 +20,23 @@ import {
   setPoolLimit,
   shedTrails,
   stepParticlePool,
+  TRAIL_SHED_FRAC,
   type Burst,
   type ParticlePool,
   type TrailSpec,
 } from './particlePool';
-import { bulletTrailParticle, enemyTrailParticle, shipTrailParticle, shipTrailRate, stepEmitter, type Emitter } from './trails';
+import {
+  BLINK_STREAK_SPARKS,
+  blinkStreakParticle,
+  bulletTrailParticle,
+  enemyTrailParticle,
+  GEOM_SPARKLE_RATE,
+  geomSparkleParticle,
+  shipTrailParticle,
+  shipTrailRate,
+  stepEmitter,
+  type Emitter,
+} from './trails';
 
 export { PARTICLE_CAP } from './particlePool';
 
@@ -220,6 +232,7 @@ export function burstSmall(
   scratch.colour = colour;
   scratch.colour2 = null;
   scratch.inwardRadius = 0;
+  scratch.bigEvery = 0;
   emitBurst(pool, x, y, scratch);
 }
 
@@ -234,6 +247,7 @@ export function burst(x: number, y: number, colour: number, count: number): void
   scratch.colour = colour;
   scratch.colour2 = null;
   scratch.inwardRadius = 0;
+  scratch.bigEvery = 0;
   emitBurst(pool, x, y, scratch);
 }
 
@@ -249,7 +263,65 @@ export function burstFx(x: number, y: number, e: FxEvent): void {
   scratch.colour = palette[b.colour];
   scratch.colour2 = b.colour2 === null ? null : palette[b.colour2];
   scratch.inwardRadius = 0;
+  scratch.bigEvery = 0;
   emitBurst(pool, x, y, scratch);
+  // Run 0180: kills and deaths add a second, slower spray of large embers in the burst's own
+  // hue on top of the docs/01 sparks (whose counts stay as the event table says). Off on low.
+  const embers = emberCount(e.type, b.count, burstTier);
+  if (embers > 0) {
+    scratch.count = tierBurstCount(embers, burstTier, pool.limit);
+    scratch.colour2 = null;
+    scratch.bigEvery = 1;
+    emitBurst(pool, x, y, scratch);
+    scratch.bigEvery = 0;
+  }
+}
+
+/** Embers per spark in a kill or death burst on standard and high. */
+export const EMBER_SHARE = 0.34;
+
+/** Pure: ember count added to an fx burst of `count` sparks on a tier (0 on low and non kills). */
+export function emberCount(type: FxEvent['type'], count: number, t: EffectsTier): number {
+  if (!trailsOn(t) || (type !== 'kill' && type !== 'death')) return 0;
+  return Math.max(0, Math.round(Math.max(0, count) * EMBER_SHARE));
+}
+
+/** Emit one prepared trail spec (shared by the sparkle and streak emitters). */
+function pushTrail(): boolean {
+  return emitTrail(pool, trailScratch);
+}
+
+/**
+ * Blink jump streak sparks from (x0, y0) to (x1, y1). Off on low; refused above 80 percent live
+ * and shed first like every trail.
+ */
+export function emitBlinkStreak(x0: number, y0: number, x1: number, y1: number, colour: number): void {
+  if (!trailsEnabled) return;
+  const n = BLINK_STREAK_SPARKS;
+  for (let k = 0; k < n; k++) {
+    trailSeq = (trailSeq + 1) | 0;
+    blinkStreakParticle(trailScratch, x0, y0, x1, y1, k, n, trailSeq, colour);
+    if (!pushTrail()) break;
+  }
+}
+
+/** Geom sparkle for one geom for one frame. e is the geom slot's emitter. Off on low. */
+export function emitGeomSparkle(e: Emitter, x: number, y: number, colour: number, dt: number): void {
+  if (!trailsEnabled) {
+    e.acc = 0;
+    return;
+  }
+  const n = stepEmitter(e, GEOM_SPARKLE_RATE, dt);
+  for (let k = 0; k < n; k++) {
+    trailSeq = (trailSeq + 1) | 0;
+    geomSparkleParticle(trailScratch, x, y, trailSeq, colour);
+    if (!pushTrail()) break;
+  }
+}
+
+/** Live trail particle budget: TRAIL_SHED_FRAC of the current limit (trails never pass it). */
+export function trailBudget(): number {
+  return Math.floor(pool.limit * TRAIL_SHED_FRAC);
 }
 
 /** Keep about n particles alive (debug stress, docs/04 section 14). 0 turns it off. */
@@ -315,9 +387,10 @@ export function stepParticles(dt: number): void {
     item.x = pool.x[i] ?? 0;
     item.y = pool.y[i] ?? 0;
     item.rotation = Math.atan2(vy, vx);
-    // Fast particles stretch, slow ones shrink to dots as they fade.
-    item.scaleX = baseScale * (0.5 + Math.min(speed, 900) / 450);
-    item.scaleY = STREAK_THICK * (0.5 + 0.5 * f);
+    // Fast particles stretch, slow ones shrink to dots as they fade. Embers draw larger.
+    const size = pool.size[i] ?? 1;
+    item.scaleX = baseScale * (0.5 + Math.min(speed, 900) / 450) * size;
+    item.scaleY = STREAK_THICK * (0.5 + 0.5 * f) * size;
     item.alpha = f * alphaMul;
   }
 }
