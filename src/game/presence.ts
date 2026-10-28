@@ -102,7 +102,7 @@ for (let k = 0; k < KIND_SLOTS; k++) {
 interface PresenceState {
   live: Int32Array;
   prev: Int32Array;
-  threatTimer: number;
+  sinceThreat: number;
   enter: { kind: EnemyKind; live: number };
   exit: { kind: EnemyKind };
   threat: { level: number };
@@ -116,7 +116,7 @@ function presence(w: World): PresenceState {
     s = {
       live: new Int32Array(KIND_SLOTS),
       prev: new Int32Array(KIND_SLOTS),
-      threatTimer: 0,
+      sinceThreat: Number.POSITIVE_INFINITY, // the first step emits at once
       enter: { kind: 'grunt', live: 0 },
       exit: { kind: 'grunt' },
       threat: { level: 0 },
@@ -161,10 +161,10 @@ export function stepPresence(w: World, dt: number): void {
     }
   }
   prev.set(live);
-  s.threatTimer -= dt;
-  if (s.threatTimer > 1e-9) return;
-  s.threatTimer += THREAT_INTERVAL;
-  if (s.threatTimer < 0) s.threatTimer = 0;
+  // Seconds since the last emit; never emits again before THREAT_INTERVAL has passed.
+  s.sinceThreat += dt;
+  if (s.sinceThreat < THREAT_INTERVAL - 1e-9) return;
+  s.sinceThreat = 0;
   s.threat.level = threatLevel(sum);
   bus.emit('sim:threat', s.threat);
 }
