@@ -1,7 +1,8 @@
 // HUD (docs/01 section 9). DOM overlay anchored to screen edges plus safe area insets, never to
 // the arena. Numbers come from 'hud:score' (main.ts emits it at most every 100 ms); objective
-// progress and the level line are set directly by main.ts at the same cadence.
-import type { Bus, Events } from '../core/events';
+// progress and the level line are set directly by main.ts at the same cadence. The weapon
+// indicator (V2-B) comes from 'hud:weapon' and is throttled here to the same 100 ms.
+import type { Bus, Events, WeaponKind } from '../core/events';
 import type { Insets, Rect } from '../input/types';
 import type { SuperKind } from '../levelgen/leveldef';
 import { el } from './dom';
@@ -102,6 +103,67 @@ export function due(lastMs: number, nowMs: number, intervalMs = 100): boolean {
   return nowMs - lastMs >= intervalMs;
 }
 
+export type HudWeapon = Events['hud:weapon'];
+
+/** What the weapon indicator shows for one hud:weapon payload. */
+export interface WeaponView {
+  /** False while the weapon is spread (the default) or the payload cannot be drawn. */
+  visible: boolean;
+  label: string;
+  /** Time left as 0 to 1: remaining over total, clamped. 1 on pickup, 0 when out. */
+  fraction: number;
+}
+
+export const WEAPON_NAMES: Readonly<Record<WeaponKind, string>> = {
+  spread: 'SPREAD',
+  rapid: 'RAPID',
+  pierce: 'PIERCE',
+  orbit: 'ORBIT',
+};
+
+/** HSL hue per weapon, the same hues as the rapid, pierce and orbit palette entries in render/neon.ts. */
+const WEAPON_HUES: Readonly<Record<WeaponKind, number>> = { spread: 185, rapid: 165, pierce: 20, orbit: 295 };
+
+/** Pure: CSS colour for a weapon's label and bar. */
+export function weaponColour(kind: WeaponKind): string {
+  return `hsl(${WEAPON_HUES[kind]}, 95%, 68%)`;
+}
+
+/**
+ * Pure: indicator state for a hud:weapon payload. Hidden while the weapon is spread. A non-finite
+ * remaining or total, or a total of 0 or less, hides it too (there is no bar to draw). The bar
+ * drains from full at pickup to empty at expiry.
+ */
+export function weaponView(p: HudWeapon): WeaponView {
+  const drawable = Number.isFinite(p.remaining) && Number.isFinite(p.total) && p.total > 0;
+  const fraction = drawable ? Math.max(0, Math.min(1, p.remaining / p.total)) : 0;
+  return { visible: drawable && p.kind !== 'spread', label: WEAPON_NAMES[p.kind], fraction };
+}
+
+/** Throttle memory for hud:weapon: when it last drew and which weapon that was. */
+export interface WeaponGate {
+  lastMs: number;
+  kind: WeaponKind;
+}
+
+export const WEAPON_GATE_START: Readonly<WeaponGate> = { lastMs: Number.NEGATIVE_INFINITY, kind: 'spread' };
+
+/**
+ * Pure: should this hud:weapon payload be drawn now? At most every `intervalMs` (100, like
+ * hud:score), except that a change of weapon always draws. Otherwise a throttled change to
+ * spread, the last event of a weapon's life, would leave a stale indicator up. A skipped payload
+ * leaves the gate as it was.
+ */
+export function weaponGate(
+  g: Readonly<WeaponGate>,
+  p: HudWeapon,
+  nowMs: number,
+  intervalMs = 100,
+): { gate: WeaponGate; draw: boolean } {
+  const draw = p.kind !== g.kind || due(g.lastMs, nowMs, intervalMs);
+  return { gate: draw ? { lastMs: nowMs, kind: p.kind } : { ...g }, draw };
+}
+
 /** Pure: super ring label, for example "SUPER: HOMING". The drone has no upgrades in v1. */
 export function superLabel(kind: SuperKind): string {
   return `SUPER: ${kind.toUpperCase()}`;
@@ -127,12 +189,16 @@ export interface Hud {
   setObjective(p: ObjectiveProgress): void;
   /** Super kind for the ring label. */
   setSuper(kind: SuperKind): void;
+  /** Draw the weapon indicator for a hud:weapon payload now, with no throttle. */
+  setWeapon(p: HudWeapon): void;
+  /** Hide the weapon indicator and forget the throttle: a new world starts on spread. */
+  clearWeapon(): void;
   /**
    * Re-anchor on resize, fold, unfold and arena change from the pure HUD frame. `buttons` is
    * false when there is no touch input (renderer failed), which hides the rings and pause.
    */
   layout(frame: HudFrame, buttons: boolean): void;
-  /** Subscribe to 'hud:score'. Returns the unsubscribe function. */
+  /** Subscribe to 'hud:score' and 'hud:weapon'. Returns the unsubscribe function for both. */
   listen(bus: Bus): () => void;
 }
 
@@ -158,12 +224,26 @@ function place(e: HTMLElement, r: Rect, d: number): void {
   s.height = `${d}px`;
 }
 
-/** DOM edge. */
-export function createHud(parent: HTMLElement): Hud {
+/** DOM edge. `now` is the clock for the hud:weapon throttle, injected for tests. */
+export function createHud(parent: HTMLElement, now: () => number = () => performance.now()): Hud {
   const root = el('div', 'sow-hud');
   const score = el('div', 'sow-hud-item', '0');
   const mult = el('div', 'sow-hud-item', 'x1');
   mult.style.color = 'hsl(95, 100%, 65%)';
+  // Weapon indicator: text and a bar, no pointer target (the whole HUD is pointer-events: none).
+  // Hidden until a weapon other than spread is active.
+  const weaponLabel = el('div', 'sow-hud-item', '');
+  weaponLabel.style.fontWeight = '600';
+  weaponLabel.style.display = 'none';
+  const weaponBar = el('div', 'sow-hud-bar');
+  weaponBar.style.boxSizing = 'border-box';
+  weaponBar.style.display = 'none';
+  const weaponFill = el('div', 'sow-hud-fill');
+  weaponBar.append(weaponFill);
+  weaponLabel.setAttribute('data-hud', 'weapon');
+  weaponBar.setAttribute('data-hud', 'weapon-bar');
+  weaponFill.setAttribute('data-hud', 'weapon-fill');
+  let gate: WeaponGate = { ...WEAPON_GATE_START };
   const bar = el('div', 'sow-hud-bar');
   const fill = el('div', 'sow-hud-fill');
   const objLabel = el('div', 'sow-hud-item', '');
@@ -179,7 +259,7 @@ export function createHud(parent: HTMLElement): Hud {
   superName.style.fontWeight = '600';
   const superTip = el('div', 'sow-hud-item', superHint(0));
   superTip.style.opacity = '0.7';
-  root.append(bar, objLabel, score, mult, par, lives, bombs, pause, bombRing, superRing, superName, superTip);
+  root.append(bar, objLabel, score, mult, weaponBar, weaponLabel, par, lives, bombs, pause, bombRing, superRing, superName, superTip);
   parent.append(root);
   pause.style.cssText += ';display:flex;gap:22%;justify-content:center;align-items:center';
   const bars = [el('div'), el('div')];
@@ -205,6 +285,24 @@ export function createHud(parent: HTMLElement): Hud {
     setSuper(kind) {
       superName.textContent = superLabel(kind);
     },
+    setWeapon(p) {
+      const v = weaponView(p);
+      const display = v.visible ? '' : 'none';
+      weaponLabel.style.display = display;
+      weaponBar.style.display = display;
+      if (!v.visible) return;
+      const colour = weaponColour(p.kind);
+      weaponLabel.textContent = v.label;
+      weaponLabel.style.color = colour;
+      weaponFill.style.background = colour;
+      weaponFill.style.boxShadow = `0 0 6px ${colour}`;
+      weaponFill.style.width = `${Math.round(v.fraction * 1000) / 10}%`;
+    },
+    clearWeapon() {
+      gate = { ...WEAPON_GATE_START };
+      weaponLabel.style.display = 'none';
+      weaponBar.style.display = 'none';
+    },
     setLevel(levelIndex, parScore, hash) {
       par.textContent = levelLine(levelIndex, parScore, hash);
     },
@@ -220,6 +318,8 @@ export function createHud(parent: HTMLElement): Hud {
       score.style.fontWeight = '600';
       setBox(score, B.score, true);
       setBox(mult, B.mult, true);
+      setBox(weaponLabel, B.weapon, true);
+      setBox(weaponBar, B.weaponBar, false);
       setBox(lives, B.lives, true);
       setBox(bombs, B.bombs, true);
       setBox(bar, B.bar, false);
@@ -235,7 +335,16 @@ export function createHud(parent: HTMLElement): Hud {
       for (const e of [superName, superTip]) e.style.display = buttons ? '' : 'none';
     },
     listen(bus) {
-      return bus.on('hud:score', (p) => hud.update(p));
+      const offScore = bus.on('hud:score', (p) => hud.update(p));
+      const offWeapon = bus.on('hud:weapon', (p) => {
+        const g = weaponGate(gate, p, now());
+        gate = g.gate;
+        if (g.draw) hud.setWeapon(p);
+      });
+      return () => {
+        offScore();
+        offWeapon();
+      };
     },
   };
   return hud;

@@ -7,8 +7,20 @@ import type { Insets, Rect } from '../../src/input/types';
 import { generateLevel } from '../../src/levelgen/generator';
 import type { SuperKind } from '../../src/levelgen/leveldef';
 import { fitArena } from '../../src/render/layout';
-import { playRect, superHint, superLabel } from '../../src/ui/hud';
-import { hudFrame, hudRects, MAIN_RIGHT, mainBottom, mainTop, overlayPadding, overlaps, type HudFrame } from '../../src/ui/hudFrame';
+import { MULTIPLIER_CAP } from '../../src/game/scoring';
+import { hudText, playRect, superHint, superLabel } from '../../src/ui/hud';
+import {
+  COVER_LEFT,
+  hudFrame,
+  hudRects,
+  MAIN_RIGHT,
+  MAIN_ROWS,
+  mainBottom,
+  mainTop,
+  overlayPadding,
+  overlaps,
+  type HudFrame,
+} from '../../src/ui/hudFrame';
 
 const ZERO: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -243,6 +255,87 @@ describe('pause, results and intro overlays stay clear of the HUD rings', () => 
   it('padding includes the safe area insets', () => {
     const f = hudFrame(960, 411, { top: 0, right: 0, bottom: 0, left: 32 }, 1600, 1000);
     expect(overlayPadding(f).left).toBeGreaterThanOrEqual(32);
+  });
+});
+
+describe('V2-B weapon indicator boxes', () => {
+  const all = [...frames(COVER_VIEWS), ...frames(MAIN_VIEWS)];
+  /** Every text or bar box except the two weapon boxes. */
+  const others = (f: HudFrame): Rect[] =>
+    Object.entries(f.boxes)
+      .filter(([id]) => id !== 'weapon' && id !== 'weaponBar')
+      .map(([, b]) => b)
+      .filter((b) => b.w > 0 && b.h > 0);
+
+  it('sits to the right of the multiplier on the same row on both screens', () => {
+    for (const f of all) {
+      const { mult, weapon } = f.boxes;
+      expect(weapon.x, label(f)).toBeGreaterThanOrEqual(mult.x + mult.w);
+      expect(weapon.y, label(f)).toBe(mult.y);
+      expect(weapon.w, label(f)).toBeGreaterThan(40);
+    }
+  });
+
+  it('the countdown bar is directly under the label, same left edge and width', () => {
+    for (const f of all) {
+      const { weapon, weaponBar } = f.boxes;
+      expect(weaponBar.x, label(f)).toBe(weapon.x);
+      expect(weaponBar.w, label(f)).toBe(weapon.w);
+      expect(weaponBar.y, label(f)).toBeGreaterThanOrEqual(weapon.y + weapon.h);
+      expect(weaponBar.h, label(f)).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('overlaps no other HUD box, and neither does it overlap the arena or the play rect', () => {
+    for (const f of all) {
+      for (const id of ['weapon', 'weaponBar'] as const) {
+        const b = f.boxes[id];
+        for (const o of others(f)) expect(overlaps(b, o), `${label(f)} ${id} vs ${JSON.stringify(o)}`).toBe(false);
+        expect(overlaps(b, f.arena), `${label(f)} ${id} arena`).toBe(false);
+        expect(overlaps(b, f.playRect), `${label(f)} ${id} play rect`).toBe(false);
+      }
+    }
+  });
+
+  it('stays inside the existing top rows: no taller band on main, clear of the objective bar on cover', () => {
+    for (const f of frames(MAIN_VIEWS)) {
+      const { weaponBar } = f.boxes;
+      expect(weaponBar.y + weaponBar.h, label(f)).toBeLessThanOrEqual(f.insets.top + MAIN_ROWS);
+      expect(mainTop(f.buttons, f.insets), label(f)).toBe(Math.max(MAIN_ROWS, f.buttons.pause.y + f.buttons.pause.h - f.insets.top));
+    }
+    for (const f of frames(COVER_VIEWS)) {
+      expect(f.boxes.weaponBar.y + f.boxes.weaponBar.h, label(f)).toBeLessThanOrEqual(f.boxes.bar.y);
+    }
+  });
+
+  it('stays inside the column it belongs to: the cover left column, the main top band', () => {
+    for (const f of frames(COVER_VIEWS)) {
+      const { weapon } = f.boxes;
+      expect(weapon.x + weapon.w, label(f)).toBeLessThanOrEqual(f.insets.left + COVER_LEFT);
+    }
+    for (const f of frames(MAIN_VIEWS)) {
+      const { weapon, objLabel } = f.boxes;
+      expect(weapon.x + weapon.w, label(f)).toBeLessThanOrEqual(objLabel.x);
+    }
+  });
+
+  it('the multiplier box still fits the widest multiplier, x999', () => {
+    const text = hudText({ score: 0, multiplier: MULTIPLIER_CAP, lives: 1, bombs: 0, superCharge: 0 }).mult;
+    expect(text).toBe('x999');
+    for (const f of all) {
+      const { mult } = f.boxes;
+      // Digits are about 0.6 em wide in the system sans-serif stack; allow 0.65.
+      expect(mult.w, label(f)).toBeGreaterThanOrEqual(text.length * mult.size * 0.65);
+    }
+  });
+
+  it('does not move the arena: the play rect depends on the bands and columns, not on these boxes', () => {
+    // Zero inset, cover: side columns only. Zero inset, main: MAIN_ROWS top band.
+    const cover = hudFrame(960, 411, ZERO, 1600, 1000);
+    expect(cover.playRect.y).toBe(0);
+    expect(cover.playRect.x).toBe(160);
+    const main = hudFrame(832, 750, ZERO, 1800, 1000);
+    expect(main.playRect.y).toBe(mainTop(main.buttons, ZERO));
   });
 });
 

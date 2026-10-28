@@ -1,6 +1,7 @@
 // Settings screen (docs/01 section 10, docs/03 sections 7 and 8, SPEC 4). Neon slider 0 to 100
-// over a live preview arena, Volume slider, Space physics (Off, Low, Medium, High; v2), Show FPS,
-// Bloom / Fallback, Play seed, Reset progress, and a hidden debug menu behind five taps on the
+// over a live preview arena, Volume slider, Space physics (Off, Low, Medium, High; v2), Weapon
+// pickups (On, Off; v2), Show FPS, Bloom / Fallback, Play seed, Reset progress, and a hidden debug
+// menu behind five taps on the
 // version label. The same screen opens from the menu and from the pause screen.
 // The model is pure apart from injected effects, so tests drive it with fakes. applyNeon is
 // throttled to one call per animation frame while dragging; the value is saved on finger up.
@@ -8,11 +9,13 @@ import {
   loadGlowPath,
   loadSettings,
   loadSpacePhysics,
+  loadWeaponPickups,
   parseSeedInput,
   parseSpacePhysics,
   saveGlowPath,
   saveSetting,
   saveSpacePhysics,
+  saveWeaponPickups,
   SPACE_LEVELS,
   type GlowPathSetting,
   type SpaceLevelSetting,
@@ -35,6 +38,11 @@ export interface SettingsEffects {
    * setShipSpace(world, level); until then main.ts leaves it a no-op.
    */
   setSpacePhysics(level: SpaceLevelSetting): void;
+  /**
+   * Weapon pickups on or off (v2). Called at boot, then once per change. Fable glue maps it to
+   * Swarm's setWeaponPickups(world, on); until then main.ts leaves it a no-op.
+   */
+  setWeaponPickups(on: boolean): void;
   /** requestAnimationFrame, injected for tests. */
   requestFrame(cb: () => void): void;
 }
@@ -45,6 +53,7 @@ export interface SettingsView {
   showFps: boolean;
   glowPath: GlowPathSetting;
   spacePhysics: SpaceLevelSetting;
+  weaponPickups: boolean;
 }
 
 export interface SettingsModel {
@@ -61,6 +70,8 @@ export interface SettingsModel {
   setGlowPath(p: GlowPathSetting): void;
   /** Row tap: persist sow.settings.spacePhysics and call the effect once. Same level: no effect call. */
   setSpacePhysics(level: SpaceLevelSetting): void;
+  /** Row tap: persist sow.settings.weaponPickups and call the effect once. Same value: no effect call. */
+  setWeaponPickups(on: boolean): void;
   toggleShowFps(): void;
   toggleGlowPath(): void;
   /** Record a glow change made elsewhere (the debug panel) without calling the renderer again. */
@@ -84,6 +95,7 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
     showFps: loaded.showFps,
     glowPath: loadGlowPath(storage),
     spacePhysics: loadSpacePhysics(storage),
+    weaponPickups: loadWeaponPickups(storage),
   };
   const neonThrottle = createFrameThrottle<number>((n) => fx.applyNeon(n), (cb) => fx.requestFrame(cb));
   const model: SettingsModel = {
@@ -94,6 +106,7 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       fx.setShowFps(state.showFps);
       fx.setGlowPath(state.glowPath);
       fx.setSpacePhysics(state.spacePhysics);
+      fx.setWeaponPickups(state.weaponPickups);
     },
     neonInput(n) {
       state.neon = clamp100(n);
@@ -129,6 +142,12 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       state.spacePhysics = next;
       saveSpacePhysics(next, storage); // always written, so a failed earlier write heals on the next tap
       if (changed) fx.setSpacePhysics(next);
+    },
+    setWeaponPickups(on) {
+      const changed = on !== state.weaponPickups;
+      state.weaponPickups = on;
+      saveWeaponPickups(on, storage); // always written, so a failed earlier write heals on the next tap
+      if (changed) fx.setWeaponPickups(on);
     },
     toggleShowFps() {
       model.setShowFps(!state.showFps);
@@ -183,6 +202,24 @@ export interface SpaceButtonState {
 /** Pure: the four Space physics buttons in order, with the current choice marked. */
 export function spaceButtonStates(current: SpaceLevelSetting): SpaceButtonState[] {
   return SPACE_LEVELS.map((level) => ({ level, label: spaceLabel(level), selected: level === current }));
+}
+
+export const WEAPON_ROW_LABEL = 'Weapon pickups';
+
+/** Pure: the text on one Weapon pickups button. */
+export function weaponPickupsLabel(on: boolean): string {
+  return on ? 'On' : 'Off';
+}
+
+export interface WeaponButtonState {
+  on: boolean;
+  label: string;
+  selected: boolean;
+}
+
+/** Pure: the two Weapon pickups buttons (On, then Off) with the current choice marked. */
+export function weaponButtonStates(current: boolean): WeaponButtonState[] {
+  return [true, false].map((on) => ({ on, label: weaponPickupsLabel(on), selected: on === current }));
 }
 
 /**
@@ -283,6 +320,20 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
   spaceBtns.append(...spaceButtons);
   spaceRow.append(el('div', 'sow-choice-label', SPACE_ROW_LABEL), spaceBtns);
 
+  // Weapon pickups: label with On and Off buttons, the same row shape as Space physics.
+  const weaponRow = el('div', 'sow-choice');
+  weaponRow.setAttribute('role', 'group');
+  weaponRow.setAttribute('aria-label', WEAPON_ROW_LABEL);
+  const weaponButtons = [true, false].map((on) =>
+    button(weaponPickupsLabel(on), () => {
+      model.setWeaponPickups(on);
+      refresh();
+    }),
+  );
+  const weaponBtns = el('div', 'sow-choice-btns');
+  weaponBtns.append(...weaponButtons);
+  weaponRow.append(el('div', 'sow-choice-label', WEAPON_ROW_LABEL), weaponBtns);
+
   const seedField = el('input', 'sow-input');
   seedField.type = 'text';
   seedField.inputMode = 'numeric';
@@ -337,7 +388,7 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     if (r.fire) debugRow.style.display = debugRow.style.display === 'none' ? '' : 'none';
   });
 
-  panel.append(title, neon.root, volume.root, spaceRow, toggles, seedRow, seedLine, bottom, debugRow, version);
+  panel.append(title, neon.root, volume.root, spaceRow, weaponRow, toggles, seedRow, seedLine, bottom, debugRow, version);
   s.root.append(panel);
 
   function refresh(): void {
@@ -347,6 +398,12 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     glow.textContent = glowLabel(model.state.glowPath);
     spaceButtonStates(model.state.spacePhysics).forEach((st, i) => {
       const b = spaceButtons[i];
+      if (b === undefined) return;
+      b.classList.toggle('sow-on', st.selected);
+      b.setAttribute('aria-pressed', st.selected ? 'true' : 'false');
+    });
+    weaponButtonStates(model.state.weaponPickups).forEach((st, i) => {
+      const b = weaponButtons[i];
       if (b === undefined) return;
       b.classList.toggle('sow-on', st.selected);
       b.setAttribute('aria-pressed', st.selected ? 'true' : 'false');

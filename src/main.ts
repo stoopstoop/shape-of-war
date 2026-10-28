@@ -5,7 +5,7 @@
 // report if the renderer fails.
 // Screen flow: menu, level, pause, results and settings run through the pure state machine in
 // ui/flow.ts. UI and game talk through the bus: game:start, game:pause, game:resume, game:quit,
-// game:over and hud:score.
+// game:over, hud:score and hud:weapon.
 import { getDebugInfo, runParticleStress, setDebugInfoSource, type DebugInfo } from './core/debug';
 import { bus, type ViewportInfo } from './core/events';
 import { createLoop, type Loop } from './core/loop';
@@ -257,6 +257,12 @@ async function boot(): Promise<void> {
   // here on purpose. It runs at boot (settingsModel.applyBoot), on every change from the Space
   // physics row, and whenever startLevel builds a new world, so the level reaches every world.
   const applySpacePhysics = (level: SpaceLevelSetting): void => setShipSpace(world, level);
+  // V2-B glue point, the one named port call for weapon pickups. Fable replaces the body with
+  // Swarm's setWeaponPickups(world, on) after both branches merge; this branch does not import
+  // src/game weapons on purpose. It runs at boot (settingsModel.applyBoot), on every change from
+  // the Weapon pickups row, and whenever startLevel builds a new world, so the stored choice
+  // reaches every world. Until then it is a no-op.
+  const applyWeaponPickups = (_on: boolean): void => {};
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
@@ -315,6 +321,8 @@ async function boot(): Promise<void> {
     hud.setSuper(level.superType);
     resetScore(world);
     applySpacePhysics(settingsModel.state.spacePhysics); // new world: push the stored level to it
+    applyWeaponPickups(settingsModel.state.weaponPickups); // and the stored pickups choice
+    hud.clearWeapon(); // a new world starts on spread: drop any indicator left from the last run
     endCheck = true;
     renderer?.setArena(level);
     sceneWorld = world;
@@ -406,6 +414,7 @@ async function boot(): Promise<void> {
     },
     setVolume: (v) => audio.setVolume(v),
     setSpacePhysics: (level) => applySpacePhysics(level),
+    setWeaponPickups: (on) => applyWeaponPickups(on),
     requestFrame: (cb) => {
       window.requestAnimationFrame(() => cb());
     },
@@ -643,7 +652,7 @@ async function boot(): Promise<void> {
     // Glow's panel and its slider. The panel stays installed for the FPS label it drives.
     panel.close();
   }
-  settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path, space physics
+  settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path, space physics, weapon pickups
   installAudio({ volume: settings.volume }); // Glue: Glow's synth listens on the bus; unlock happens on the first gesture
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 

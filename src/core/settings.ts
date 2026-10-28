@@ -147,6 +147,33 @@ export function saveSpacePhysics(level: SpaceLevelSetting, storage: StorageLike 
   writeRaw(storage, SPACE_PHYSICS_KEY, parseSpacePhysics(level));
 }
 
+// Weapon pickups (v2 addendum, docs/10 wave B): stored as '1' (on) or '0' (off), default on. Kept
+// out of Settings and DEFAULT_SETTINGS on purpose, like glowPath and spacePhysics, so the v1
+// settings shape and the storage key audit stay as they are.
+
+export const WEAPON_PICKUPS_KEY = `${SETTINGS_PREFIX}weaponPickups`;
+export const DEFAULT_WEAPON_PICKUPS = true;
+
+/** Pure: only the exact strings '0' and '1' count. Anything else, and null, gives the default (on). */
+export function parseWeaponPickups(raw: string | null): boolean {
+  if (raw === '0') return false;
+  if (raw === '1') return true;
+  return DEFAULT_WEAPON_PICKUPS;
+}
+
+/** Pure: the string stored for a value. */
+export function encodeWeaponPickups(on: boolean): string {
+  return on ? '1' : '0';
+}
+
+export function loadWeaponPickups(storage: StorageLike | null = defaultStorage()): boolean {
+  return parseWeaponPickups(readRaw(storage, WEAPON_PICKUPS_KEY));
+}
+
+export function saveWeaponPickups(on: boolean, storage: StorageLike | null = defaultStorage()): void {
+  writeRaw(storage, WEAPON_PICKUPS_KEY, encodeWeaponPickups(on));
+}
+
 // Progress and scores (docs/03 section 8). Level indices are 1 based.
 
 export const RUN_SEED_KEY = 'sow.progress.runSeed';
