@@ -1,12 +1,14 @@
 // Deterministic load test (v2 fixes, GD "some glitches"): 60 s of a 400 entity wave with a
-// jittery, stalling main thread, enemy churn, a steady stream of kills and four bombs. Asserts
-// no note is ever scheduled in the past, the music never has more than 16 voices sounding,
-// no step is lost to a stall and the kill gate holds its budget. Jitter comes from hash01,
-// so every run is identical.
+// jittery, stalling main thread, enemy churn, a steady stream of kills, about 3000 non lethal
+// hits (some of them shield blocks) and four bombs. Asserts no note is ever scheduled in the
+// past, the music never has more than 16 voices sounding, no step is lost to a stall, the kill
+// gate holds its budget and hit sounds hold their rate limits. Jitter comes from hash01, so
+// every run is identical.
 import { Kind } from '../../../src/game/world';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MUSIC_VOICE_CAP, type VoiceClass, type VoiceTrace } from '../../../src/audio/music/engine';
 import { initMusic, musicState, startMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
+import { HIT_DUR_SEC } from '../../../src/audio/music/hits';
 import { KILL_BUDGET_MAX } from '../../../src/audio/music/kills';
 import { STEPS_PER_BAR } from '../../../src/audio/music/track';
 import { Bus, type Events } from '../../../src/core/events';
@@ -29,7 +31,21 @@ let spans: Map<number, Span>;
 let uninstall: () => void;
 
 const ROSTER: readonly EnemyKind[] = ['grunt', 'weaver', 'dart', 'snake', 'charger', 'splime'];
-const COLOURS: readonly Events['fx:kill']['colour'][] = ['blue', 'green', 'orange', 'cyan', 'charger', 'splime', 'red', 'yellow'];
+/** Kills as combat sends them: kind and colour (a Mine pop carries the Sower colour). */
+const KILLS: readonly [Kind, Events['fx:kill']['colour']][] = [
+  [Kind.Grunt, 'blue'],
+  [Kind.Weaver, 'green'],
+  [Kind.Dart, 'orange'],
+  [Kind.SnakeHead, 'cyan'],
+  [Kind.Charger, 'charger'],
+  [Kind.Splime, 'splime'],
+  [Kind.GravityWell, 'red'],
+  [Kind.Spawner, 'yellow'],
+  [Kind.Mine, 'sower'],
+  [Kind.Slime, 'slime'],
+];
+/** Kinds that take non lethal hits; Bulwark hits are shield blocks one time in three. */
+const HIT_KINDS: readonly Kind[] = [Kind.Bulwark, Kind.Splime, Kind.SnakeHead, Kind.Charger, Kind.GravityWell, Kind.Spawner];
 
 /** Most spans sounding at once (start inclusive, end exclusive). */
 function peakConcurrency(list: readonly Span[]): number {
@@ -80,13 +96,17 @@ afterEach(() => uninstall());
  * Drive 60 s of play. Each timer tick lands 25 ms plus 0 to 30 ms late; about one tick in 40
  * is a 120 to 200 ms stall (a heavy frame, GC or a bomb).
  */
-function simulate(seconds: number): { kills: number; bombs: number } {
+function simulate(seconds: number): { kills: number; bombs: number; hits: number; blocks: number } {
   startMusic(0x5eed);
   for (const k of ROSTER) bus.emit('sim:enemyEnter', { kind: k, live: 60 });
   let i = 0;
   let sinceThreat = 0;
   let kills = 0;
   let bombs = 0;
+  let hits = 0;
+  let blocks = 0;
+  // The sim reuses one hit payload; so does this driver.
+  const hitFx = { x: 0, y: 0, kind: Kind.Grunt, id: 1, blocked: false };
   const bombAt = [10, 25, 40, 55];
   const out = new Set<EnemyKind>();
   while (ctx.currentTime < seconds) {
@@ -115,11 +135,21 @@ function simulate(seconds: number): { kills: number; bombs: number } {
     const h = hash01(i, 0x1c11);
     const n = h < 0.03 ? 5 : h < 0.4 ? 1 : 0;
     for (let k = 0; k < n; k++) {
-      const colour = COLOURS[Math.floor(hash01(i * 7 + k, 0xc010) * COLOURS.length)] ?? 'blue';
-      if (colour === 'cyan') for (let s = 0; s < 6; s++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.Grunt, id: 1 });
-      bus.emit('fx:kill', { x: 0, y: 0, colour, kind: Kind.Grunt, id: 1 });
+      const [kind, colour] = KILLS[Math.floor(hash01(i * 7 + k, 0xc010) * KILLS.length)] ?? [Kind.Grunt, 'blue'];
+      if (kind === Kind.SnakeHead) for (let s = 0; s < 6; s++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.SnakeBody, id: 100 + s });
+      bus.emit('fx:kill', { x: 0, y: 0, colour, kind, id: 1 });
       bus.emit('sfx', 'explode');
       kills++;
+    }
+    // Hits: 0 to 4 per tick (about 50 a second, some 3000 in 60 s), from mixed kinds.
+    const nh = Math.floor(hash01(i, 0x4171) * 5.4);
+    for (let k = 0; k < nh; k++) {
+      const kind = HIT_KINDS[Math.floor(hash01(i * 5 + k, 0x4172) * HIT_KINDS.length)] ?? Kind.Bulwark;
+      hitFx.kind = kind;
+      hitFx.blocked = kind === Kind.Bulwark && hash01(i * 5 + k, 0x4173) < 1 / 3;
+      bus.emit('fx:hit', hitFx);
+      hits++;
+      if (hitFx.blocked) blocks++;
     }
     for (const b of bombAt) {
       if (ctx.currentTime < b && t >= b) {
@@ -132,7 +162,19 @@ function simulate(seconds: number): { kills: number; bombs: number } {
     timer.fire();
     i++;
   }
-  return { kills, bombs };
+  return { kills, bombs, hits, blocks };
+}
+
+/** Most notes inside any half open window [t, t + width). */
+function maxInWindow(list: readonly NoteLog[], width: number): number {
+  const times = list.map((n) => n.time).sort((a, b) => a - b);
+  let best = 0;
+  let j = 0;
+  for (let i = 0; i < times.length; i++) {
+    while (j < times.length && (times[j] ?? Infinity) < (times[i] ?? 0) + width) j++;
+    best = Math.max(best, j - i);
+  }
+  return best;
 }
 
 describe('60 s of a 400 entity wave under timing jitter', () => {
@@ -146,11 +188,49 @@ describe('60 s of a 400 entity wave under timing jitter', () => {
     for (const s of spans.values()) expect(s.start).toBeGreaterThanOrEqual(s.scheduledAt);
     // At most 16 music voices sound at once, stolen voices counted until their fade ends.
     expect(peakConcurrency([...spans.values()])).toBeLessThanOrEqual(MUSIC_VOICE_CAP);
-    const st = musicState();    // Stalls up to 200 ms are inside the 250 ms lookahead: no hole in the beat.
+    const st = musicState();
+    // Stalls up to 200 ms are inside the 250 ms lookahead: no hole in the beat.
     expect(st.skippedSteps).toBe(0);
-    // The bed is never cut short, and kill accents never cut a motif.
+    // The bed is never cut short, and kill accents and hit sounds never cut a motif.
     expect(st.bedSteals).toBe(0);
     expect(st.motifSteals).toBe(0);
+  });
+
+  it('about 3000 hits: rate limited per kind, deflects apart, cap and clock still hold', () => {
+    const run = simulate(60);
+    expect(run.hits).toBeGreaterThan(2500);
+    expect(run.hits).toBeLessThan(3600);
+    expect(run.blocks).toBeGreaterThan(100);
+    const hits = notes.filter((n) => n.role === 'hit');
+    const deflects = notes.filter((n) => n.role === 'deflect');
+    // Each kind is heard; at most 8 ticks a second per kind, 4 deflects a second.
+    const bySource = new Map<string, NoteLog[]>();
+    for (const h of hits) bySource.set(h.source ?? '', [...(bySource.get(h.source ?? '') ?? []), h]);
+    expect(new Set(bySource.keys())).toEqual(new Set(['bulwark', 'splime', 'snake', 'charger', 'well', 'spawner']));
+    for (const list of bySource.values()) expect(maxInWindow(list, 1)).toBeLessThanOrEqual(8);
+    expect(deflects.length).toBeGreaterThan(20);
+    expect(maxInWindow(deflects, 1)).toBeLessThanOrEqual(4);
+    // Balanced: a share of hits is heard, never all of them.
+    expect(hits.length + deflects.length).toBeLessThan(run.hits / 3);
+    expect(hits.length).toBeGreaterThan(300);
+    // One hit sound at a time.
+    const lane = [...hits, ...deflects].sort((a, b) => a.time - b.time);
+    for (let i = 1; i < lane.length; i++) expect((lane[i]?.time ?? 0) - (lane[i - 1]?.time ?? 0)).toBeGreaterThanOrEqual(HIT_DUR_SEC - 1e-9);
+    // No hit is scheduled in the past, and the voice cap holds with hits counted.
+    for (const n of [...hits, ...deflects]) expect(n.time).toBeGreaterThanOrEqual(n.now);
+    for (const s of spans.values()) expect(s.start).toBeGreaterThanOrEqual(s.scheduledAt);
+    expect(peakConcurrency([...spans.values()])).toBeLessThanOrEqual(MUSIC_VOICE_CAP);
+    const st = musicState();
+    expect(st.skippedSteps).toBe(0);
+    expect(st.bedSteals).toBe(0);
+    expect(st.motifSteals).toBe(0);
+    // Kill notes keep their budget beside the hits.
+    const perBar = new Map<number, number>();
+    for (const k of notes.filter((n) => n.role === 'kill')) perBar.set(Math.floor(k.step / STEPS_PER_BAR), (perBar.get(Math.floor(k.step / STEPS_PER_BAR)) ?? 0) + 1);
+    for (const c of perBar.values()) expect(c).toBeLessThanOrEqual(KILL_BUDGET_MAX);
+    // Mine and Slime pops and burst segments are voiced by kind.
+    const sources = new Set(notes.filter((n) => n.role === 'kill').map((n) => n.source));
+    for (const s of ['mine', 'slime', 'segment']) expect(sources.has(s as never)).toBe(true);
   });
 
   it('the bed plays every bar and the kill gate keeps its budget', () => {

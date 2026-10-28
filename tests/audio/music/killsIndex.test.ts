@@ -26,8 +26,25 @@ function advance(sec: number): void {
   }
 }
 
-function kill(colour: Events['fx:kill']['colour']): void {
-  bus.emit('fx:kill', { x: 0, y: 0, colour, kind: Kind.Grunt, id: 1 });
+type Colour = Events['fx:kill']['colour'];
+
+/** The sim's colour per kind, as combat sends it (a Mine pop carries the Sower colour). */
+const COLOUR_OF: Partial<Record<Kind, Colour>> = {
+  [Kind.Grunt]: 'blue',
+  [Kind.Weaver]: 'green',
+  [Kind.Dart]: 'orange',
+  [Kind.SnakeHead]: 'cyan',
+  [Kind.SnakeBody]: 'cyan',
+  [Kind.GravityWell]: 'red',
+  [Kind.Bulwark]: 'bulwark',
+  [Kind.Swirl]: 'swirl',
+  [Kind.Sower]: 'sower',
+  [Kind.Mine]: 'sower',
+};
+
+/** A scored kill (or a pop): 'fx:kill' then the 'explode' sfx. */
+function kill(kind: Kind, colour: Colour = COLOUR_OF[kind] ?? 'white'): void {
+  bus.emit('fx:kill', { x: 0, y: 0, colour, kind, id: 1 });
   bus.emit('sfx', 'explode');
 }
 
@@ -66,7 +83,7 @@ describe('kill accents in the music loop', () => {
     startMusic(seed);
     advance(0.7);
     const at = ctx.currentTime;
-    kill('blue');
+    kill(Kind.Grunt);
     advance(0.05);
     const k = role('kill');
     expect(k).toHaveLength(1);
@@ -85,10 +102,10 @@ describe('kill accents in the music loop', () => {
     startMusic(seedWithFirstKill());
     advance(0.5);
     const heard = new Set<string>();
-    const colours = ['blue', 'green', 'orange', 'bulwark', 'swirl', 'red'] as const;
+    const kinds = [Kind.Grunt, Kind.Weaver, Kind.Dart, Kind.Bulwark, Kind.Swirl, Kind.GravityWell] as const;
     // Kills a bar apart, so the budget, spacing and streak rules never interfere.
     for (let i = 0; i < 40; i++) {
-      kill(colours[i % colours.length] ?? 'blue');
+      kill(kinds[i % kinds.length] ?? Kind.Grunt);
       advance(BAR_SEC);
     }
     for (const n of role('kill')) heard.add(`${n.source}:${n.midi}`);
@@ -100,10 +117,47 @@ describe('kill accents in the music loop', () => {
     expect(role('chord').length).toBeGreaterThanOrEqual(4);
   });
 
-  it('snake segment bursts (fx:kill without explode) and stray explodes are not kills', () => {
+  it('a snake segment burst gets its own voice, and the head still resolves into a big chord', () => {
     startMusic(seedWithFirstKill());
     advance(0.5);
-    for (let i = 0; i < 8; i++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.Grunt, id: 1 });
+    // combat.ts order: the burst (fx:kill per segment, no explode), then the head's kill pair.
+    for (let i = 0; i < 8; i++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.SnakeBody, id: 10 + i });
+    kill(Kind.SnakeHead);
+    advance(1);
+    const k = role('kill');
+    expect(k).toHaveLength(1);
+    expect(k[0]?.source).toBe('segment');
+    expect(k[0]?.kind).toBeNull();
+    expect(k[0]?.midi).toBe(killMidi(KILL_SPECS.segment, Math.floor((k[0]?.step ?? 0) / STEPS_PER_BAR)));
+    // One big chord (four notes) on a beat after the segment note.
+    const c = role('chord');
+    expect(c).toHaveLength(4);
+    for (const n of c) expect(n.step).toBeGreaterThan(k[0]?.step ?? Infinity);
+    expect(musicState().kills.seen).toBe(9);
+  });
+
+  it('a Mine pop and a Sower kill sound different notes', () => {
+    let seed = 1;
+    while (!(killPasses(seed, 0) && killPasses(seed, 1))) seed++;
+    startMusic(seed);
+    advance(0.5);
+    kill(Kind.Mine);
+    advance(BAR_SEC);
+    kill(Kind.Sower);
+    advance(BAR_SEC);
+    const k = role('kill');
+    expect(k.map((n) => n.source)).toEqual(['mine', 'sower']);
+    expect(k[0]?.kind).toBeNull();
+    expect(k[1]?.kind).toBe('sower');
+    expect(k[0]?.midi).toBe(killMidi(KILL_SPECS.mine, Math.floor((k[0]?.step ?? 0) / STEPS_PER_BAR)));
+    expect(k[1]?.midi).toBe(killMidi(KILL_SPECS.sower, Math.floor((k[1]?.step ?? 0) / STEPS_PER_BAR)));
+  });
+
+  it('without a kind the colour decides; colour only segments and stray explodes are not kills', () => {
+    startMusic(seedWithFirstKill());
+    advance(0.5);
+    // An old emitter: segments with no kind come without an explode and stay silent.
+    for (let i = 0; i < 8; i++) bus.emit('fx:kill', { x: 0, y: 0, colour: 'cyan', kind: Kind.None, id: 1 });
     advance(0.2);
     bus.emit('sfx', 'shot');
     bus.emit('sfx', 'explode');
@@ -111,6 +165,9 @@ describe('kill accents in the music loop', () => {
     expect(role('kill')).toHaveLength(0);
     expect(role('chord')).toHaveLength(0);
     expect(musicState().kills.seen).toBe(0);
+    kill(Kind.None, 'blue');
+    advance(0.2);
+    expect(role('kill').map((n) => n.source)).toEqual(['grunt']);
   });
 
   it('a bomb resolves into one big chord on a beat line', () => {
@@ -133,7 +190,7 @@ describe('kill accents in the music loop', () => {
   it('a burst of kills in one beat gives a chord instead of a cluster', () => {
     startMusic(seedWithFirstKill());
     advance(0.6);
-    for (let i = 0; i < 8; i++) kill('blue');
+    for (let i = 0; i < 8; i++) kill(Kind.Grunt);
     advance(1);
     expect(role('chord').length).toBe(3);
     expect(role('kill').length).toBeLessThanOrEqual(1);
@@ -143,7 +200,7 @@ describe('kill accents in the music loop', () => {
     setMusicVolume(0);
     startMusic(seedWithFirstKill());
     advance(0.5);
-    kill('blue');
+    kill(Kind.Grunt);
     bus.emit('fx:bomb', { x: 0, y: 0 });
     advance(1);
     expect(role('kill')).toHaveLength(0);
@@ -156,7 +213,7 @@ describe('kill accents in the music loop', () => {
     bus.emit('sim:threat', { level: 1 });
     for (const k of ['snake', 'bulwark', 'splime', 'weaver', 'grunt', 'charger'] as const) bus.emit('sim:enemyEnter', { kind: k, live: 3 });
     for (let i = 0; i < 400; i++) {
-      kill(i % 2 === 0 ? 'blue' : 'green');
+      kill(i % 2 === 0 ? Kind.Grunt : Kind.Weaver);
       advance(0.1);
     }
     const s = musicState();

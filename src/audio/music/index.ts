@@ -3,8 +3,9 @@
 // wireMusic(bus).levelStart(seed), at level start. Pause and a hidden tab suspend scheduling;
 // resume lands on the next bar line. Enemy layers (wave D) follow 'sim:enemyEnter' and
 // 'sim:enemyExit'; see lifecycle.ts for the timing rules and layers.ts for the registry.
-// Kill accents (v2 fixes) follow 'fx:kill' plus 'sfx' explode and 'fx:bomb'; see kills.ts. Bus
-// handlers only queue; every Web Audio node is made inside the scheduler tick, between frames.
+// Kill accents (v2 fixes) follow 'fx:kill' plus 'sfx' explode and 'fx:bomb'; see kills.ts. Hit
+// ticks and shield deflects follow 'fx:hit'; see hits.ts. Bus handlers only queue; every Web
+// Audio node is made inside the scheduler tick, between frames.
 import { bus as coreBus, type Bus } from '../../core/events';
 import type { EnemyKind } from '../../levelgen/leveldef';
 import { getAudioGraph } from '../synth';
@@ -29,6 +30,7 @@ import {
   CHORD_TIMBRE,
   chordMidis,
   chordStepFor,
+  enemyOf,
   gateBomb,
   gateKill,
   isBigSource,
@@ -37,12 +39,30 @@ import {
   KILL_QUEUE_MAX,
   KILL_SPECS,
   killMidi,
-  sourceForColour,
+  sourceFor,
   type GateResult,
-  type KillColour,
   type KillGate,
   type KillSource,
 } from './kills';
+import {
+  DEFLECT_DROP,
+  DEFLECT_DUR_SEC,
+  DEFLECT_GAIN,
+  DEFLECT_TIMBRE,
+  deflectMidi,
+  gateDeflect,
+  gateHit,
+  hasQueued,
+  HIT_DUR_SEC,
+  HIT_GATE_INIT,
+  HIT_QUEUE_MAX,
+  hitGain,
+  hitMidi,
+  hitOrder,
+  hitTimbreFor,
+  type HitGate,
+  type QueuedHit,
+} from './hits';
 import { cutMotifs, LAYERS_FULL, STINGER_STEPS, stingerMidi, type LayerRegistry, type MotifNote } from './layers';
 import {
   enterLayer,
@@ -60,12 +80,12 @@ import { buildBar, STEP_SEC, STEPS_PER_BAR, type BarPattern, type Layer } from '
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
-  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'chord';
-  /** Bed layer, or null for stingers, motifs and kill accents. */
+  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'chord' | 'hit' | 'deflect';
+  /** Bed layer, or null for stingers, motifs, kill accents and hits. */
   readonly layer: Layer | null;
-  /** Enemy kind, or null for the bed, chords and well or spawner kills. */
+  /** Enemy kind, or null for the bed, chords, deflects and non enemy sources (wells, spawners, segments, Mines, Slime). */
   readonly kind: EnemyKind | null;
-  /** Kill notes only: what was killed (also wells and spawners). */
+  /** Kill notes and hit ticks only: what was killed or hit (also wells, spawners, segments, Mines, Slime). */
   readonly source?: KillSource;
   /** Audio clock when the note was handed to the engine. */
   readonly at?: number;
@@ -140,6 +160,8 @@ interface Session {
   killOrdinal: number;
   readonly queue: QueuedAccent[];
   readonly stats: KillStats;
+  hitGate: HitGate;
+  readonly hits: QueuedHit[];
 }
 
 interface Playing {
@@ -159,8 +181,8 @@ let playing: Playing | null = null;
 let registry: LayerRegistry = LAYERS_FULL;
 let noteHook: ((n: NoteLog) => void) | null = null;
 let voiceTrace: VoiceTrace | undefined;
-/** Colour of the last fx:kill; the 'explode' sfx that follows a scored kill consumes it. */
-let pendingKill: KillColour | null = null;
+/** Source of the last fx:kill; the 'explode' sfx that follows a scored kill consumes it. */
+let pendingKill: KillSource | null = null;
 /** Uninstall of the live initMusic install; a new install replaces it. */
 let installed: (() => void) | null = null;
 let installToken = 0;
@@ -190,9 +212,10 @@ function onTick(s: Session, now: number, sched: Scheduler): void {
     s.lastCutoff = hz;
   }
   // A kill pair ('fx:kill' then 'explode') is emitted synchronously inside one sim step, so a
-  // colour still pending at a tick came from a segment burst and never pairs.
+  // source still pending at a tick never pairs.
   pendingKill = null;
   drainAccents(s, now, sched);
+  drainHits(s, now, sched);
 }
 
 /**
@@ -236,8 +259,7 @@ function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSour
     const gain = spec.gain * (0.8 + 0.2 * level);
     s.engine.playVoice({ time, dur: spec.durSteps * STEP_SEC, midi, fromMidi: null, gain, timbre: spec.timbre }, 'accent');
     s.stats.notes++;
-    const kind = source === 'well' || source === 'spawner' ? null : source;
-    noteHook?.({ role: 'kill', layer: null, kind, source, step: a.step, time, midi, gain, at });
+    noteHook?.({ role: 'kill', layer: null, kind: enemyOf(source), source, step: a.step, time, midi, gain, at });
   } else if (a.type === 'chord') {
     const bar = Math.floor(a.step / STEPS_PER_BAR);
     const time = sched.timeOf(a.step);
@@ -289,6 +311,9 @@ function drainAccents(s: Session, now: number, sched: Scheduler): void {
         step,
         level,
         big: isBigSource(q.source),
+        // A head's segment burst lands in one tick; it must not turn into a streak chord that
+        // would absorb the head's big chord.
+        streaks: q.source !== 'segment',
         durSteps: spec.durSteps,
         noteRoom: absorbed ? 0 : room(step, spec.durSteps),
         chordRoom: absorbed ? 0 : room(chordStepFor(s.gate, step), CHORD_STEPS),
@@ -306,6 +331,60 @@ function queueAccent(q: QueuedAccent): void {
   if (q.type === 'kill') p.session.stats.seen++;
   // Over the cap the kill keeps its sfx only.
   if (p.session.queue.length < KILL_QUEUE_MAX) p.session.queue.push(q);
+}
+
+/** The grid step whose sixteenth contains time t (for the bar a hit's pitch follows). */
+function stepContaining(sched: Scheduler, t: number): number {
+  const s = sched.stepAtOrAfter(t);
+  return sched.timeOf(s) > t ? s - 1 : s;
+}
+
+/** Free accent voices over [t, t + len), seconds. */
+function roomAtTime(s: Session, sched: Scheduler, t: number, len: number): number {
+  return s.engine.accentRoom(t, len, upcomingSpans(s, sched, t + len));
+}
+
+/**
+ * Decide and schedule queued hit ticks and deflects. Runs inside the tick only, after the kill
+ * accents, so a kill note on this tick has already taken its voice. Hits play as accents and
+ * only into free room, so they never steal a bed or motif voice.
+ */
+function drainHits(s: Session, now: number, sched: Scheduler): void {
+  if (s.hits.length === 0) return;
+  if (volume === 0) {
+    s.hits.length = 0;
+    return;
+  }
+  const t = now + KILL_LEAD_SEC;
+  const step = stepContaining(sched, t);
+  const bar = Math.max(0, Math.floor(step / STEPS_PER_BAR));
+  for (const q of hitOrder(s.hits, s.hitGate)) {
+    if (q.blocked) {
+      const r = gateDeflect(s.hitGate, t, () => roomAtTime(s, sched, t, DEFLECT_DUR_SEC));
+      s.hitGate = r.gate;
+      if (!r.ok) continue;
+      const midi = deflectMidi(bar);
+      s.engine.playVoice({ time: t, dur: DEFLECT_DUR_SEC, midi, fromMidi: midi + DEFLECT_DROP, gain: DEFLECT_GAIN, timbre: DEFLECT_TIMBRE }, 'accent');
+      noteHook?.({ role: 'deflect', layer: null, kind: null, step, time: t, midi, gain: DEFLECT_GAIN, at: now });
+    } else {
+      const source = q.source;
+      const r = gateHit(s.hitGate, source, t, () => roomAtTime(s, sched, t, HIT_DUR_SEC));
+      s.hitGate = r.gate;
+      if (!r.ok) continue;
+      const midi = hitMidi(source, bar);
+      const gain = hitGain(source);
+      s.engine.playVoice({ time: t, dur: HIT_DUR_SEC, midi, fromMidi: null, gain, timbre: hitTimbreFor(source) }, 'accent');
+      noteHook?.({ role: 'hit', layer: null, kind: enemyOf(source), source, step, time: t, midi, gain, at: now });
+    }
+  }
+  s.hits.length = 0;
+}
+
+function queueHit(h: QueuedHit): void {
+  const p = playing;
+  if (!p || p.scheduler.paused) return;
+  const q = p.session.hits;
+  if (q.length < HIT_QUEUE_MAX && !hasQueued(q, h)) q.push(h);
 }
 
 function motifBar(s: Session, kind: EnemyKind, bar: number): readonly MotifNote[] {
@@ -373,6 +452,7 @@ function suspend(): void {
   p.scheduler.pause();
   p.engine.silence();
   p.session.queue.length = 0;
+  p.session.hits.length = 0;
   pendingKill = null;
 }
 
@@ -406,18 +486,33 @@ export function initMusic(opts: MusicOptions = {}): () => void {
     }),
     b.on('sim:enemyEnter', (p) => onEnter(p.kind)),
     b.on('sim:enemyExit', (p) => onExit(p.kind)),
-    // A scored kill emits 'fx:kill' then 'sfx' explode. Snake segment bursts emit 'fx:kill'
-    // alone, so only the colour right before an explode counts. The payload object is reused
-    // by the sim: copy the field.
+    // A scored kill, a Mine or Slime pop and a well going down emit 'fx:kill' then 'sfx'
+    // explode, so their source waits for the explode. Snake segments in a head's death burst
+    // emit 'fx:kill' alone (kind SnakeBody) and queue at once. The kind decides the source; the
+    // colour is read only when the kind is missing. The payload object is reused by the sim:
+    // read the fields here.
     b.on('fx:kill', (p) => {
-      pendingKill = p.colour;
+      const source = sourceFor(p.kind, p.colour);
+      if (source === 'segment') {
+        queueAccent({ type: 'kill', source });
+        return;
+      }
+      pendingKill = source;
     }),
     b.on('sfx', (name) => {
-      const c = pendingKill;
+      const source = pendingKill;
       pendingKill = null;
       if (name !== 'explode') return;
-      const source = c === null ? null : sourceForColour(c);
       if (source !== null) queueAccent({ type: 'kill', source });
+    }),
+    // Damage that did not kill. A shield block is a deflect whatever the kind.
+    b.on('fx:hit', (p) => {
+      if (p.blocked === true) {
+        queueHit({ blocked: true });
+        return;
+      }
+      const source = sourceFor(p.kind, undefined);
+      if (source !== null) queueHit({ blocked: false, source });
     }),
     b.on('fx:bomb', () => queueAccent({ type: 'bomb' })),
     b.on('game:pause', () => {
@@ -523,6 +618,8 @@ export function startMusic(seed: number): boolean {
     killOrdinal: 0,
     queue: [],
     stats: { seen: 0, notes: 0, chords: 0 },
+    hitGate: HIT_GATE_INIT,
+    hits: [],
   };
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
@@ -580,7 +677,7 @@ export interface MusicState {
   readonly skippedSteps: number;
   /** Motif voices stolen this session. */
   readonly motifSteals: number;
-  /** Scored kills seen, kill notes played and chords played this session. */
+  /** Kills seen (scored kills, pops, wells and burst segments), kill notes and chords played this session. */
   readonly kills: Readonly<KillStats>;
 }
 

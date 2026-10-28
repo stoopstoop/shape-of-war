@@ -12,6 +12,11 @@
 // Kills the gate drops keep the existing sfx only. A streak (3 kills landing in one beat), a big
 // kill (snake, spawner, well) or a bomb resolves into one chord on the next beat instead of a
 // cluster of notes; kills inside a pending or sounding chord are absorbed by it.
+//
+// The source comes from the fx:kill kind field (kindSource); the colour is only a fallback for
+// a payload without a kind. So a Mine pop is not a Sower kill, and Snake segments in a head's
+// death burst have their own voice. Segments never count toward a streak, so a burst still ends
+// in the head's big chord.
 import { hash01 } from '../../core/rng';
 import type { Events } from '../../core/events';
 import type { EnemyKind } from '../../levelgen/leveldef';
@@ -22,8 +27,11 @@ import { chordForBar, STEPS_PER_BAR } from './track';
 /** The fx:kill colour, taken from the bus type so audio never imports src/render. */
 export type KillColour = Events['fx:kill']['colour'];
 
-/** What was killed: an enemy kind, or a gravity well or spawner (hazards with a kill sound). */
-export type KillSource = EnemyKind | 'well' | 'spawner';
+/**
+ * What was killed: an enemy kind, a gravity well or spawner, a Snake body segment in a head's
+ * death burst, or a dropped hazard popping (Mine, Slime).
+ */
+export type KillSource = EnemyKind | 'well' | 'spawner' | 'segment' | 'mine' | 'slime';
 
 /** Steps per beat. */
 export const BEAT_STEPS = 4;
@@ -114,15 +122,62 @@ export const KILL_SPECS: Readonly<Record<KillSource, KillSpec>> = Object.freeze(
   splime: enemySpec('splime'),
   well: { source: 'well', timbre: TIMBRES.gong, degree: -10, durSteps: 2, gain: 0.08 },
   spawner: { source: 'spawner', timbre: TIMBRES.clank, degree: 4, durSteps: 2, gain: 0.06 },
+  segment: { source: 'segment', timbre: TIMBRES.rattle, degree: 3, durSteps: 1, gain: 0.045 },
+  mine: { source: 'mine', timbre: TIMBRES.pop, degree: 7, durSteps: 1, gain: 0.05 },
+  slime: { source: 'slime', timbre: TIMBRES.blip, degree: -4, durSteps: 1, gain: 0.045 },
 });
 
 /** The chord accent timbre. */
 export const CHORD_TIMBRE: Timbre = TIMBRES.chime;
 
 /**
- * Pure: the source of an fx:kill by its colour (the payload carries no kind). Mines share the
- * Sower colour and sound as a Sower kill. Snake body segments share the Snake colour but come
- * without an 'explode' sfx, so index.ts never counts them.
+ * Kill sources by the numeric value of the sim's Kind (src/game/world.ts), indexed by value.
+ * Audio never imports src/game, so the order is mirrored here; tests/audio/music/kills.test.ts
+ * checks every entry against the real enum. null: the ship, geoms, drones and pickups.
+ */
+const KIND_SOURCES: readonly (KillSource | null)[] = [
+  null, // None
+  null, // Ship
+  'grunt',
+  'wanderer',
+  'weaver',
+  'pinwheel',
+  'dart',
+  'snake', // SnakeHead
+  'segment', // SnakeBody
+  'well', // GravityWell
+  'spawner',
+  null, // Geom
+  null, // Drone
+  null, // WeaponPickup
+  'charger',
+  'bulwark',
+  'blink',
+  'swirl',
+  'sower',
+  'mine',
+  'splime',
+  'slime',
+];
+
+/** Pure: the source for a sim Kind value, or null for a kind with no sound (or out of range). */
+export function kindSource(kind: number): KillSource | null {
+  return Number.isInteger(kind) ? (KIND_SOURCES[kind] ?? null) : null;
+}
+
+/**
+ * Pure: the source of an fx:kill or fx:hit. The kind field decides; the colour is read only
+ * when the kind is missing (undefined, not a number, or Kind.None from an old emitter).
+ */
+export function sourceFor(kind: number | undefined, colour: KillColour | undefined): KillSource | null {
+  if (typeof kind === 'number' && Number.isFinite(kind) && kind !== 0) return kindSource(kind);
+  return colour === undefined ? null : sourceForColour(colour);
+}
+
+/**
+ * Pure: the source of an fx:kill by its colour, the fallback for a payload without a kind.
+ * By colour a Mine reads as a Sower and a Snake segment as the Snake; index.ts only counts a
+ * colour followed by an 'explode' sfx, so colour only segments stay silent.
  */
 export function sourceForColour(c: KillColour): KillSource | null {
   switch (c) {
@@ -156,6 +211,20 @@ export function sourceForColour(c: KillColour): KillSource | null {
       return 'spawner';
     default:
       return null;
+  }
+}
+
+/** Pure: the enemy kind a source is, or null for wells, spawners, segments and dropped hazards. */
+export function enemyOf(s: KillSource): EnemyKind | null {
+  switch (s) {
+    case 'well':
+    case 'spawner':
+    case 'segment':
+    case 'mine':
+    case 'slime':
+      return null;
+    default:
+      return s;
   }
 }
 
@@ -251,6 +320,8 @@ export interface KillInput {
   readonly noteRoom: number;
   /** Free accent voices for a chord at `chordStepFor(...)`. */
   readonly chordRoom: number;
+  /** False for kills that never count toward a streak (Snake segments). Default true. */
+  readonly streaks?: boolean;
 }
 
 export interface GateResult {
@@ -287,7 +358,7 @@ export function gateKill(g: KillGate, k: KillInput): GateResult {
     bar,
     used: bar === g.bar ? g.used : 0,
     beat,
-    beatKills: beat === g.beat ? g.beatKills + 1 : 1,
+    beatKills: (beat === g.beat ? g.beatKills : 0) + (k.streaks === false ? 0 : 1),
   };
   const cStep = chordStepFor(next, s);
   const cooled = cStep - g.chordAt >= CHORD_COOLDOWN_STEPS;

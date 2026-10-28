@@ -1,5 +1,6 @@
 // Kill voicing, pure parts: per kind sounds, pitches, chords and the selection gate.
 import { describe, expect, it } from 'vitest';
+import { Kind } from '../../../src/game/world';
 import {
   ACCENT_GAIN_MAX,
   bombStepFor,
@@ -8,6 +9,7 @@ import {
   CHORD_STEPS,
   chordMidis,
   chordStepFor,
+  enemyOf,
   gateBomb,
   gateKill,
   isBigSource,
@@ -20,7 +22,9 @@ import {
   killBudget,
   killMidi,
   killPasses,
+  kindSource,
   snapDownPentatonic,
+  sourceFor,
   sourceForColour,
   STREAK_KILLS,
   type KillGate,
@@ -46,11 +50,72 @@ function passing(from: number): number {
 }
 
 describe('kill sounds per kind', () => {
-  it('every enemy kind, the well and the spawner have a kill sound', () => {
+  it('every enemy kind, the well, the spawner, segments, Mines and Slime have a kill sound', () => {
     for (const k of LAYER_KINDS) expect(KILL_SPECS[k].source).toBe(k);
-    expect(SOURCES).toHaveLength(LAYER_KINDS.length + 2);
-    expect(KILL_SPECS.well.source).toBe('well');
-    expect(KILL_SPECS.spawner.source).toBe('spawner');
+    expect(SOURCES).toHaveLength(LAYER_KINDS.length + 5);
+    for (const s of ['well', 'spawner', 'segment', 'mine', 'slime'] as const) {
+      expect(KILL_SPECS[s].source).toBe(s);
+      expect(enemyOf(s)).toBeNull();
+    }
+    for (const k of LAYER_KINDS) expect(enemyOf(k)).toBe(k);
+  });
+
+  it('maps every sim Kind to its source; non enemies map to nothing', () => {
+    const expected: [Kind, KillSource | null][] = [
+      [Kind.None, null],
+      [Kind.Ship, null],
+      [Kind.Grunt, 'grunt'],
+      [Kind.Wanderer, 'wanderer'],
+      [Kind.Weaver, 'weaver'],
+      [Kind.Pinwheel, 'pinwheel'],
+      [Kind.Dart, 'dart'],
+      [Kind.SnakeHead, 'snake'],
+      [Kind.SnakeBody, 'segment'],
+      [Kind.GravityWell, 'well'],
+      [Kind.Spawner, 'spawner'],
+      [Kind.Geom, null],
+      [Kind.Drone, null],
+      [Kind.WeaponPickup, null],
+      [Kind.Charger, 'charger'],
+      [Kind.Bulwark, 'bulwark'],
+      [Kind.Blink, 'blink'],
+      [Kind.Swirl, 'swirl'],
+      [Kind.Sower, 'sower'],
+      [Kind.Mine, 'mine'],
+      [Kind.Splime, 'splime'],
+      [Kind.Slime, 'slime'],
+    ];
+    for (const [k, s] of expected) expect(kindSource(k), `kind ${k}`).toBe(s);
+    // Every source but the kinds above is covered, and out of range values are silent.
+    expect(new Set(expected.map(([, s]) => s).filter((s) => s !== null))).toEqual(new Set(SOURCES));
+    expect(kindSource(Kind.Slime + 1)).toBeNull();
+    expect(kindSource(-1)).toBeNull();
+    expect(kindSource(2.5)).toBeNull();
+  });
+
+  it('the kind decides; the colour is only a fallback for a missing kind', () => {
+    // A Mine pop carries the Sower colour but sounds as a Mine.
+    expect(sourceFor(Kind.Mine, 'sower')).toBe('mine');
+    expect(sourceFor(Kind.Sower, 'sower')).toBe('sower');
+    expect(sourceFor(Kind.SnakeBody, 'cyan')).toBe('segment');
+    expect(sourceFor(Kind.Grunt, 'cyan')).toBe('grunt');
+    // A known non enemy kind does not fall back to its colour.
+    expect(sourceFor(Kind.Ship, 'blue')).toBeNull();
+    // Missing kind: the colour path.
+    expect(sourceFor(undefined, 'blue')).toBe('grunt');
+    expect(sourceFor(Kind.None, 'cyan')).toBe('snake');
+    expect(sourceFor(Number.NaN, 'green')).toBe('weaver');
+    expect(sourceFor(undefined, undefined)).toBeNull();
+  });
+
+  it('Mine and Sower kills and segment and Snake kills sound different notes', () => {
+    for (let bar = 0; bar < LOOP_BARS; bar++) {
+      expect(killMidi(KILL_SPECS.mine, bar)).not.toBe(killMidi(KILL_SPECS.sower, bar));
+      expect(killMidi(KILL_SPECS.segment, bar)).not.toBe(killMidi(KILL_SPECS.snake, bar));
+    }
+    expect(KILL_SPECS.mine.timbre.id).not.toBe(KILL_SPECS.sower.timbre.id);
+    expect(KILL_SPECS.segment.timbre.id).not.toBe(KILL_SPECS.snake.timbre.id);
+    expect(isBigSource('segment') || isBigSource('mine') || isBigSource('slime')).toBe(false);
   });
 
   it('each source has its own timbre, and enemies use their motif timbre made percussive', () => {
@@ -204,6 +269,22 @@ describe('selection rule', () => {
     // Kills before and while the chord sounds are absorbed.
     for (const s of [35, 36, 40, 36 + CHORD_STEPS - 1]) expect(gateKill(g, input({ ordinal: 9, step: s })).action).toEqual({ type: 'none', why: 'chord' });
     expect(gateKill(g, input({ ordinal: passing(10), step: 36 + CHORD_STEPS })).action.type).toBe('note');
+  });
+
+  it('a segment burst never makes a streak, so the head still resolves into a big chord', () => {
+    let g: KillGate = KILL_GATE_INIT;
+    const o = passing(0);
+    const first = gateKill(g, input({ ordinal: o, step: 33, streaks: false }));
+    expect(first.action).toEqual({ type: 'note', step: 33 });
+    g = first.gate;
+    for (let i = 1; i < 8; i++) {
+      const r = gateKill(g, input({ ordinal: o + i, step: 33, streaks: false }));
+      expect(r.action.type).toBe('none');
+      g = r.gate;
+    }
+    expect(g.beatKills).toBe(0);
+    const head = gateKill(g, input({ ordinal: o + 8, step: 33, big: true }));
+    expect(head.action).toEqual({ type: 'chord', step: 36, big: true });
   });
 
   it('streak chords wait for the cooldown, big kills and bombs do not', () => {

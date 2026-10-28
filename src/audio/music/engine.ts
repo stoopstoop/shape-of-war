@@ -244,7 +244,7 @@ export function voicePeak(layer: Layer, gain: number): number {
 // ---------------------------------------------------------------------------------------
 // Engine.
 
-/** bed: the base track. motif: motifs and stingers. accent: kill notes and kill chords. */
+/** bed: the base track. motif: motifs and stingers. accent: kill notes, kill chords, hit ticks and deflects. */
 export type VoiceClass = 'bed' | 'motif' | 'accent';
 
 /** Voice spans for tests and the debug overlay: a start, and a cut when a voice is stolen. */
