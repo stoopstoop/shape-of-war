@@ -1,11 +1,14 @@
 // B6 regression: every HUD element (score, multiplier, objective, par, lives, bombs, pause, super
 // ring and label, bomb button) lies outside the arena on the cover (21:9) and main (10:9) screens.
 import { describe, expect, it } from 'vitest';
+import { SHIP_SPEED } from '../../src/game/ship';
 import { layoutButtons } from '../../src/input/buttons';
 import type { Insets, Rect } from '../../src/input/types';
+import { generateLevel } from '../../src/levelgen/generator';
 import type { SuperKind } from '../../src/levelgen/leveldef';
-import { superHint, superLabel } from '../../src/ui/hud';
-import { hudFrame, hudRects, overlayPadding, overlaps, type HudFrame } from '../../src/ui/hudFrame';
+import { fitArena } from '../../src/render/layout';
+import { playRect, superHint, superLabel } from '../../src/ui/hud';
+import { hudFrame, hudRects, MAIN_RIGHT, mainBottom, mainTop, overlayPadding, overlaps, type HudFrame } from '../../src/ui/hudFrame';
 
 const ZERO: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -63,6 +66,14 @@ describe('B6 HUD frame keeps the HUD off the arena', () => {
       }
     });
 
+    it(`${name}: no HUD element overlaps the play rect`, () => {
+      for (const f of frames([...views])) {
+        for (const r of hudRects(f)) {
+          expect(overlaps(r, f.playRect), `${label(f)} rect ${JSON.stringify(r)}`).toBe(false);
+        }
+      }
+    });
+
     it(`${name}: arena sits in the play rect and HUD elements stay on screen`, () => {
       const screen = (f: HudFrame): Rect => ({ x: 0, y: 0, w: f.cssW, h: f.cssH });
       for (const f of frames([...views])) {
@@ -102,6 +113,115 @@ describe('B6 HUD frame keeps the HUD off the arena', () => {
     expect(f.fit.x).toBeCloseTo(f.playRect.x + f.playRect.w / 2);
     expect(f.fit.y).toBeCloseTo(f.playRect.y + f.playRect.h / 2);
     expect(f.arena.w).toBeCloseTo(1600 * f.fit.scale);
+  });
+});
+
+describe('B9 main screen arena scale: on-screen ship speed', () => {
+  // Estimated Fold 7 CSS viewports (DPR 2.625) and the seed Thumbs used for the B9 table.
+  const MAIN = { w: 832, h: 750 };
+  const COVER = { w: 960, h: 411 };
+  const SEED = 12345;
+  const LEVELS = [1, 6, 20] as const;
+  /** Main screen px/s at 61450aa (B6 fixed bands), measured by Thumbs in run 0122. */
+  const AT_B6: Record<(typeof LEVELS)[number], number> = { 1: 297, 6: 266, 20: 207 };
+
+  interface Row {
+    level: number;
+    arena: string;
+    preB6Main: number;
+    main: number;
+    cover: number;
+    arrangement: string;
+  }
+
+  function pxPerSec(scale: number): number {
+    return SHIP_SPEED * scale;
+  }
+
+  function row(level: number): Row {
+    const { width: aw, height: ah } = generateLevel(SEED, level).arena;
+    const m = hudFrame(MAIN.w, MAIN.h, ZERO, aw, ah);
+    const c = hudFrame(COVER.w, COVER.h, ZERO, aw, ah);
+    // Pre-B6: the legacy docs/01 top band play rect, buttons drawn over the arena.
+    const pre = fitArena(aw, ah, playRect(MAIN.w, MAIN.h, ZERO, 'main'));
+    return {
+      level,
+      arena: `${aw}x${ah}`,
+      preB6Main: pxPerSec(pre.scale),
+      main: pxPerSec(m.fit.scale),
+      cover: pxPerSec(c.fit.scale),
+      arrangement: m.arrangement,
+    };
+  }
+
+  const rows = LEVELS.map(row);
+
+  it('prints the table and the pre-B6 reference matches the Thumbs measurement', () => {
+    console.log(
+      ['level arena preB6 B6 main cover main/pre main/cover arrangement']
+        .concat(
+          rows.map((r) =>
+            [
+              `L${r.level}`,
+              r.arena,
+              r.preB6Main.toFixed(0),
+              AT_B6[r.level as (typeof LEVELS)[number]],
+              r.main.toFixed(1),
+              r.cover.toFixed(1),
+              `${((100 * r.main) / r.preB6Main).toFixed(1)}%`,
+              `${((100 * r.main) / r.cover).toFixed(1)}%`,
+              r.arrangement,
+            ].join(' '),
+          ),
+        )
+        .join('\n'),
+    );
+    expect(rows.map((r) => Math.round(r.preB6Main))).toEqual([349, 311, 224]);
+  });
+
+  it('main is never slower than cover by more than 5 percent, on every Adventure level 1 to 30', () => {
+    for (let level = 1; level <= 30; level++) {
+      const r = row(level);
+      expect(r.main, `L${level} ${r.arena}`).toBeGreaterThanOrEqual(0.95 * r.cover);
+    }
+  });
+
+  it('main is faster than at B6 on levels 1, 6 and 20', () => {
+    for (const r of rows) expect(r.main, `L${r.level}`).toBeGreaterThan(AT_B6[r.level as (typeof LEVELS)[number]] + 5);
+  });
+
+  it('level 20 main is within 5 percent of pre-B6; levels 1 and 6 reach the best the HUD allows (88 percent or more)', () => {
+    const [l1, l6, l20] = rows;
+    expect(l20?.main ?? 0).toBeGreaterThanOrEqual(0.95 * (l20?.preB6Main ?? Infinity));
+    expect(l1?.main ?? 0).toBeGreaterThanOrEqual(0.88 * (l1?.preB6Main ?? Infinity));
+    expect(l6?.main ?? 0).toBeGreaterThanOrEqual(0.88 * (l6?.preB6Main ?? Infinity));
+  });
+
+  it('why 95 percent is out of reach on levels 1 and 6: no HUD-clear rect with the stacked buttons gets there', () => {
+    // The arena is width limited on main, so any HUD element whose x range meets the arena must
+    // sit above or below it. The super-over-bomb stack is 88 px wide, so it is either a column
+    // (arena width W - MAIN_RIGHT) or a bottom band (arena height H - top band - stack band).
+    const buttons = layoutButtons(MAIN.w, MAIN.h, ZERO);
+    const columnRect = { x: 0, y: 0, w: MAIN.w - MAIN_RIGHT, h: MAIN.h };
+    const bandRect = { x: 0, y: 0, w: MAIN.w, h: MAIN.h - mainTop(buttons, ZERO) - mainBottom(buttons, MAIN.h, ZERO) };
+    expect(mainBottom(buttons, MAIN.h, ZERO)).toBe(158);
+    expect(mainTop(buttons, ZERO)).toBe(60);
+    expect(MAIN_RIGHT).toBe(92);
+    for (const r of rows.slice(0, 2)) {
+      const [aw, ah] = r.arena.split('x').map(Number) as [number, number];
+      const best = Math.max(fitArena(aw, ah, columnRect).scale, fitArena(aw, ah, bandRect).scale);
+      expect(pxPerSec(best), `L${r.level}`).toBeLessThan(0.95 * r.preB6Main);
+      expect(r.main).toBeCloseTo(pxPerSec(best), 6);
+    }
+  });
+
+  it('main bands are measured, not fixed: top band 60, bottom band 158, column 92 at zero insets', () => {
+    const tb = hudFrame(MAIN.w, MAIN.h, ZERO, 1800, 1000);
+    expect(tb.arrangement).toBe('topBottom');
+    expect(tb.playRect).toEqual({ x: 0, y: 60, w: 832, h: 750 - 60 - 158 });
+    const tr = hudFrame(MAIN.w, MAIN.h, ZERO, 960, 720);
+    expect(tr.arrangement).toBe('topRight');
+    expect(tr.playRect).toEqual({ x: 0, y: 60, w: 832 - 92, h: 690 });
   });
 });
 
