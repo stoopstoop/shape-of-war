@@ -28,6 +28,10 @@ export function removeEntity(w: World, id: number): void {
     g.wellCount = n;
   } else if (k === Kind.Drone) {
     if (g.droneId === id) g.droneId = -1;
+  } else if (k === Kind.Sower || k === Kind.Splime) {
+    // Drops outlive their owner but must not count against a later entity that reuses this id.
+    const drop = k === Kind.Sower ? Kind.Mine : Kind.Slime;
+    for (let i = 1; i < w.cap; i++) if (w.alive[i] === 1 && w.kind[i] === drop && w.a[i] === id) w.a[i] = -1;
   }
   g.tele[id] = 0;
   kill(w, id);

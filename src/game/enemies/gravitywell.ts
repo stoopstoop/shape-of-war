@@ -20,6 +20,7 @@ import { gs, isHostile, MAX_WELLS, spawnFromDef } from '../state';
 import { SHIP_RADIUS } from '../ship';
 import { moveTo } from '../steer';
 import { Kind, type World } from '../world';
+import { isDashing } from './charger';
 import type { EnemyDef } from './types';
 
 export const def: EnemyDef = { kind: Kind.GravityWell, radius: 24, speed: 0, value: 250, colour: 'red', hp: 40, geoms: 5 };
@@ -124,8 +125,21 @@ export function explode(w: World, well: number): void {
   bus.emit('sfx', 'explode');
 }
 
+/** Kinds a well pulls and feeds on. Mines are not pulled; Slime is not hostile, so never pulled. */
 function pulledByWell(k: number): boolean {
-  return isHostile(k) && k !== Kind.GravityWell && k !== Kind.SnakeHead && k !== Kind.SnakeBody && k !== Kind.Spawner;
+  return (
+    isHostile(k) &&
+    k !== Kind.GravityWell &&
+    k !== Kind.SnakeHead &&
+    k !== Kind.SnakeBody &&
+    k !== Kind.Spawner &&
+    k !== Kind.Mine
+  );
+}
+
+/** A dashing Charger keeps its line: no pull (it can still be fed if its centre enters the core). */
+function pullExempt(w: World, id: number): boolean {
+  return w.kind[id] === Kind.Charger && isDashing(w, id);
 }
 
 /** One well: ship contact and pull, bullet hits and pull, enemy feeding and pull. */
@@ -189,7 +203,7 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
       if (w.alive[well] !== 1 || w.kind[well] !== Kind.GravityWell) return; // exploded
       continue;
     }
-    if (d < 1e-6) continue;
+    if (d < 1e-6 || pullExempt(w, id)) continue;
     const a = (blend * PULL_ENEMY_MAX * pullFalloff(d)) / d;
     g.pvx[id] = (g.pvx[id] ?? 0) + dx * a;
     g.pvy[id] = (g.pvy[id] ?? 0) + dy * a;
@@ -227,7 +241,7 @@ export function stepWells(w: World, dt: number): void {
     const vx = g.pvx[id] ?? 0;
     const vy = g.pvy[id] ?? 0;
     if (vx === 0 && vy === 0) continue;
-    if (w.alive[id] !== 1 || !pulledByWell(w.kind[id] ?? 0)) {
+    if (w.alive[id] !== 1 || !pulledByWell(w.kind[id] ?? 0) || pullExempt(w, id)) {
       g.pvx[id] = 0;
       g.pvy[id] = 0;
       continue;
