@@ -1,9 +1,15 @@
 // Game renderer (docs/03-architecture.md section 6). Scene graph:
 //   stage > world > grid
-//                 > bloomLayer (bloom filter, reduced resolution): wallGlow, glowSprites,
-//                   particles, bulletTrails, ringGlow
-//                 > lines (no filter, full resolution, MSAA): walls, entities, bullets, rings
+//                 > bloomLayer (bloom filter, reduced resolution): wallGlow, wallPulse,
+//                   wallFlash, glowSprites, particles, bulletTrails, enemyFxGlow, ringGlow
+//                 > lines (no filter, full resolution, MSAA): walls, floor, enemyFx, entities,
+//                   bullets, rings
 //   stage > sticks (outside bloom)
+// v2 wave C: the new enemies draw from shapeSpecs.ts; per kind alpha, scale and tells come
+// from the pure render contract helpers in enemyFx.ts. Slime puddles sit on the floor layer
+// under every entity. enemyFx holds the Charger lane and dash streak, the Blink destination
+// ring and the arrival and splat flashes. wallPulse (threat) and wallFlash (kills near a wall)
+// are multipliers on their own layers (mapFx.ts); applyNeon still owns every SPEC 4 value.
 // Crisp line work never passes through the filter, so it renders at the full backing store
 // resolution with antialiasing. The bloom layer only holds soft content: one bloom source
 // sprite per entity (pre-rendered at resolution 2), a thick wall copy, particles and trails.
@@ -32,7 +38,7 @@ import { gameState, isTelegraphing, telegraphLeft } from '../game/game';
 import type { World } from '../game/world';
 import type { ArenaDef, LevelDef } from '../levelgen/leveldef';
 import { hash01 } from './color';
-import { arenaGridSegments, drawGrid, drawWalls, gridLineWidth, wallPasses } from './grid';
+import { arenaGridSegments, drawGrid, drawWalls, gridLineWidth, WALL_GLOW_PX, WALL_LINE_PX, wallPasses } from './grid';
 import {
   backingSize,
   bloomResolution,
@@ -50,7 +56,7 @@ import {
   type SuperWatch,
 } from './layout';
 import { planFx, type FxEvent } from './fx';
-import { currentRender, palette, type NeonRender, type PaletteKey } from './neon';
+import { current, currentRender, palette, type NeonRender, type PaletteKey } from './neon';
 import { bindNeon } from './neonApply';
 import {
   burst,
@@ -86,7 +92,48 @@ import {
   type BulletFrame,
   type BulletStyleVisual,
 } from './bulletStyles';
-import { bulletTrailRate, type Emitter } from './trails';
+import { bulletTrailRate, ENEMY_TRAIL_CHARGER, ENEMY_TRAIL_SWIRL, type Emitter } from './trails';
+import { getEffectsTier, mapEffectsOn } from './effects';
+import {
+  blinkArrived,
+  blinkGhostAlpha,
+  blinkRing,
+  CHARGER_DASH_TRAIL_RATE,
+  CHARGER_LANE_LEN,
+  chargerDashing,
+  chargerLaneAlpha,
+  chargerStreak,
+  chargerStreakLen,
+  mineAlpha,
+  SLIME_RADIUS,
+  slimeAlpha,
+  slimeFresh,
+  slimeScale,
+  splimeSwell,
+  SWIRL_TRAIL_RATE,
+  type BlinkRing,
+} from './enemyFx';
+import {
+  clampThreat,
+  createWallHit,
+  easeThreat,
+  FLASH_LIFE,
+  flashFade,
+  flashStrength,
+  MAX_FLASHES,
+  mapFxNeonGain,
+  mixRgb,
+  nearestWall,
+  PULSE_WARM_MAX,
+  rayWallDistance,
+  threatPulse,
+  wallFeatures,
+  wallPulseAlpha,
+  type ThreatPulse,
+  type WallFeature,
+} from './mapFx';
+import { burstSmall, emitEnemyTrail, trailsActive } from './particles';
+import { isFloorSlot, KIND_NUM } from './shapeSpecs';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
 export interface BulletPoolLike {
@@ -158,6 +205,18 @@ const SHAKE_PAD_PX = 20;
 const RING_SPEED = 1700; // arena units per second
 const RING_LIFE = 0.6; // seconds
 const MAX_RINGS = 4;
+/** Blink arrival and Slime splat flashes live at once. */
+const MAX_POPS = 16;
+/** A Blink that moved further than this in one sim step jumped: draw it at the landing spot. */
+const BLINK_SNAP_U = 60;
+/** Slime glow sprite alpha factor: the puddle glows far less than an enemy. */
+const SLIME_GLOW_MUL = 0.35;
+/** Slime edge squash amplitude and rate, render clock only (a living puddle). */
+const SLIME_WOBBLE_AMP = 0.035;
+const SLIME_WOBBLE_HZ = 0.6;
+/** Slime slow spin, radians per second, direction from hash01(id). */
+const SLIME_SPIN = 0.08;
+const TAU = Math.PI * 2;
 
 // Kind values used for per kind visual scale; numeric literals avoid importing the const enum.
 const KIND_GRUNT = 2;
@@ -358,9 +417,18 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const rings = new Graphics({ label: 'rings' });
   const ringGlow = new Graphics({ label: 'ringGlow' });
   const sticks = new Graphics({ label: 'sticks' });
+  // v2 wave C layers. The wall pulse geometry is drawn once in white per arena or neon change and
+  // driven per frame by alpha and tint only; the others redraw only while they hold content.
+  const floor = new Container({ label: 'floor' });
+  const enemyFx = new Graphics({ label: 'enemyFx' });
+  const enemyFxGlow = new Graphics({ label: 'enemyFxGlow' });
+  const wallPulse = new Graphics({ label: 'wallPulse' });
+  const wallFlash = new Graphics({ label: 'wallFlash' });
+  wallPulse.visible = false;
+  wallFlash.visible = false;
 
-  bloomLayer.addChild(wallGlow, glowSprites, particles, trails, ringGlow);
-  lines.addChild(walls, entities, bullets, rings);
+  bloomLayer.addChild(wallGlow, wallPulse, wallFlash, glowSprites, particles, trails, enemyFxGlow, ringGlow);
+  lines.addChild(walls, floor, enemyFx, entities, bullets, rings);
   world.addChild(grid, bloomLayer, lines);
   app.stage.addChild(world, sticks);
   initParticles(particles, streak);
@@ -427,6 +495,29 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   // Old shape contexts are freed after the next render, once no view batches from them.
   let retiredContexts: GraphicsContext[] = [];
 
+  // v2 wave C enemy fx state, per entity slot: last drawn w.t (NaN until seen; the Blink arrival
+  // and Slime splat edges read it) and a trail emitter (Swirl, Charger dash).
+  let enemyPhase = new Float32Array(0);
+  const enemyEmitters: Emitter[] = [];
+  let enemyFxDirty = false;
+  const ringScratch: BlinkRing = { r: 0, alpha: 0 };
+  // Arrival and splat flashes: a fixed ring of expanding circles, no allocation per event.
+  const pops: { x: number; y: number; age: number; life: number; r0: number; r1: number; colour: PaletteKey }[] = [];
+  for (let i = 0; i < MAX_POPS; i++) pops.push({ x: 0, y: 0, age: 1, life: 0, r0: 0, r1: 0, colour: 'white' });
+  let popCursor = 0;
+
+  // Map effects: wall features per arena, eased threat, pulse phase, wall flashes.
+  let features: WallFeature[] = [];
+  let threatTarget = 0;
+  let threatShown = 0;
+  let pulsePhase = 0;
+  const pulse: ThreatPulse = { amp: 0, hz: 0 };
+  const hit = createWallHit();
+  const flashes: { feature: number; s0: number; s1: number; age: number; strength: number }[] = [];
+  for (let i = 0; i < MAX_FLASHES; i++) flashes.push({ feature: -1, s0: 0, s1: 0, age: FLASH_LIFE, strength: 0 });
+  let flashCursor = 0;
+  let flashDirty = false;
+
   function growPools(cap: number): void {
     if (views.length >= cap) return;
     const oldLen = views.length;
@@ -441,6 +532,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const ng = new Int16Array(cap).fill(-1);
     ng.set(glowKind);
     glowKind = ng;
+    const np = new Float32Array(cap).fill(Number.NaN);
+    np.set(enemyPhase);
+    enemyPhase = np;
+    while (enemyEmitters.length < cap) enemyEmitters.push({ acc: 0 });
   }
 
   /** Write one style onto a slot's head and attached trail (static properties). */
@@ -540,6 +635,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   function redrawWalls(r: Readonly<NeonRender>): void {
     drawWalls(walls, arena, palette.grid, wallPasses(r.innerAlpha, r.wallWidthMul, fit.scale, 'crisp'));
     drawWalls(wallGlow, arena, palette.grid, wallPasses(r.innerAlpha, r.wallWidthMul, fit.scale, 'bloom'));
+    // Pulse layer: white geometry, coloured per frame by tint and driven by alpha. A wide soft
+    // pass plus a core pass, so it reads as glow on the fallback path too (no filter there).
+    const s = Math.max(fit.scale, 0.01);
+    drawWalls(wallPulse, arena, 0xffffff, [
+      { width: (WALL_GLOW_PX * r.wallWidthMul * 1.6) / s, alpha: 0.35 },
+      { width: (WALL_LINE_PX * r.wallWidthMul * 1.8) / s, alpha: 1 },
+    ]);
   }
 
   function redrawArena(): void {
@@ -620,8 +722,47 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     superPrev.timer = superCur.timer;
     superPrev.droneAbsent = superCur.droneAbsent;
   }
+  /** Wall flash for a kill within FLASH_RANGE of a wall (map effect, off on the low tier). */
+  function wallFlashAt(x: number, y: number): void {
+    if (!mapEffectsOn(getEffectsTier())) return;
+    nearestWall(features, x, y, hit);
+    const strength = flashStrength(hit.dist);
+    if (strength <= 0 || hit.feature < 0) return;
+    const f = flashes[flashCursor];
+    flashCursor = (flashCursor + 1) % MAX_FLASHES;
+    if (!f) return;
+    f.feature = hit.feature;
+    f.s0 = hit.s0;
+    f.s1 = hit.s1;
+    f.age = 0;
+    f.strength = strength;
+    flashDirty = true;
+  }
+
+  /** Start an expanding flash circle (Blink arrival, Slime splat). Tells: on every tier. */
+  function addPop(x: number, y: number, r0: number, r1: number, life: number, colour: PaletteKey): void {
+    const p = pops[popCursor];
+    popCursor = (popCursor + 1) % MAX_POPS;
+    if (!p) return;
+    p.x = x;
+    p.y = y;
+    p.r0 = r0;
+    p.r1 = r1;
+    p.life = life;
+    p.age = 0;
+    p.colour = colour;
+    enemyFxDirty = true;
+  }
+
   const offFx = [
-    bus.on('fx:kill', (p) => playFx(p.x, p.y, { type: 'kill', colour: p.colour })),
+    bus.on('fx:kill', (p) => {
+      playFx(p.x, p.y, { type: 'kill', colour: p.colour });
+      wallFlashAt(p.x, p.y);
+    }),
+    // Threat level from the sim (Swarm, wave C), at most every 100 ms; eased per frame.
+    bus.on('sim:threat', (p) => {
+      threatTarget = clampThreat(p.level);
+    }),
     bus.on('fx:death', (p) => playFx(p.x, p.y, { type: 'death' })),
     bus.on('fx:bomb', (p) => playFx(p.x, p.y, { type: 'bomb' })),
     bus.on('fx:geom', (p) => playFx(p.x, p.y, { type: 'geom' })),
@@ -658,6 +799,61 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       rings.visible = ringList.length > 0;
       ringGlow.visible = rings.visible && bloomOn;
     }
+    stepMapFx(dt);
+  }
+
+  /**
+   * Threat pulse and wall flashes. Both are alpha multipliers on their own layers, scaled by the
+   * neon gain; neither writes a SPEC 4 value. Off (hidden, flashes dropped) on the low tier.
+   */
+  function stepMapFx(dt: number): void {
+    threatShown = easeThreat(threatShown, threatTarget, dt);
+    if (!mapEffectsOn(getEffectsTier())) {
+      if (wallPulse.visible) wallPulse.visible = false;
+      if (wallFlash.visible || flashDirty) {
+        for (const f of flashes) f.age = FLASH_LIFE;
+        wallFlash.clear();
+        wallFlash.visible = false;
+        flashDirty = false;
+      }
+      return;
+    }
+    const gain = mapFxNeonGain(current.glowAlpha);
+    threatPulse(threatShown, pulse);
+    pulsePhase = (pulsePhase + pulse.hz * dt) % 1;
+    const a = wallPulseAlpha(pulse.amp, pulsePhase) * gain;
+    wallPulse.visible = a > 0.004;
+    if (wallPulse.visible) {
+      wallPulse.alpha = a;
+      wallPulse.tint = mixRgb(palette.grid, palette.red, threatShown * PULSE_WARM_MAX);
+    }
+    if (!flashDirty) return;
+    wallFlash.clear();
+    let any = false;
+    const s = Math.max(fit.scale, 0.01);
+    const colour = mixRgb(palette.grid, 0xffffff, 0.55);
+    for (const f of flashes) {
+      if (f.age >= FLASH_LIFE) continue;
+      f.age += dt;
+      const fa = f.strength * flashFade(f.age) * gain;
+      const feat = features[f.feature];
+      if (fa <= 0 || !feat) continue;
+      any = true;
+      for (let pass = 0; pass < 2; pass++) {
+        if (feat.t === 'seg') {
+          const dx = feat.x2 - feat.x1;
+          const dy = feat.y2 - feat.y1;
+          wallFlash.moveTo(feat.x1 + dx * f.s0, feat.y1 + dy * f.s0).lineTo(feat.x1 + dx * f.s1, feat.y1 + dy * f.s1);
+        } else {
+          wallFlash.moveTo(feat.cx + Math.cos(f.s0) * feat.r, feat.cy + Math.sin(f.s0) * feat.r);
+          wallFlash.arc(feat.cx, feat.cy, feat.r, f.s0, f.s1);
+        }
+        if (pass === 0) wallFlash.stroke({ width: (WALL_GLOW_PX * 2) / s, color: colour, alpha: fa * 0.4, cap: 'round' });
+        else wallFlash.stroke({ width: (WALL_LINE_PX * 2) / s, color: colour, alpha: fa, cap: 'round' });
+      }
+    }
+    wallFlash.visible = any;
+    flashDirty = any;
   }
 
   function setBloomEnabled(on: boolean): void {
@@ -675,10 +871,113 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     if (v && v.visible) v.visible = false;
     const s = glowViews[i];
     if (s && s.visible) s.visible = false;
+    enemyPhase[i] = Number.NaN;
+    const em = enemyEmitters[i];
+    if (em) em.acc = 0;
   }
 
-  function drawEntities(w: World, alpha: number, timeSec: number): void {
+  // Per entity draw values for the v2 kinds, written by applyEnemyContract (no allocation).
+  const ev = { x: 0, y: 0, alpha: 1, scaleX: 1, scaleY: 1, rot: 0, glowMul: 1 };
+
+  /** One fx line: halo and core on the crisp layer, plus a copy in the bloom layer. */
+  function fxLine(x1: number, y1: number, x2: number, y2: number, width: number, colour: number, a: number): void {
+    const halo = currentRender.haloAlpha * a;
+    if (halo > 0) enemyFx.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: width * currentRender.haloWidthMul, color: colour, alpha: halo, cap: 'round' });
+    enemyFx.moveTo(x1, y1).lineTo(x2, y2).stroke({ width, color: colour, alpha: a, cap: 'round' });
+    if (bloomOn) enemyFxGlow.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: width * 2, color: colour, alpha: a, cap: 'round' });
+    enemyFxDirty = true;
+  }
+
+  /** One fx circle outline, same three passes as fxLine. */
+  function fxCircle(x: number, y: number, r: number, width: number, colour: number, a: number): void {
+    const halo = currentRender.haloAlpha * a;
+    if (halo > 0) enemyFx.circle(x, y, r).stroke({ width: width * currentRender.haloWidthMul, color: colour, alpha: halo });
+    enemyFx.circle(x, y, r).stroke({ width, color: colour, alpha: a });
+    if (bloomOn) enemyFxGlow.circle(x, y, r).stroke({ width: width * 2, color: colour, alpha: a });
+    enemyFxDirty = true;
+  }
+
+  /**
+   * Render contract for the v2 kinds (docs/10 wave C table): per kind alpha, scale and turn, plus
+   * the tells (Charger lane, Blink ring and arrival, Slime splat) and the trails (Swirl, Charger
+   * dash). Telegraphing entities draw no tells or trails. Reads the World, writes only render.
+   */
+  function applyEnemyContract(w: World, i: number, kind: number, tele: boolean, timeSec: number, dt: number): void {
+    const t = w.t[i] ?? 0;
+    const prevT = enemyPhase[i] ?? Number.NaN;
+    enemyPhase[i] = t;
+    const em = enemyEmitters[i];
+    const trails = trailsActive() && !tele;
+    // Drawn velocity from the last sim step (Blink keeps its destination in vx and vy).
+    const vx = ((w.x[i] ?? 0) - (w.prevX[i] ?? 0)) / SIM_DT;
+    const vy = ((w.y[i] ?? 0) - (w.prevY[i] ?? 0)) / SIM_DT;
+    if (kind === KIND_NUM.charger) {
+      if (tele) return;
+      const la = chargerLaneAlpha(t);
+      const dx = Math.cos(ev.rot);
+      const dy = Math.sin(ev.rot);
+      if (la > 0) {
+        const len = rayWallDistance(features, ev.x, ev.y, dx, dy, CHARGER_LANE_LEN);
+        fxLine(ev.x + dx * 16, ev.y + dy * 16, ev.x + dx * len, ev.y + dy * len, 1.6, palette.charger, la);
+      } else if (chargerDashing(t) && trailsActive()) {
+        const len = chargerStreakLen(t);
+        if (len > 4) fxLine(ev.x - dx * 8, ev.y - dy * 8, ev.x - dx * len, ev.y - dy * len, 4, palette.charger, 0.7 * chargerStreak(t));
+        if (trails && em) emitEnemyTrail(em, CHARGER_DASH_TRAIL_RATE, ev.x, ev.y, vx, vy, ENEMY_TRAIL_CHARGER, palette.charger, dt);
+      } else if (em) em.acc = 0;
+    } else if (kind === KIND_NUM.blink) {
+      ev.alpha *= blinkGhostAlpha(t);
+      if (tele) return;
+      blinkRing(t, ringScratch);
+      if (ringScratch.alpha > 0) fxCircle(w.vx[i] ?? 0, w.vy[i] ?? 0, ringScratch.r, 2, palette.blink, ringScratch.alpha);
+      if (blinkArrived(prevT, t)) {
+        addPop(ev.x, ev.y, 10, 36, 0.25, 'blink');
+        burstSmall(ev.x, ev.y, palette.blink, 12, 150, 380, 0.3);
+      }
+    } else if (kind === KIND_NUM.swirl) {
+      if (trails && em) emitEnemyTrail(em, SWIRL_TRAIL_RATE, ev.x, ev.y, vx, vy, ENEMY_TRAIL_SWIRL, palette.swirl, dt);
+    } else if (kind === KIND_NUM.splime) {
+      const sw = splimeSwell(t);
+      ev.scaleX *= sw;
+      ev.scaleY *= sw;
+    } else if (kind === KIND_NUM.mine) {
+      ev.alpha *= mineAlpha(t);
+    } else if (kind === KIND_NUM.slime) {
+      const h = hash01(i);
+      const r = w.radius[i] ?? 0;
+      const base = (r > 0 ? r / SLIME_RADIUS : 1) * slimeScale(t);
+      const wob = SLIME_WOBBLE_AMP * Math.sin((timeSec * SLIME_WOBBLE_HZ + h) * TAU);
+      ev.scaleX = base * (1 + wob);
+      ev.scaleY = base * (1 - wob);
+      ev.rot = h * TAU + timeSec * SLIME_SPIN * (h < 0.5 ? -1 : 1);
+      ev.alpha *= slimeAlpha(t);
+      ev.glowMul = SLIME_GLOW_MUL;
+      // Splat when a puddle lands: first sight of a fresh one, or its age restarted (id reuse).
+      if ((Number.isNaN(prevT) || t < prevT) && slimeFresh(t)) {
+        addPop(ev.x, ev.y, 18 * base, 50, 0.3, 'splime');
+        burstSmall(ev.x, ev.y, palette.splime, 10, 60, 200, 0.35);
+      }
+    }
+  }
+
+  /** Expanding flash circles (arrival, splat). Drawn after the entity pass. */
+  function drawPops(dt: number): void {
+    for (const p of pops) {
+      if (p.age >= p.life) continue;
+      p.age += dt;
+      const u = p.age / p.life;
+      if (u >= 1) continue;
+      const ease = 1 - (1 - u) * (1 - u);
+      fxCircle(p.x, p.y, p.r0 + (p.r1 - p.r0) * ease, 2.5 * (1 - u) + 0.5, palette[p.colour], 1 - u);
+    }
+  }
+
+  function drawEntities(w: World, alpha: number, timeSec: number, dt: number): void {
     growPools(w.cap);
+    if (enemyFxDirty) {
+      enemyFx.clear();
+      enemyFxGlow.clear();
+      enemyFxDirty = false;
+    }
     // One sprite per entity on both paths: bloom source (sharp, scale 1) or blurred glow.
     const glowAlpha = bloomOn ? currentRender.bloomSourceAlpha : currentRender.spriteAlpha;
     const glowScale = bloomOn ? 1 : currentRender.spriteScale;
@@ -691,19 +990,24 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       live++;
       const kind = w.kind[i] ?? 0;
       const isPickup = kind === PICKUP_KIND;
-      // Visual slot: the kind, or the pickup variant for its weapon index (w.a).
-      const slot = visualSlot(kind, w.a[i] ?? -1);
+      const isV2 = kind >= KIND_NUM.charger && kind <= KIND_NUM.slime;
+      // Visual slot: the kind, the pickup variant for its weapon index (w.a), or the Slime
+      // outline variant from hash01(id).
+      const slot = visualSlot(kind, w.a[i] ?? -1, kind === KIND_NUM.slime ? hash01(i) : 0);
       let v = views[i];
       if (!v) {
         v = new Graphics(contextForSlot(slot));
-        entities.addChild(v);
         views[i] = v;
         viewKind[i] = slot;
       } else if (viewKind[i] !== slot) {
         v.context = contextForSlot(slot);
         viewKind[i] = slot;
         viewTint[i] = -1;
+        enemyPhase[i] = Number.NaN;
       }
+      // Slime puddles sit on the floor layer, under every entity.
+      const parent = isFloorSlot(slot) ? floor : entities;
+      if (v.parent !== parent) parent.addChild(v);
       if (!v.visible) v.visible = true;
       const spec = specForSlot(slot);
       const tint = spec.tint === null ? 0xffffff : palette[spec.tint];
@@ -711,21 +1015,40 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         v.tint = tint;
         viewTint[i] = tint;
       }
-      const x = interp(w.prevX[i] ?? 0, w.x[i] ?? 0, alpha);
-      const y = interp(w.prevY[i] ?? 0, w.y[i] ?? 0, alpha);
+      let x = interp(w.prevX[i] ?? 0, w.x[i] ?? 0, alpha);
+      let y = interp(w.prevY[i] ?? 0, w.y[i] ?? 0, alpha);
+      if (kind === KIND_NUM.blink) {
+        // A Blink jump is one sim step: never draw it sliding across the arena.
+        const jx = (w.x[i] ?? 0) - (w.prevX[i] ?? 0);
+        const jy = (w.y[i] ?? 0) - (w.prevY[i] ?? 0);
+        if (jx * jx + jy * jy > BLINK_SNAP_U * BLINK_SNAP_U) {
+          x = w.x[i] ?? 0;
+          y = w.y[i] ?? 0;
+        }
+      }
       let scale = 1;
       if (kind === KIND_GRUNT) scale = gruntPulse(timeSec, hash01(i));
       else if (kind === KIND_GRAVITY_WELL) {
         const r = w.radius[i] ?? 0;
         if (r > 0) scale = r / WELL_BASE_RADIUS;
       }
-      v.position.set(x, y);
       // Pickups spin on the render clock (phase per slot) and blink in their last 2 s (w.t).
-      v.rotation = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);
-      v.scale.set(scale);
+      const rot = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);
       // Telegraphing enemies flash at 50 percent alpha (Swarm W3 request).
-      const tele = isPickup ? pickupAlpha(w.t[i] ?? 0) : isTelegraphing(w, i) ? telegraphAlpha(telegraphLeft(w, i)) : 1;
-      if (v.alpha !== tele) v.alpha = tele;
+      const teleNow = !isPickup && isTelegraphing(w, i);
+      const tele = isPickup ? pickupAlpha(w.t[i] ?? 0) : teleNow ? telegraphAlpha(telegraphLeft(w, i)) : 1;
+      ev.x = x;
+      ev.y = y;
+      ev.alpha = tele;
+      ev.scaleX = scale;
+      ev.scaleY = scale;
+      ev.rot = rot;
+      ev.glowMul = 1;
+      if (isV2) applyEnemyContract(w, i, kind, teleNow, timeSec, dt);
+      v.position.set(ev.x, ev.y);
+      v.rotation = ev.rot;
+      v.scale.set(ev.scaleX, ev.scaleY);
+      if (v.alpha !== ev.alpha) v.alpha = ev.alpha;
 
       let s = glowViews[i];
       if (!s) {
@@ -739,11 +1062,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       if (!s.visible) s.visible = true;
       s.tint = tint;
-      s.alpha = glowAlpha * tele;
-      s.position.set(x, y);
-      s.rotation = v.rotation;
-      s.scale.set(scale * glowScale);
+      s.alpha = glowAlpha * ev.alpha * ev.glowMul;
+      s.position.set(ev.x, ev.y);
+      s.rotation = ev.rot;
+      s.scale.set(ev.scaleX * glowScale, ev.scaleY * glowScale);
     }
+    drawPops(dt);
     stats.entities = live;
   }
 
@@ -829,7 +1153,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
     watchSuper(w);
-    drawEntities(w, a, now / 1000);
+    drawEntities(w, a, now / 1000, fxDt);
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
     // Ship trail: reads the sim velocity, writes only render particles.
@@ -877,7 +1201,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     ripples.length = 0;
     ringList.length = 0;
     shake.list.length = 0;
+    resetEnemyAndMapFx();
     applyFit();
+  }
+
+  /** New arena: wall features, calm threat, no flashes, pops or per slot fx state. */
+  function resetEnemyAndMapFx(): void {
+    features = wallFeatures(arena);
+    threatTarget = 0;
+    threatShown = 0;
+    pulsePhase = 0;
+    for (const f of flashes) f.age = FLASH_LIFE;
+    for (const p of pops) p.age = p.life;
+    flashDirty = true; // one pass clears and hides the flash layer
+    enemyFxDirty = true; // the next entity pass clears the fx layers
+    enemyPhase.fill(Number.NaN);
+    for (const e of enemyEmitters) e.acc = 0;
   }
 
   function setSticks(circles: readonly StickCircleLike[]): void {
@@ -902,6 +1241,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   gridSegs = arenaGridSegments(arena);
+  features = wallFeatures(arena);
   setParticleBounds(arena.width, arena.height);
   applyFit();
   setBloomEnabled(true);

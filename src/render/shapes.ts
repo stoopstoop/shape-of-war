@@ -71,12 +71,12 @@ export function buildContext(spec: ShapeSpec, style: GlowStyle, pal: Palette): G
   for (const l of spec.layers) {
     if (!l.glow || l.width <= 0) continue;
     const c = layerColour(l, pal);
-    if (style.haloAlpha > 0) strokeLayer(ctx, l, l.width * style.haloWidthMul, c, style.haloAlpha);
-    if (style.innerAlpha > 0) strokeLayer(ctx, l, l.width * style.innerWidthMul, c, style.innerAlpha);
+    if (style.haloAlpha > 0) strokeLayer(ctx, l, l.width * style.haloWidthMul, c, style.haloAlpha * l.alpha);
+    if (style.innerAlpha > 0) strokeLayer(ctx, l, l.width * style.innerWidthMul, c, style.innerAlpha * l.alpha);
   }
   for (const l of spec.layers) {
     if (l.fill > 0) fillLayer(ctx, l, layerColour(l, pal));
-    if (l.width > 0) strokeLayer(ctx, l, l.width * style.coreWidthMul, layerColour(l, pal), 1);
+    if (l.width > 0) strokeLayer(ctx, l, l.width * style.coreWidthMul, layerColour(l, pal), l.alpha);
   }
   return ctx;
 }
@@ -87,8 +87,8 @@ export function buildGlowSourceContext(spec: ShapeSpec, pal: Palette): GraphicsC
   for (const l of spec.layers) {
     if (l.width <= 0 && l.fill <= 0) continue;
     const w = Math.max(l.width, 1.5);
-    strokeLayer(ctx, l, w * 4, layerColour(l, pal), 0.35);
-    strokeLayer(ctx, l, w * 1.6, layerColour(l, pal), 0.8);
+    strokeLayer(ctx, l, w * 4, layerColour(l, pal), 0.35 * l.alpha);
+    strokeLayer(ctx, l, w * 1.6, layerColour(l, pal), 0.8 * l.alpha);
   }
   return ctx;
 }
@@ -102,7 +102,7 @@ export function buildBloomSourceContext(spec: ShapeSpec, pal: Palette): Graphics
   const ctx = new GraphicsContext();
   for (const l of spec.layers) {
     if (l.fill > 0) fillLayer(ctx, l, layerColour(l, pal));
-    if (l.width > 0) strokeLayer(ctx, l, Math.max(l.width, 1.5) * 2.2, layerColour(l, pal), 1);
+    if (l.width > 0) strokeLayer(ctx, l, Math.max(l.width, 1.5) * 2.2, layerColour(l, pal), l.alpha);
   }
   return ctx;
 }
