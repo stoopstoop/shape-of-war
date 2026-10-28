@@ -53,7 +53,8 @@ describe('layer registry', () => {
     const kinds = LAYER_KINDS;
     expect(new Set(kinds.map((k) => LAYERS_FULL[k].timbre.id)).size).toBe(kinds.length);
     expect(new Set(kinds.map((k) => LAYERS_FULL[k].register)).size).toBe(kinds.length);
-    expect(Object.keys(TIMBRES)).toHaveLength(kinds.length);
+    // Plus three accent only timbres (kills.ts): gong, clank and chime.
+    expect(Object.keys(TIMBRES)).toHaveLength(kinds.length + 3);
     // Register roots are themselves scale notes.
     for (const k of kinds) expect(inPentatonic(pentatonicMidi(LAYERS_FULL[k].register))).toBe(true);
   });

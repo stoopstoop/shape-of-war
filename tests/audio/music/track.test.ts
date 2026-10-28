@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hash01 } from '../../../src/core/rng';
+import { voiceLength } from '../../../src/audio/music/engine';
 import {
   BAR_SEC,
   buildBar,
@@ -92,5 +93,15 @@ describe('track determinism', () => {
       expect(steps).toContain(8);
       expect(new Set(steps).size).toBe(steps.length);
     }
+  });
+});
+
+describe('perc layer (v2 fixes)', () => {
+  it('claps on the backbeat with a ghost on step 14 in odd bars, decaying before the bar line', () => {
+    for (let bar = 0; bar < LOOP_BARS; bar++) {
+      const steps = buildBar(1, bar).notes.filter((n) => n.layer === 'perc').map((n) => n.step);
+      expect(steps).toEqual(bar % 2 === 1 ? [4, 12, 14] : [4, 12]);
+    }
+    expect(14 * STEP_SEC + voiceLength('perc', STEP_SEC)).toBeLessThan(BAR_SEC);
   });
 });

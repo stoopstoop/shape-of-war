@@ -147,7 +147,7 @@ Permitted: original generative music synthesised with Web Audio (oscillators, no
 1. A composed base track with layers: sub bass, pad, kick, hat and arp. A minor, 120 BPM, 4/4, 8 bar loop.
 2. When an enemy kind enters the arena it sounds a stinger and its motif joins. The motif leaves 2 bars after the last entity of that kind exits. Intensity follows `sim:threat`. Hazards (wells, spawners, Mine, Slime) add no layer. Splime is an enemy and gets a motif.
 3. Deterministic: a note pattern is a pure function of (level seed, kind, bar) built on the stateless `hash01`. Never `Math.random`, never an advancing PRNG. The simulation and render never call music code and music never feeds the simulation.
-4. Lookahead scheduling: a timer every 25 ms schedules notes 100 ms ahead on `AudioContext.currentTime`.
+4. Lookahead scheduling: a timer every 25 ms schedules notes 250 ms ahead on `AudioContext.currentTime`.
 5. Budget: music voice cap 16, sfx cap 24 untouched, summed layer gain at most 1.0, music master at most 0.35 of the synth master. Nodes are disposed after each note.
 6. Music plays in play only, never in menus. Level start calls `startMusic(seed)`; quit and game over call `stopMusic()`. Pause, a hidden tab and fold suspend scheduling and resume on the next bar line.
 7. Setting `sow.settings.music`, 0 to 100, default 50. 0 is silence and reproduces v1 sound.

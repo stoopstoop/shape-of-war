@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-D merged at 4113528 (glue), deploy success. GD pending on device. Then wave E (Proctor hardening, fixers). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GD (fps per tier at ?stress=400, visual ratings, music layers, pause and fold, slider 0)
+- Wave: V2-E running (Proctor: v2-harden, Glow: v2-fixes for trails and map effects, Chorus: v2-fixes for kill voicing, intensity and glitches) on main 6f11afb. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: GE (final v2 device checklist) after wave E merges
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -14,6 +14,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 | G2 | 2:50 | pass | level_start=ok enemies_spawn=ok results_screen=ok; bloom path kept (60 fps both screens) |
 | G3 | 6:35 | pass | build=5bef4ae crisp=yes/yes L2 unlock=yes differs=yes endless=yes table=yes slider=yes persisted=yes audio=yes/yes/yes vibrate=yes offline=yes scores=yes fps=60/60 |
 | G5 (v1.1) | 25:55 | pass | e231b6d: main_cross 2 s, cover_cross 2 s, main=same, overlap none, label clip no; level 16 wells_feel ok, escape yes, drift none |
+| GD (v2) | 35:50 | pass | 6f11afb: fps low 50/59, standard 59/59, high 59; grid 4, trails 2, particles 3, map 2; music layers ok, intensity 3, some glitches, pause and fold ok, zero ok |
 | GC (v2) | 33:30 | pass | fb25216: charger 4, bulwark 4, splime 5, swirl, blink, sower all read and countered, hashes match seed 42 pins, blink fair under Medium physics, slime ok at 50 percent, fps_main 60 |
 | GB (v2) | 28:45 | pass | 1612a53: pickup, rapid, pierce, orbit, death reset, toggle, drift orbit all ok; fps_main 60 |
 | GA (v2) | 27:30 | pass | 4f61c3b: off_ok yes, low 4/1/5, medium 4/3/4/4, high 4/4/4/4, wall ok, persist yes, fps 60/60 |
@@ -56,4 +57,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-If GD not pasted: give Ryan the GD device check (build 4113528). If passed: D8 (tier default from fps) and D9 (music default) recorded, dispatch wave E from docs/10 (Proctor hardening, fixers from the GD notes). If fps_standard under 60: Low becomes default via one Glow or Ledger run before E. Open small items unchanged.
+Read .agents/runs/0179-proctor-v2-harden, 0180-glow-v2-fixes, 0181-chorus-v2-fixes. Review, merge in order Proctor, Glow, Chorus, read the deploy result, then gate GE (Proctor checklist plus fps_standard recheck, trails, map, music). On pass tag v2.0.0 and run Scribe: v2e-handoff for the final STATUS and DECISIONS draft.

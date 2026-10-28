@@ -1,6 +1,6 @@
 // The composed base track (SPEC 3.9, docs/10 wave A). A minor, 120 BPM, 4/4, 16 steps per
 // bar, 8 bar loop, chords Am F C G two bars each. Pure: a bar is a function of (seed, bar).
-// Bass, pad, kick and hat are fixed by the composition; only the arp reads the seed, through
+// Bass, pad, kick, perc and hat are fixed by the composition; only the arp reads the seed, through
 // the stateless hash01. No PRNG, no Web Audio.
 import { hash01 } from '../../core/rng';
 import { pentatonicMidi } from './scale';
@@ -12,9 +12,9 @@ export const LOOP_BARS = 8;
 export const STEP_SEC = 60 / BPM / 4;
 export const BAR_SEC = STEP_SEC * STEPS_PER_BAR;
 
-export type Layer = 'bass' | 'pad' | 'kick' | 'hat' | 'arp';
+export type Layer = 'bass' | 'pad' | 'kick' | 'perc' | 'hat' | 'arp';
 /** Bottom to top, the order layers are listed in mixes and tests. */
-export const LAYERS: readonly Layer[] = ['bass', 'pad', 'kick', 'hat', 'arp'];
+export const LAYERS: readonly Layer[] = ['bass', 'pad', 'kick', 'perc', 'hat', 'arp'];
 
 export type ChordName = 'Am' | 'F' | 'C' | 'G';
 
@@ -94,6 +94,17 @@ export function kickNotes(bar: number): TrackNote[] {
   return out;
 }
 
+/**
+ * Perc (the high threat lift only): a noise clap on the backbeat, steps 4 and 12, with a ghost
+ * on step 14 in odd bars. The ghost decays before the bar line, so the bed peak (the pad
+ * crossfade on the downbeat) is unchanged.
+ */
+export function percNotes(bar: number): TrackNote[] {
+  const out = [note('perc', 4, null, 1, 1), note('perc', 12, null, 1, 1)];
+  if (loopBar(bar) % 2 === 1) out.push(note('perc', 14, null, 1, 0.45));
+  return out;
+}
+
 /** Hat: eighths with the off beats accented, plus quieter in between sixteenths. */
 export function hatNotes(): TrackNote[] {
   const out: TrackNote[] = [];
@@ -143,7 +154,7 @@ export function arpNotes(seed: number, bar: number, chord: Chord): TrackNote[] {
   return out;
 }
 
-const LAYER_ORDER: Readonly<Record<Layer, number>> = { bass: 0, pad: 1, kick: 2, hat: 3, arp: 4 };
+const LAYER_ORDER: Readonly<Record<Layer, number>> = { bass: 0, pad: 1, kick: 2, perc: 3, hat: 4, arp: 5 };
 
 /** Pure: every note of one bar of the base track. */
 export function buildBar(seed: number, bar: number): BarPattern {
@@ -152,6 +163,7 @@ export function buildBar(seed: number, bar: number): BarPattern {
     ...bassNotes(chord),
     ...padNotes(chord),
     ...kickNotes(bar),
+    ...percNotes(bar),
     ...hatNotes(),
     ...arpNotes(seed >>> 0, bar, chord),
   ].sort((a, b) => a.step - b.step || LAYER_ORDER[a.layer] - LAYER_ORDER[b.layer]);
