@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accentRoomFor,
   createMusicEngine,
+  peakIn,
+  PERC_BP_HZ,
+  STINGER_RESERVE,
   KICK_F0,
   KICK_F1,
   MUSIC_VOICE_CAP,
@@ -9,6 +13,7 @@ import {
   voicePeak,
   VoicePool,
   voiceShape,
+  type VoiceClass,
 } from '../../../src/audio/music/engine';
 import { LAYERS_FULL } from '../../../src/audio/music/layers';
 import { midiToHz } from '../../../src/audio/music/scale';
@@ -192,10 +197,10 @@ describe('music engine', () => {
     engine.playVoice({ time: 0.05, dur: 0.3, midi: 60, fromMidi: null, gain: 0.07, timbre: tb });
     expect(engine.voiceCount).toBe(16);
     expect(firstMotif?.stops).toHaveLength(2);
-    expect(engine.steals).toEqual({ bed: 0, motif: 1 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 1, accent: 0 });
     // A bed note arriving now also takes a motif slot first.
     engine.play({ layer: 'pad', midi: 60, time: 0.06, dur: 2, gain: 0.2 });
-    expect(engine.steals).toEqual({ bed: 0, motif: 2 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 2, accent: 0 });
     expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }, { start: 3, end: 4, data: 'm' }], (d) => d === 'm', 0)).toBe(1);
     expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }], (d) => d === 'm', 0)).toBe(0);
   });
@@ -205,5 +210,93 @@ describe('music engine', () => {
     expect(voiceLength('arp', 0.125)).toBeLessThanOrEqual(0.125);
     expect(voicePeak('pad', 0.3)).toBeCloseTo(0.1, 9);
     expect(voicePeak('kick', 0.3)).toBe(0.3);
+  });
+});
+
+describe('voice budget (v2 fixes)', () => {
+  const e = (start: number, end: number): { start: number; end: number; data: null } => ({ start, end, data: null });
+
+  it('peakIn finds the most voices sounding at once inside a span', () => {
+    const list = [e(0, 1), e(0.5, 2), e(1.5, 3), e(2.5, 4)];
+    expect(peakIn(list, 0, 4).count).toBe(2);
+    expect(peakIn(list, 3.1, 4).count).toBe(1);
+    expect(peakIn(list, 4, 5).count).toBe(0);
+    // A voice ending exactly where another starts does not overlap it.
+    expect(peakIn([e(0, 1), e(1, 2)], 0, 2).count).toBe(1);
+  });
+
+  it('counts voices added out of start order by the overlap, not the entry count', () => {
+    const pool = new VoicePool<number>(2);
+    pool.add(1, 1.1, 1);
+    pool.add(2, 2.1, 2);
+    pool.add(3, 3.1, 3);
+    // Three entries, never two at once: the cap of 2 is not hit.
+    expect(pool.size).toBe(3);
+    expect(pool.peak(0, 10)).toBe(1);
+    // A voice landing before the others, overlapping only the first, still fits.
+    expect(pool.add(0.95, 1.05, 4)).toBeNull();
+    // A third voice inside that overlap takes the oldest voice sounding there.
+    expect(pool.add(1.0, 1.02, 5)).toBe(4);
+  });
+
+  it('accent room keeps a stinger voice free and counts notes not scheduled yet', () => {
+    const scheduled = Array.from({ length: 10 }, () => e(0, 1));
+    expect(accentRoomFor(scheduled, [], 0.5, 0.25)).toBe(16 - STINGER_RESERVE - 10);
+    // Four upcoming notes inside the span take four more.
+    const upcoming = Array.from({ length: 4 }, () => ({ start: 0.6, end: 0.9 }));
+    expect(accentRoomFor(scheduled, upcoming, 0.5, 0.25)).toBe(1);
+    // Upcoming notes after the span do not.
+    expect(accentRoomFor(scheduled, [{ start: 0.8, end: 1 }], 0.5, 0.25)).toBe(5);
+    expect(accentRoomFor(Array.from({ length: 16 }, () => e(0, 1)), [], 0.5, 0.1)).toBe(0);
+  });
+
+  it('when full, an accent is stolen before a motif voice', () => {
+    const { ctx, engine } = setup();
+    const tb = LAYERS_FULL.grunt.timbre;
+    for (let i = 0; i < 10; i++) engine.play({ layer: 'pad', midi: 57, time: 0.001 * i, dur: 2, gain: 0.2 });
+    for (let i = 0; i < 5; i++) engine.playVoice({ time: 0.02 + 0.001 * i, dur: 1, midi: 57, fromMidi: null, gain: 0.05, timbre: tb });
+    const accentStart = ctx.oscs.length;
+    engine.playVoice({ time: 0.03, dur: 0.25, midi: 69, fromMidi: null, gain: 0.05, timbre: tb }, 'accent');
+    expect(engine.voiceCount).toBe(16);
+    engine.playVoice({ time: 0.05, dur: 1, midi: 60, fromMidi: null, gain: 0.05, timbre: tb });
+    expect(engine.steals).toEqual({ bed: 0, motif: 0, accent: 1 });
+    expect(ctx.oscs[accentStart]?.stops).toHaveLength(2);
+  });
+
+  it('perc is noise through its own bandpass bus; the noise buffer is built once per context', () => {
+    const ctx = new FakeContext();
+    let buffers = 0;
+    const make = ctx.createBuffer.bind(ctx);
+    ctx.createBuffer = (c: number, l: number) => {
+      buffers++;
+      return make(c, l);
+    };
+    const engine = createMusicEngine(ctx, new FakeNode(), 0.2);
+    expect(buffers).toBe(1);
+    createMusicEngine(ctx, new FakeNode(), 0.2);
+    expect(buffers).toBe(1);
+    const perc = ctx.filters.find((f) => f.type === 'bandpass');
+    expect(perc?.frequency.value).toBe(PERC_BP_HZ);
+    const before = ctx.bufferSources.length;
+    engine.play({ layer: 'perc', midi: null, time: 0.1, dur: 0.125, gain: 0.08 });
+    expect(ctx.bufferSources.length).toBe(before + 1);
+    expect(ctx.bufferSources[before]?.startAt).toBe(0.1);
+  });
+
+  it('reports voice spans and cuts to the trace hook', () => {
+    const ctx = new FakeContext();
+    const starts: { id: number; cls: VoiceClass; start: number; end: number; at: number }[] = [];
+    const cuts: { id: number; at: number }[] = [];
+    const engine = createMusicEngine(ctx, new FakeNode(), 0.2, {
+      trace: { start: (id, cls, start, end, at) => starts.push({ id, cls, start, end, at }), cut: (id, at) => cuts.push({ id, at }) },
+    });
+    ctx.currentTime = 0.05;
+    engine.play(arp(0.1));
+    engine.playVoice({ time: 0.2, dur: 0.25, midi: 69, fromMidi: null, gain: 0.05, timbre: LAYERS_FULL.dart.timbre }, 'accent');
+    expect(starts.map((s) => s.cls)).toEqual(['bed', 'accent']);
+    expect(starts[0]?.start).toBe(0.1);
+    expect(starts[0]?.at).toBe(0.05);
+    engine.silence();
+    expect(cuts.map((c) => c.id).sort()).toEqual(starts.map((s) => s.id).sort());
   });
 });

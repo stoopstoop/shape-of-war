@@ -3,27 +3,53 @@
 // wireMusic(bus).levelStart(seed), at level start. Pause and a hidden tab suspend scheduling;
 // resume lands on the next bar line. Enemy layers (wave D) follow 'sim:enemyEnter' and
 // 'sim:enemyExit'; see lifecycle.ts for the timing rules and layers.ts for the registry.
+// Kill accents (v2 fixes) follow 'fx:kill' plus 'sfx' explode and 'fx:bomb'; see kills.ts. Bus
+// handlers only queue; every Web Audio node is made inside the scheduler tick, between frames.
 import { bus as coreBus, type Bus } from '../../core/events';
 import type { EnemyKind } from '../../levelgen/leveldef';
 import { getAudioGraph } from '../synth';
-import { createMusicEngine, type MusicContext, type MusicEngine, type NodeLike } from './engine';
+import { createMusicEngine, voiceLength, type MusicContext, type MusicEngine, type NodeLike, type Span, type VoiceTrace } from './engine';
 import {
   clamp01,
   clampMusicVolume,
+  cutoffChanged,
   masterCutoff,
   mixFor,
   MUSIC_VOLUME_DEFAULT,
   musicMasterGain,
+  nextLift,
   smoothThreat,
   sumGains,
   type Mix,
 } from './intensity';
+import {
+  bombStepFor,
+  CHORD_GAIN,
+  CHORD_STEPS,
+  CHORD_TIMBRE,
+  chordMidis,
+  chordStepFor,
+  gateBomb,
+  gateKill,
+  isBigSource,
+  KILL_GATE_INIT,
+  KILL_LEAD_SEC,
+  KILL_QUEUE_MAX,
+  KILL_SPECS,
+  killMidi,
+  sourceForColour,
+  type GateResult,
+  type KillColour,
+  type KillGate,
+  type KillSource,
+} from './kills';
 import { cutMotifs, LAYERS_FULL, STINGER_STEPS, stingerMidi, type LayerRegistry, type MotifNote } from './layers';
 import {
   enterLayer,
   envelopeAt,
   exitLayer,
   layerMix,
+  motifActive,
   pruneLayers,
   STINGER_GAIN,
   takeStingers,
@@ -34,11 +60,15 @@ import { buildBar, STEP_SEC, STEPS_PER_BAR, type BarPattern, type Layer } from '
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
-  readonly role: 'bed' | 'stinger' | 'motif';
-  /** Bed layer, or null for stingers and motifs. */
+  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'chord';
+  /** Bed layer, or null for stingers, motifs and kill accents. */
   readonly layer: Layer | null;
-  /** Enemy kind, or null for the bed. */
+  /** Enemy kind, or null for the bed, chords and well or spawner kills. */
   readonly kind: EnemyKind | null;
+  /** Kill notes only: what was killed (also wells and spawners). */
+  readonly source?: KillSource;
+  /** Audio clock when the note was handed to the engine. */
+  readonly at?: number;
   readonly step: number;
   readonly time: number;
   readonly midi: number | null;
@@ -76,6 +106,16 @@ export interface MusicOptions {
   motifKinds?: readonly EnemyKind[];
   /** Called for every note handed to the engine. */
   onNote?: (n: NoteLog) => void;
+  /** Voice spans from the engine (tests and debugging). */
+  trace?: VoiceTrace;
+}
+
+type QueuedAccent = { readonly type: 'kill'; readonly source: KillSource } | { readonly type: 'bomb' };
+
+interface KillStats {
+  seen: number;
+  notes: number;
+  chords: number;
 }
 
 interface MotifCache {
@@ -91,6 +131,15 @@ interface Session {
   lastTick: number | null;
   layers: LayerSet;
   readonly motifs: Map<EnemyKind, MotifCache>;
+  /** High threat lift, with hysteresis (intensity.ts nextLift). */
+  lift: boolean;
+  /** Last cutoff sent to the engine, so near repeats are not sent. */
+  lastCutoff: number | null;
+  gate: KillGate;
+  /** Kills in this level so far; the thinning hash reads it. */
+  killOrdinal: number;
+  readonly queue: QueuedAccent[];
+  readonly stats: KillStats;
 }
 
 interface Playing {
@@ -109,6 +158,9 @@ let timer: Timer = realTimer;
 let playing: Playing | null = null;
 let registry: LayerRegistry = LAYERS_FULL;
 let noteHook: ((n: NoteLog) => void) | null = null;
+let voiceTrace: VoiceTrace | undefined;
+/** Colour of the last fx:kill; the 'explode' sfx that follows a scored kill consumes it. */
+let pendingKill: KillColour | null = null;
 /** Uninstall of the live initMusic install; a new install replaces it. */
 let installed: (() => void) | null = null;
 let installToken = 0;
@@ -125,11 +177,135 @@ function barFor(s: Session, index: number): BarPattern {
   return s.bar;
 }
 
-function onTick(s: Session, now: number): void {
+function onTick(s: Session, now: number, sched: Scheduler): void {
   const dt = s.lastTick === null ? 0 : now - s.lastTick;
   s.lastTick = now;
   level = smoothThreat(level, target, dt);
-  s.engine.setCutoff(masterCutoff(level));
+  s.lift = nextLift(s.lift, level);
+  const hz = masterCutoff(level, s.lift);
+  // Only meaningful changes reach the AudioParam: 40 setTargetAtTime calls a second grew the
+  // automation list for nothing.
+  if (cutoffChanged(s.lastCutoff, hz)) {
+    s.engine.setCutoff(hz);
+    s.lastCutoff = hz;
+  }
+  // A kill pair ('fx:kill' then 'explode') is emitted synchronously inside one sim step, so a
+  // colour still pending at a tick came from a segment burst and never pairs.
+  pendingKill = null;
+  drainAccents(s, now, sched);
+}
+
+/**
+ * Bed and motif notes that will start before `until` but are not scheduled yet. The track and
+ * the motifs are composed, so the voice budget can count them before they exist.
+ */
+function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
+  const out: Span[] = [];
+  const mix = mixFor(level, s.lift);
+  for (let step = sched.nextStep; sched.timeOf(step) < until; step++) {
+    const time = sched.timeOf(step);
+    const barIndex = Math.floor(step / STEPS_PER_BAR);
+    const inBar = step % STEPS_PER_BAR;
+    const bar = s.bar !== null && s.barIndex === barIndex ? s.bar : buildBar(s.seed, barIndex);
+    for (const n of planStep(bar, inBar, mix, time)) out.push({ start: time, end: time + voiceLength(n.layer, n.dur) });
+    for (const l of s.layers) {
+      if (!motifActive(l, step) || envelopeAt(l, step) <= 0) continue;
+      for (const n of motifBar(s, l.kind, barIndex)) {
+        if (n.step === inBar) out.push({ start: time, end: time + n.durSteps * STEP_SEC });
+      }
+    }
+  }
+  return out;
+}
+
+/** Free accent voices for `steps` sixteenths from `step`. */
+function roomAt(s: Session, sched: Scheduler, step: number, steps: number): number {
+  const t = sched.timeOf(step);
+  const len = steps * STEP_SEC;
+  return s.engine.accentRoom(t, len, upcomingSpans(s, sched, t + len));
+}
+
+function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSource | null, at: number): void {
+  s.gate = r.gate;
+  const a = r.action;
+  if (a.type === 'note' && source !== null) {
+    const spec = KILL_SPECS[source];
+    const bar = Math.floor(a.step / STEPS_PER_BAR);
+    const midi = killMidi(spec, bar);
+    const time = sched.timeOf(a.step);
+    const gain = spec.gain * (0.8 + 0.2 * level);
+    s.engine.playVoice({ time, dur: spec.durSteps * STEP_SEC, midi, fromMidi: null, gain, timbre: spec.timbre }, 'accent');
+    s.stats.notes++;
+    const kind = source === 'well' || source === 'spawner' ? null : source;
+    noteHook?.({ role: 'kill', layer: null, kind, source, step: a.step, time, midi, gain, at });
+  } else if (a.type === 'chord') {
+    const bar = Math.floor(a.step / STEPS_PER_BAR);
+    const time = sched.timeOf(a.step);
+    const all = chordMidis(bar, a.big);
+    const room = roomAt(s, sched, a.step, CHORD_STEPS);
+    // Fewer free voices than notes: drop from the bottom (the big chord's low note goes first).
+    const notes = all.slice(Math.max(0, all.length - room));
+    const gain = CHORD_GAIN / Math.max(1, notes.length);
+    for (const midi of notes) {
+      s.engine.playVoice({ time, dur: CHORD_STEPS * STEP_SEC, midi, fromMidi: null, gain, timbre: CHORD_TIMBRE }, 'accent');
+      noteHook?.({ role: 'chord', layer: null, kind: null, step: a.step, time, midi, gain, at });
+    }
+    s.stats.chords++;
+  }
+}
+
+/** Decide and schedule queued kills and bombs on the 16th grid. Runs inside the tick only. */
+function drainAccents(s: Session, now: number, sched: Scheduler): void {
+  if (s.queue.length === 0) return;
+  if (volume === 0) {
+    s.queue.length = 0;
+    return;
+  }
+  const step = sched.stepAtOrAfter(now + KILL_LEAD_SEC);
+  // Every queued kill lands on the same step, so voice room is computed once per (start,
+  // length) and only recomputed after an accent is actually scheduled.
+  const cache = new Map<string, number>();
+  const room = (at: number, steps: number): number => {
+    const key = `${at}:${steps}`;
+    let r = cache.get(key);
+    if (r === undefined) {
+      r = roomAt(s, sched, at, steps);
+      cache.set(key, r);
+    }
+    return r;
+  };
+  for (const q of s.queue) {
+    let r: GateResult;
+    let source: KillSource | null = null;
+    if (q.type === 'bomb') {
+      r = gateBomb(s.gate, step, room(bombStepFor(s.gate, step), CHORD_STEPS));
+    } else {
+      source = q.source;
+      const spec = KILL_SPECS[q.source];
+      const absorbed = step < s.gate.chordEnd;
+      r = gateKill(s.gate, {
+        seed: s.seed,
+        ordinal: s.killOrdinal++,
+        step,
+        level,
+        big: isBigSource(q.source),
+        durSteps: spec.durSteps,
+        noteRoom: absorbed ? 0 : room(step, spec.durSteps),
+        chordRoom: absorbed ? 0 : room(chordStepFor(s.gate, step), CHORD_STEPS),
+      });
+    }
+    applyGate(s, sched, r, source, now);
+    if (r.action.type !== 'none') cache.clear();
+  }
+  s.queue.length = 0;
+}
+
+function queueAccent(q: QueuedAccent): void {
+  const p = playing;
+  if (!p || p.scheduler.paused) return;
+  if (q.type === 'kill') p.session.stats.seen++;
+  // Over the cap the kill keeps its sfx only.
+  if (p.session.queue.length < KILL_QUEUE_MAX) p.session.queue.push(q);
 }
 
 function motifBar(s: Session, kind: EnemyKind, bar: number): readonly MotifNote[] {
@@ -143,7 +319,7 @@ function motifBar(s: Session, kind: EnemyKind, bar: number): readonly MotifNote[
 function scaleMix(m: Mix, k: number): Mix {
   if (k >= 1) return m;
   const g = m.gains;
-  return { ...m, gains: { bass: g.bass * k, pad: g.pad * k, kick: g.kick * k, hat: g.hat * k, arp: g.arp * k } };
+  return { ...m, gains: { bass: g.bass * k, pad: g.pad * k, kick: g.kick * k, perc: g.perc * k, hat: g.hat * k, arp: g.arp * k } };
 }
 
 function onStep(p: Session, step: number, time: number): void {
@@ -154,7 +330,7 @@ function onStep(p: Session, step: number, time: number): void {
   if (volume === 0) return;
   const barIndex = Math.floor(step / STEPS_PER_BAR);
   const inBar = step % STEPS_PER_BAR;
-  const mix = mixFor(level);
+  const mix = mixFor(level, p.lift);
   const lm = layerMix(sumGains(mix.gains), p.layers, registry, step);
   for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time)) {
     p.engine.play(n);
@@ -196,6 +372,8 @@ function suspend(): void {
   if (!p || p.scheduler.paused) return;
   p.scheduler.pause();
   p.engine.silence();
+  p.session.queue.length = 0;
+  pendingKill = null;
 }
 
 function maybeResume(): void {
@@ -217,6 +395,8 @@ export function initMusic(opts: MusicOptions = {}): () => void {
   timer = opts.timer ?? realTimer;
   registry = opts.motifKinds === undefined ? LAYERS_FULL : cutMotifs(opts.motifKinds);
   noteHook = opts.onNote ?? null;
+  voiceTrace = opts.trace;
+  pendingKill = null;
   if (opts.volume !== undefined) volume = clampMusicVolume(opts.volume);
   const vis = opts.visibility === undefined ? defaultVisibility() : opts.visibility;
   hidden = vis?.hidden ?? false;
@@ -226,6 +406,20 @@ export function initMusic(opts: MusicOptions = {}): () => void {
     }),
     b.on('sim:enemyEnter', (p) => onEnter(p.kind)),
     b.on('sim:enemyExit', (p) => onExit(p.kind)),
+    // A scored kill emits 'fx:kill' then 'sfx' explode. Snake segment bursts emit 'fx:kill'
+    // alone, so only the colour right before an explode counts. The payload object is reused
+    // by the sim: copy the field.
+    b.on('fx:kill', (p) => {
+      pendingKill = p.colour;
+    }),
+    b.on('sfx', (name) => {
+      const c = pendingKill;
+      pendingKill = null;
+      if (name !== 'explode') return;
+      const source = c === null ? null : sourceForColour(c);
+      if (source !== null) queueAccent({ type: 'kill', source });
+    }),
+    b.on('fx:bomb', () => queueAccent({ type: 'bomb' })),
     b.on('game:pause', () => {
       gamePaused = true;
       suspend();
@@ -252,6 +446,7 @@ export function initMusic(opts: MusicOptions = {}): () => void {
     if (installToken === token) {
       installed = null;
       noteHook = null;
+      voiceTrace = undefined;
     }
     stopMusic();
   };
@@ -307,11 +502,12 @@ export function startMusic(seed: number): boolean {
   const g = graphSource();
   if (!g) return false;
   const ctx = g.ctx;
-  const engine = createMusicEngine(ctx, g.master, musicMasterGain(volume));
+  const engine = createMusicEngine(ctx, g.master, musicMasterGain(volume), voiceTrace ? { trace: voiceTrace } : {});
   // A new level starts calm; the next 'sim:threat' sets the target.
   level = 0;
   target = 0;
   gamePaused = false;
+  pendingKill = null;
   // Layers start empty: a new or restarted level re-announces its kinds through the sim.
   const session: Session = {
     seed: seed >>> 0,
@@ -321,15 +517,22 @@ export function startMusic(seed: number): boolean {
     lastTick: null,
     layers: [],
     motifs: new Map(),
+    lift: false,
+    lastCutoff: null,
+    gate: KILL_GATE_INIT,
+    killOrdinal: 0,
+    queue: [],
+    stats: { seen: 0, notes: 0, chords: 0 },
   };
-  const scheduler = createScheduler({
+  const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
     timer,
     onStep: (step, time) => onStep(session, step, time),
-    onTick: (now) => onTick(session, now),
+    onTick: (now) => onTick(session, now, scheduler),
   });
   playing = { session, engine, scheduler };
-  engine.setCutoff(masterCutoff(level));
+  session.lastCutoff = masterCutoff(level);
+  engine.setCutoff(session.lastCutoff);
   scheduler.start();
   if (hidden) suspend();
   return true;
@@ -371,20 +574,33 @@ export interface MusicState {
   readonly nextStep: number;
   /** Kinds with a layer (live, fading or in the 2 bar tail), in entry order. */
   readonly layers: readonly EnemyKind[];
+  /** High threat lift on (perc, arp octave up, lowpass opened). */
+  readonly lift: boolean;
+  /** Steps lost to stalls longer than the lookahead this session (0 when it holds). */
+  readonly skippedSteps: number;
+  /** Motif voices stolen this session. */
+  readonly motifSteals: number;
+  /** Scored kills seen, kill notes played and chords played this session. */
+  readonly kills: Readonly<KillStats>;
 }
 
 /** Read only snapshot for tests and the debug overlay. */
 export function musicState(): MusicState {
   const p = playing;
+  const steals = p?.engine.steals;
   return {
     playing: p !== null,
     suspended: p?.scheduler.paused ?? false,
     level,
     voices: p?.engine.voiceCount ?? 0,
     motifVoices: p?.engine.motifVoiceCount ?? 0,
-    bedSteals: p?.engine.steals.bed ?? 0,
+    bedSteals: steals?.bed ?? 0,
     nextStep: p?.scheduler.nextStep ?? 0,
     layers: p?.session.layers.map((l) => l.kind) ?? [],
+    lift: p?.session.lift ?? false,
+    skippedSteps: p?.scheduler.skipped ?? 0,
+    motifSteals: steals?.motif ?? 0,
+    kills: { ...(p?.session.stats ?? { seen: 0, notes: 0, chords: 0 }) },
   };
 }
 export { CUT1_KEEP, LAYER_KINDS } from './layers';
