@@ -8,6 +8,10 @@
 // resolution with antialiasing. The bloom layer only holds soft content: one bloom source
 // sprite per entity (pre-rendered at resolution 2), a thick wall copy, particles and trails.
 // On the fallback path the filter is removed and the sprites switch to blurred glow textures.
+// v2 wave B: bullet heads draw from one atlas by BulletPool.style (bullets container) and the
+// attached trails from the trail texture (bulletTrails): two draw calls for every bullet look.
+// Weapon pickups use per weapon visual slots (shapeSpecs.ts). Ship and bullet particle trails
+// go into the shared particle pool (particles.ts) and follow the effects tier.
 // The app is created with autoStart false; draw() updates the scene and calls app.render().
 import {
   Application,
@@ -18,8 +22,8 @@ import {
   ParticleContainer,
   Rectangle,
   Sprite,
+  Texture,
   type Renderer,
-  type Texture,
 } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { registerParticleStress } from '../core/debug';
@@ -49,10 +53,15 @@ import { planFx, type FxEvent } from './fx';
 import { currentRender, palette, type NeonRender, type PaletteKey } from './neon';
 import { bindNeon } from './neonApply';
 import {
+  burst,
   burstFx,
   clearParticles,
+  disposeParticles,
+  emitBulletTrail,
+  emitShipTrail,
   initParticles,
   liveParticleCount,
+  resetShipTrail,
   setParticleBounds,
   setParticleStress,
   stepParticles,
@@ -60,9 +69,24 @@ import {
 } from './particles';
 import { addRipple, stepRipples, traceRippledGrid, type Ripple } from './ripple';
 import { addShake, createShake, stepShake } from './shake';
-import { buildBloomSourceContext, buildGlowSourceContext, contextForValue, rebuildShapeContexts } from './shapes';
+import { buildBloomSourceContext, buildGlowSourceContext, contextForSlot, rebuildShapeContexts } from './shapes';
 import type { GraphicsContext } from 'pixi.js';
-import { MAX_KIND, specFor } from './shapeSpecs';
+import { MAX_SLOT, PICKUP_KIND, PICKUP_SPIN, pickupAlpha, specForSlot, visualSlot } from './shapeSpecs';
+import {
+  ATLAS_CELLS,
+  ATLAS_H,
+  ATLAS_W,
+  BULLET_FRAMES,
+  bulletStyleVisual,
+  crescentPoints,
+  PICKUP_BURST_COUNT,
+  styleCode,
+  visualForCode,
+  weaponTint,
+  type BulletFrame,
+  type BulletStyleVisual,
+} from './bulletStyles';
+import { bulletTrailRate, type Emitter } from './trails';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
 export interface BulletPoolLike {
@@ -74,6 +98,11 @@ export interface BulletPoolLike {
   readonly vy: Float32Array;
   /** 1 for homing bullets (super). Optional so older pools still match. */
   readonly homing?: Uint8Array;
+  /** Weapon style per bullet: 0 spread, 1 rapid, 2 pierce, 3 orbit (docs/10 render contract). */
+  readonly style?: Uint8Array;
+  /** Previous step positions, used to interpolate orbit blades that Swarm places each step. */
+  readonly prevX?: Float32Array;
+  readonly prevY?: Float32Array;
 }
 
 /** Structural view of one circle from Thumbs' stickVisuals output, in CSS px. */
@@ -118,12 +147,10 @@ export interface GameRenderer {
 
 const SIM_DT = 1 / 120;
 const PARK = -99999;
-const BULLET_SCALE = 0.75;
 const TRAIL_TEX_LEN = 32;
-const TRAIL_LEN_U = 44;
-const HOMING_TRAIL_LEN_U = 96;
-const TRAIL_THICK = 1.35;
 const GLOW_PAD = 34;
+/** Render clock step used for trail emission is clamped like the particle step. */
+const MAX_FX_DT = 0.05;
 /** Resolution of every generated texture (dot, streak, trail, glow and bloom sources). */
 const GEN_TEX_RES = 2;
 /** Extra filter area around the screen so shake never shows an unbloomed edge strip. */
@@ -165,6 +192,11 @@ function bulletsFromWorld(w: World): BulletPoolLike | null {
   return typeof b === 'object' && b !== null && isTypedPool(b) ? b : null;
 }
 
+/** False while the ship is dead (respawn delay). */
+function shipActive(w: World): boolean {
+  return w.ship.active;
+}
+
 function viewportSize(host: HTMLElement): { w: number; h: number } {
   const vv = window.visualViewport;
   const w = host.clientWidth || (vv ? vv.width : window.innerWidth);
@@ -172,18 +204,62 @@ function viewportSize(host: HTMLElement): { w: number; h: number } {
   return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
 }
 
-/** Soft round dot used by bullets and particles. Generated, no image files. */
-function makeDotTexture(app: Application): Texture {
-  const g = new Graphics()
-    .circle(0, 0, 8)
-    .fill({ color: 0xffffff, alpha: 0.18 })
-    .circle(0, 0, 5.5)
-    .fill({ color: 0xffffff, alpha: 0.45 })
-    .circle(0, 0, 3)
-    .fill({ color: 0xffffff, alpha: 1 });
-  const tex = app.renderer.generateTexture({ target: g, frame: new Rectangle(-8, -8, 16, 16), resolution: GEN_TEX_RES, antialias: true });
+interface BulletAtlas {
+  /** The whole atlas; the bullet ParticleContainer binds its source. */
+  readonly texture: Texture;
+  readonly frames: Readonly<Record<BulletFrame, Texture>>;
+}
+
+/**
+ * Every bullet look in one generated texture (layout in bulletStyles.ts), so all heads share one
+ * texture source and one draw call. Drawn white; particles are tinted per style. The dot cell is
+ * the v1 bullet dot unchanged.
+ */
+function makeBulletAtlas(app: Application): BulletAtlas {
+  const g = new Graphics();
+  const d = ATLAS_CELLS.dot;
+  const dx = d.x + d.w / 2;
+  const dy = d.y + d.h / 2;
+  g.circle(dx, dy, 8).fill({ color: 0xffffff, alpha: 0.18 });
+  g.circle(dx, dy, 5.5).fill({ color: 0xffffff, alpha: 0.45 });
+  g.circle(dx, dy, 3).fill({ color: 0xffffff, alpha: 1 });
+  // Rapid: thin short streak, brightest core toward the nose (+x).
+  const r = ATLAS_CELLS.rapid;
+  g.roundRect(r.x, r.y, r.w, r.h, r.h / 2).fill({ color: 0xffffff, alpha: 0.2 });
+  g.roundRect(r.x + 3, r.y + r.h / 2 - 1.4, r.w - 4, 2.8, 1.4).fill({ color: 0xffffff, alpha: 0.5 });
+  g.roundRect(r.x + 8, r.y + r.h / 2 - 0.8, r.w - 9, 1.6, 0.8).fill({ color: 0xffffff, alpha: 1 });
+  // Pierce: long bright lance inside a wide soft halo, hot nose.
+  const p = ATLAS_CELLS.pierce;
+  const pcx = p.x + p.w / 2;
+  const pcy = p.y + p.h / 2;
+  g.ellipse(pcx, pcy, p.w / 2, p.h / 2).fill({ color: 0xffffff, alpha: 0.13 });
+  g.ellipse(pcx, pcy, p.w / 2 - 2, p.h / 2 - 2.5).fill({ color: 0xffffff, alpha: 0.28 });
+  g.roundRect(p.x + 3, pcy - 1.6, p.w - 6, 3.2, 1.6).fill({ color: 0xffffff, alpha: 1 });
+  g.circle(p.x + p.w * 0.74, pcy, 2.8).fill({ color: 0xffffff, alpha: 1 });
+  // Orbit: crescent blade, bulge toward +x, with a soft rim.
+  const o = ATLAS_CELLS.orbit;
+  const ocx = o.x + o.w / 2;
+  const ocy = o.y + o.h / 2;
+  const pts = crescentPoints(9, 4, 14);
+  for (let i = 0; i < pts.length; i += 2) {
+    pts[i] = (pts[i] ?? 0) + ocx + 1;
+    pts[i + 1] = (pts[i + 1] ?? 0) + ocy;
+  }
+  g.poly(pts, true).stroke({ width: 4, color: 0xffffff, alpha: 0.28, join: 'round' });
+  g.poly(pts, true).fill({ color: 0xffffff, alpha: 1 });
+  const texture = app.renderer.generateTexture({
+    target: g,
+    frame: new Rectangle(0, 0, ATLAS_W, ATLAS_H),
+    resolution: GEN_TEX_RES,
+    antialias: true,
+  });
   g.destroy({ context: true });
-  return tex;
+  const frames = {} as Record<BulletFrame, Texture>;
+  for (const f of BULLET_FRAMES) {
+    const c = ATLAS_CELLS[f];
+    frames[f] = new Texture({ source: texture.source, frame: new Rectangle(c.x, c.y, c.w, c.h) });
+  }
+  return { texture, frames };
 }
 
 /** Soft horizontal streak for particles, STREAK_TEX_LEN px long, centred. */
@@ -255,7 +331,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const wallGlow = new Graphics({ label: 'wallGlow' });
   const glowSprites = new Container({ label: 'glowSprites' });
   const entities = new Container({ label: 'entities' });
-  const dot = makeDotTexture(app);
+  const atlas = makeBulletAtlas(app);
   const streak = makeStreakTexture(app);
   const trail = makeTrailTexture(app);
   const trails = new ParticleContainer({
@@ -264,11 +340,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     blendMode: 'add',
     dynamicProperties: { position: true, rotation: true, uvs: false, vertex: false, color: false },
   });
+  // Bullet heads: one container, one atlas, one draw call. Rotation is dynamic because streaks
+  // follow their velocity and orbit blades turn with the ship; frame, anchor, scale and tint are
+  // static and re-uploaded only when a slot changes style (update() below).
   const bullets = new ParticleContainer({
     label: 'bullets',
-    texture: dot,
+    texture: atlas.texture,
     blendMode: 'add',
-    dynamicProperties: { position: true, rotation: false, uvs: false, vertex: false, color: false },
+    dynamicProperties: { position: true, rotation: true, uvs: false, vertex: false, color: false },
   });
   const particles = new ParticleContainer({
     label: 'particles',
@@ -317,18 +396,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   // Per kind sprite textures (slot 0 is the unknown magenta circle): blurred glow for the
   // fallback path, sharp thick core lines as the bloom source on the bloom path.
-  const emptyTextures = (): (Texture | null)[] => new Array<Texture | null>(MAX_KIND + 1).fill(null);
+  // Indexed by visual slot (shapeSpecs.ts), so each weapon pickup variant has its own texture.
+  const emptyTextures = (): (Texture | null)[] => new Array<Texture | null>(MAX_SLOT + 1).fill(null);
   let glowTextures = emptyTextures();
   let bloomTextures = emptyTextures();
   let glowTexturesDirty = false;
 
-  // Bullet particles, one head and one trail per bullet slot, parked when dead.
+  // Bullet particles, one head and one attached trail per bullet slot, parked when dead.
   const bulletItems: Particle[] = [];
   const trailItems: Particle[] = [];
-  let bulletTint = palette.yellow;
-  let homingTint = palette.homing;
-  /** Homing state shown per bullet slot, -1 unknown, so tint and trail length change once. */
-  let bulletHomingShown = new Int8Array(0);
+  /** Particle trail emitter per bullet slot (styles 1 and 2). */
+  const bulletEmitters: Emitter[] = [];
+  /** styleCode shown per bullet slot, -1 unknown, so frame, tint and trail change once. */
+  let bulletCodeShown = new Int8Array(0);
 
   // Grid segments cached per arena; the ripple redraw traces them without allocating.
   let gridSegs: number[] = [];
@@ -363,32 +443,44 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     glowKind = ng;
   }
 
-  function ensureBulletItems(cap: number): void {
-    while (bulletItems.length < cap) {
-      const p = new Particle({ texture: dot, x: PARK, y: PARK, anchorX: 0.5, anchorY: 0.5, tint: bulletTint });
-      p.scaleX = p.scaleY = BULLET_SCALE;
-      bulletItems.push(p);
-      bullets.addParticle(p);
-      const t = new Particle({
-        texture: trail,
-        x: PARK,
-        y: PARK,
-        anchorX: 1,
-        anchorY: 0.5,
-        tint: bulletTint,
-        alpha: currentRender.trailAlpha,
-      });
-      t.scaleX = TRAIL_LEN_U / TRAIL_TEX_LEN;
-      t.scaleY = TRAIL_THICK;
-      trailItems.push(t);
-      trails.addParticle(t);
-    }
-    if (bulletHomingShown.length < cap) bulletHomingShown = new Int8Array(cap).fill(-1);
+  /** Write one style onto a slot's head and attached trail (static properties). */
+  function styleSlot(i: number, v: BulletStyleVisual): void {
+    const item = bulletItems[i];
+    const tail = trailItems[i];
+    if (!item || !tail) return;
+    const tint = palette[v.tint];
+    item.texture = atlas.frames[v.frame];
+    item.anchorX = v.anchorX;
+    item.scaleX = item.scaleY = v.scale;
+    item.tint = tint;
+    tail.tint = tint;
+    tail.alpha = currentRender.trailAlpha;
+    tail.scaleX = v.trailLenU / TRAIL_TEX_LEN;
+    tail.scaleY = v.trailThick;
   }
 
-  /** Capture one kind's sprite texture: blurred glow (fallback) or sharp core (bloom source). */
+  function ensureBulletItems(cap: number): void {
+    const spread = bulletStyleVisual(0, false);
+    while (bulletItems.length < cap) {
+      const p = new Particle({ texture: atlas.frames.dot, x: PARK, y: PARK, anchorX: 0.5, anchorY: 0.5 });
+      bulletItems.push(p);
+      bullets.addParticle(p);
+      const t = new Particle({ texture: trail, x: PARK, y: PARK, anchorX: 1, anchorY: 0.5 });
+      trailItems.push(t);
+      trails.addParticle(t);
+      bulletEmitters.push({ acc: 0 });
+      styleSlot(bulletItems.length - 1, spread);
+    }
+    if (bulletCodeShown.length < cap) {
+      const next = new Int8Array(cap).fill(-1);
+      next.set(bulletCodeShown);
+      bulletCodeShown = next;
+    }
+  }
+
+  /** Capture one visual slot's sprite texture: blurred glow (fallback) or sharp core (bloom source). */
   function makeKindTexture(slot: number, blurred: boolean): Texture {
-    const spec = specFor(slot);
+    const spec = specForSlot(slot);
     const g = new Graphics(blurred ? buildGlowSourceContext(spec, palette) : buildBloomSourceContext(spec, palette));
     if (blurred) g.filters = [new BlurFilter({ strength: 6, quality: 2 })];
     const r = spec.radius + (blurred ? GLOW_PAD : GLOW_PAD / 2);
@@ -402,9 +494,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     return tex;
   }
 
-  /** Sprite texture for a kind on the current glow path, built lazily. */
-  function glowTextureFor(kind: number): Texture {
-    const slot = kind >= 1 && kind <= MAX_KIND ? kind : 0;
+  /** Sprite texture for a visual slot on the current glow path, built lazily. */
+  function glowTextureFor(visual: number): Texture {
+    const slot = visual >= 1 && visual <= MAX_SLOT ? visual : 0;
     const set = bloomOn ? bloomTextures : glowTextures;
     const existing = set[slot];
     if (existing) return existing;
@@ -477,24 +569,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       for (let i = 0; i < views.length; i++) {
         const v = views[i];
         const k = viewKind[i] ?? -1;
-        if (v && k >= 0) v.context = contextForValue(k);
+        if (v && k >= 0) v.context = contextForSlot(k);
       }
       retiredContexts = retiredContexts.concat(old);
       redrawWalls(r);
     },
     tint(): void {
       viewTint.fill(-1); // every live view retints from the new palette on the next draw
-      bulletTint = palette.yellow;
-      homingTint = palette.homing;
+      // Bullets: every slot restyles from the new palette, with the new trail alpha.
       for (let i = 0; i < bulletItems.length; i++) {
-        const tint = bulletHomingShown[i] === 1 ? homingTint : bulletTint;
-        const b = bulletItems[i];
-        const t = trailItems[i];
-        if (b) b.tint = tint;
-        if (t) {
-          t.tint = tint;
-          t.alpha = currentRender.trailAlpha;
-        }
+        styleSlot(i, visualForCode(bulletCodeShown[i] ?? -1));
       }
       bullets.update();
       trails.update();
@@ -541,6 +625,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bus.on('fx:death', (p) => playFx(p.x, p.y, { type: 'death' })),
     bus.on('fx:bomb', (p) => playFx(p.x, p.y, { type: 'bomb' })),
     bus.on('fx:geom', (p) => playFx(p.x, p.y, { type: 'geom' })),
+    // Weapon pickup collected (Swarm, wave B): a burst in the weapon's bullet colour.
+    bus.on('fx:pickup', (p) => burst(p.x, p.y, palette[weaponTint(p.weapon)], PICKUP_BURST_COUNT)),
   ];
   registerParticleStress(setParticleStress);
 
@@ -604,19 +690,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       live++;
       const kind = w.kind[i] ?? 0;
+      const isPickup = kind === PICKUP_KIND;
+      // Visual slot: the kind, or the pickup variant for its weapon index (w.a).
+      const slot = visualSlot(kind, w.a[i] ?? -1);
       let v = views[i];
       if (!v) {
-        v = new Graphics(contextForValue(kind));
+        v = new Graphics(contextForSlot(slot));
         entities.addChild(v);
         views[i] = v;
-        viewKind[i] = kind;
-      } else if (viewKind[i] !== kind) {
-        v.context = contextForValue(kind);
-        viewKind[i] = kind;
+        viewKind[i] = slot;
+      } else if (viewKind[i] !== slot) {
+        v.context = contextForSlot(slot);
+        viewKind[i] = slot;
         viewTint[i] = -1;
       }
       if (!v.visible) v.visible = true;
-      const spec = specFor(kind);
+      const spec = specForSlot(slot);
       const tint = spec.tint === null ? 0xffffff : palette[spec.tint];
       if (viewTint[i] !== tint) {
         v.tint = tint;
@@ -631,21 +720,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         if (r > 0) scale = r / WELL_BASE_RADIUS;
       }
       v.position.set(x, y);
-      v.rotation = w.rot[i] ?? 0;
+      // Pickups spin on the render clock (phase per slot) and blink in their last 2 s (w.t).
+      v.rotation = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);
       v.scale.set(scale);
       // Telegraphing enemies flash at 50 percent alpha (Swarm W3 request).
-      const tele = isTelegraphing(w, i) ? telegraphAlpha(telegraphLeft(w, i)) : 1;
+      const tele = isPickup ? pickupAlpha(w.t[i] ?? 0) : isTelegraphing(w, i) ? telegraphAlpha(telegraphLeft(w, i)) : 1;
       if (v.alpha !== tele) v.alpha = tele;
 
       let s = glowViews[i];
       if (!s) {
-        s = new Sprite({ texture: glowTextureFor(kind), anchor: 0.5, blendMode: 'add' });
+        s = new Sprite({ texture: glowTextureFor(slot), anchor: 0.5, blendMode: 'add' });
         glowSprites.addChild(s);
         glowViews[i] = s;
-        glowKind[i] = kind;
-      } else if (glowKind[i] !== kind) {
-        s.texture = glowTextureFor(kind);
-        glowKind[i] = kind;
+        glowKind[i] = slot;
+      } else if (glowKind[i] !== slot) {
+        s.texture = glowTextureFor(slot);
+        glowKind[i] = slot;
       }
       if (!s.visible) s.visible = true;
       s.tint = tint;
@@ -657,46 +747,72 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     stats.entities = live;
   }
 
-  function drawBullets(pool: BulletPoolLike | null, alpha: number): void {
+  /**
+   * Bullet heads and attached trails by style, plus particle trails for styles 1 and 2.
+   * (shipX, shipY) is the drawn ship position, the centre orbit blades turn around.
+   */
+  function drawBullets(pool: BulletPoolLike | null, alpha: number, shipX: number, shipY: number, dt: number): void {
     if (!pool) {
       stats.bullets = 0;
       return;
     }
     ensureBulletItems(pool.cap);
     const homing = pool.homing;
+    const style = pool.style;
+    const prevX = pool.prevX;
+    const prevY = pool.prevY;
     let live = 0;
     let restyled = false;
     for (let i = 0; i < bulletItems.length; i++) {
       const item = bulletItems[i];
       const tail = trailItems[i];
-      if (!item || !tail) continue;
+      const em = bulletEmitters[i];
+      if (!item || !tail || !em) continue;
       if (i < pool.cap && pool.alive[i] === 1) {
         live++;
-        // Homing bullets: own colour and a longer trail. Static properties, so restyle once
-        // per change and flag the containers for re-upload below.
-        const h = homing !== undefined && homing[i] === 1 ? 1 : 0;
-        if (bulletHomingShown[i] !== h) {
-          bulletHomingShown[i] = h;
-          const tint = h === 1 ? homingTint : bulletTint;
-          item.tint = tint;
-          tail.tint = tint;
-          tail.scaleX = (h === 1 ? HOMING_TRAIL_LEN_U : TRAIL_LEN_U) / TRAIL_TEX_LEN;
+        // Style and homing are static properties: restyle once per change and flag the
+        // containers for re-upload below.
+        const st = style !== undefined ? (style[i] ?? 0) : 0;
+        const h = homing !== undefined && homing[i] === 1;
+        const code = styleCode(st, h);
+        const vis = bulletStyleVisual(st, h);
+        if (bulletCodeShown[i] !== code) {
+          bulletCodeShown[i] = code;
+          styleSlot(i, vis);
           restyled = true;
         }
         const vx = pool.vx[i] ?? 0;
         const vy = pool.vy[i] ?? 0;
-        const x = bulletRenderPos(pool.x[i] ?? 0, vx, alpha, SIM_DT);
-        const y = bulletRenderPos(pool.y[i] ?? 0, vy, alpha, SIM_DT);
+        let x: number;
+        let y: number;
+        if (vis.orient === 'radial' && prevX !== undefined && prevY !== undefined) {
+          // Orbit blades are placed by the sim each step: interpolate, do not extrapolate.
+          x = interp(prevX[i] ?? 0, pool.x[i] ?? 0, alpha);
+          y = interp(prevY[i] ?? 0, pool.y[i] ?? 0, alpha);
+        } else {
+          x = bulletRenderPos(pool.x[i] ?? 0, vx, alpha, SIM_DT);
+          y = bulletRenderPos(pool.y[i] ?? 0, vy, alpha, SIM_DT);
+        }
+        const heading = Math.atan2(vy, vx);
         item.x = x;
         item.y = y;
-        tail.x = x;
-        tail.y = y;
-        tail.rotation = Math.atan2(vy, vx);
+        item.rotation = vis.orient === 'radial' ? Math.atan2(y - shipY, x - shipX) : heading;
+        if (vis.trailLenU > 0) {
+          tail.x = x;
+          tail.y = y;
+          tail.rotation = heading;
+        } else if (tail.x !== PARK) {
+          tail.x = PARK;
+          tail.y = PARK;
+        }
+        if (vis.emitsTrail) emitBulletTrail(em, bulletTrailRate(st), x, y, vx, vy, st, palette[vis.tint], dt);
+        else em.acc = 0;
       } else if (item.x !== PARK) {
         item.x = PARK;
         item.y = PARK;
         tail.x = PARK;
         tail.y = PARK;
+        em.acc = 0;
       }
     }
     if (restyled) {
@@ -711,9 +827,15 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const dt = lastDraw === 0 ? 0 : (now - lastDraw) / 1000;
     lastDraw = now;
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+    const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
     watchSuper(w);
     drawEntities(w, a, now / 1000);
-    drawBullets(explicitBullets ?? bulletsFromWorld(w), a);
+    const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
+    const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
+    // Ship trail: reads the sim velocity, writes only render particles.
+    if (w.alive[0] === 1 && shipActive(w)) emitShipTrail(shipX, shipY, w.vx[0] ?? 0, w.vy[0] ?? 0, fxDt);
+    else resetShipTrail();
+    drawBullets(explicitBullets ?? bulletsFromWorld(w), a, shipX, shipY, fxDt);
     stepEffects(dt);
     stepParticles(dt);
     stats.particles = liveParticleCount();
@@ -773,6 +895,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     offNeon();
     for (const off of offFx) off();
     registerParticleStress(null);
+    disposeParticles();
     for (const t of glowTextures) t?.destroy(true);
     for (const t of bloomTextures) t?.destroy(true);
     app.destroy(true, { children: true });
