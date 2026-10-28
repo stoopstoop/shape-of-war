@@ -26,6 +26,8 @@ import {
   recordAdventureScore,
   recordEndlessScore,
   saveGlowPath,
+  saveSpacePhysics,
+  SPACE_PHYSICS_KEY,
   saveSetting,
   unlockLevel,
 } from '../../src/core/settings';
@@ -44,6 +46,7 @@ const IMPLEMENTED_KEYS: readonly string[] = [
   'sow.scores.adventure',
   'sow.scores.endless',
   'sow.settings.glowPath',
+  'sow.settings.spacePhysics',
   'sow.settings.neon',
   'sow.settings.showFps',
   'sow.settings.volume',
@@ -131,6 +134,7 @@ describe('declared storage keys', () => {
   const declared = [
     ...Object.keys(DEFAULT_SETTINGS).map((k) => `${SETTINGS_PREFIX}${k}`),
     GLOW_PATH_KEY,
+    SPACE_PHYSICS_KEY,
     RUN_SEED_KEY,
     UNLOCKED_KEY,
     ADVENTURE_SCORES_KEY,
@@ -170,6 +174,7 @@ describe('keys written at run time', () => {
     saveSetting('volume', 40, store);
     saveSetting('showFps', true, store);
     saveGlowPath('fallback', store);
+    saveSpacePhysics('medium', store);
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(1, 2500, 1, store);
@@ -205,6 +210,7 @@ describe('keys written at run time', () => {
     saveSetting('volume', 40, store);
     saveSetting('showFps', true, store);
     saveGlowPath('fallback', store);
+    saveSpacePhysics('medium', store);
     loadRunSeed(() => 123456, store);
     unlockLevel(4, store);
     recordAdventureScore(2, 2500, 2, store);

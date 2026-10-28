@@ -28,6 +28,7 @@ import {
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { createEndlessGame, createGame, gameState, stepGame } from './game/game';
+import { setShipSpace } from './game/ship';
 import { installAudio } from './audio/synth';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
@@ -255,7 +256,7 @@ async function boot(): Promise<void> {
   // Forge's setShipSpace(world, level) after both branches merge; src/game/ship.ts is not imported
   // here on purpose. It runs at boot (settingsModel.applyBoot), on every change from the Space
   // physics row, and whenever startLevel builds a new world, so the level reaches every world.
-  const applySpacePhysics = (_level: SpaceLevelSetting): void => {};
+  const applySpacePhysics = (level: SpaceLevelSetting): void => setShipSpace(world, level);
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
