@@ -255,7 +255,7 @@ From `LevelDef.objective`. Exact ranges are in `docs/02-level-generator.md`.
 
 | Kind | Success | Failure | HUD |
 |---|---|---|---|
-| scoreInTime | Score reaches target before time runs out (level ends immediately) | Timer reaches 0 or lives reach 0 | Countdown timer, score / target bar |
+| scoreInTime | Score is at or above target when the timer reaches 0 (the level runs its full time; stars come from the final score) | Timer reaches 0 below target, or lives reach 0 | Countdown timer, score / target bar until target is met |
 | survive | Timer counts down to 0 with lives remaining | Lives reach 0 | Countdown timer |
 | destroy | N enemies killed (Darts and snake heads count 1 each, segments and wells 0; bomb and death clears do not count) | Lives reach 0 | Kills / N bar |
 

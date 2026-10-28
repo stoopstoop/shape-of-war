@@ -33,9 +33,14 @@ export function objectiveStatus(obj: ObjectiveDef, s: ObjectiveSnapshot): Object
     if (out) return 'failure';
     return goalMet(obj, s) ? 'success' : 'running';
   }
+  if (obj.kind === 'scoreInTime') {
+    // Glue (docs/01 section 8): the level runs its full timer; target is the win line at the end.
+    if (out) return 'failure';
+    if (s.elapsedSec < obj.timeLimitSec) return 'running';
+    return goalMet(obj, s) ? 'success' : 'failure';
+  }
   if (goalMet(obj, s)) return 'success';
   if (out) return 'failure';
-  if (obj.kind === 'scoreInTime' && s.elapsedSec >= obj.timeLimitSec) return 'failure';
   return 'running';
 }
 
@@ -54,8 +59,10 @@ export function objectiveProgress(obj: ObjectiveDef, s: ObjectiveSnapshot): Obje
   switch (obj.kind) {
     case 'scoreInTime':
       return {
-        label: `${formatInt(s.score)} / ${formatInt(obj.target)}  ${formatClock(obj.timeLimitSec - s.elapsedSec)}`,
-        fraction: frac(s.score, obj.target),
+        label: s.score >= obj.target
+          ? `Target met  ${formatClock(obj.timeLimitSec - s.elapsedSec)}`
+          : `${formatInt(s.score)} / ${formatInt(obj.target)}  ${formatClock(obj.timeLimitSec - s.elapsedSec)}`,
+        fraction: s.score >= obj.target ? frac(s.elapsedSec, obj.timeLimitSec) : frac(s.score, obj.target),
       };
     case 'survive':
       return { label: `Survive ${formatClock(obj.durationSec - s.elapsedSec)}`, fraction: frac(s.elapsedSec, obj.durationSec) };
