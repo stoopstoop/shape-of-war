@@ -108,17 +108,17 @@ describe('splime', () => {
     expect(Math.abs(closed - want) / want).toBeLessThan(0.05);
   });
 
-  it('drops a Slime every 3.5 s, up to 3 live', () => {
+  it('drops a Slime every 2 s, up to 3 live', () => {
     const { w } = makeGame();
     const id = put(w, splime.def, 500, 200);
     const steps = (sec: number): void => {
       for (let i = 0; i < Math.round(sec * 120); i++) splime.step(w, id, DT);
     };
-    steps(3.45);
+    steps(1.95);
     expect(countKind(w, Kind.Slime)).toBe(0);
     steps(0.1);
     expect(countKind(w, Kind.Slime)).toBe(1);
-    steps(3.5);
+    steps(2);
     expect(countKind(w, Kind.Slime)).toBe(2);
     steps(20);
     expect(countKind(w, Kind.Slime)).toBe(slime.CAP_PER_SPLIME);
@@ -155,20 +155,20 @@ describe('slime', () => {
     expect(steps * DT).toBeCloseTo(8, 1);
   });
 
-  it('a ship overlap sets slowUntil to now plus 2 and slowFactor to 0.8; a second refreshes, never stacks', () => {
+  it('a ship overlap sets slowUntil to now plus 2 and slowFactor to 0.5; a second refreshes, never stacks', () => {
     const { w } = makeGame();
     const a = put(w, slime.def, 30, 0);
     const b = put(w, slime.def, -30, 0);
     w.time = 5;
     slime.step(w, a, DT);
     expect(w.ship.slowUntil).toBe(7);
-    expect(w.ship.slowFactor).toBe(0.8);
+    expect(w.ship.slowFactor).toBe(0.5);
     slime.step(w, b, DT); // a second puddle, same step
-    expect(w.ship.slowFactor).toBe(0.8);
+    expect(w.ship.slowFactor).toBe(0.5);
     w.time = 6.5;
     slime.step(w, a, DT);
     expect(w.ship.slowUntil).toBe(8.5);
-    expect(w.ship.slowFactor).toBe(0.8); // not 0.64
+    expect(w.ship.slowFactor).toBe(0.5); // not 0.25
   });
 
   it('no overlap leaves the ship fields alone', () => {
@@ -179,7 +179,7 @@ describe('slime', () => {
     expect(w.ship.slowFactor).toBe(1);
   });
 
-  it('slows the ship to 0.8 x speed in play, and is not deadly', () => {
+  it('slows the ship to 0.5 x speed in play, and is not deadly', () => {
     const { w } = makeGame();
     put(w, slime.def, 0, 0);
     const input: InputState = idle();
@@ -187,7 +187,7 @@ describe('slime', () => {
     stepGame(w, DT, input); // the overlap sets the slow at the end of this step's world update
     const x0 = w.x[0] ?? 0;
     stepGame(w, DT, input);
-    expect(((w.x[0] ?? 0) - x0) / DT).toBeCloseTo(0.8 * SHIP_SPEED, 1);
+    expect(((w.x[0] ?? 0) - x0) / DT).toBeCloseTo(0.5 * SHIP_SPEED, 1);
     expect(w.ship.active).toBe(true);
   });
 

@@ -52,7 +52,7 @@ Rules:
 7. Splime and Slime (Ryan, 2026-10-28):
    - Splime walks toward the ship at about 0.35 x ship speed and every few seconds drops Slime.
    - Slime is a hazard entity, not an enemy: a static puddle, radius about 40 u, lifetime about 8 s, a few live per Splime. It is not deadly, awards no score and no geoms, is not a kill and does not count toward a destroy objective.
-   - A ship touching Slime is slowed by 20 percent for 2 s. This is a ship speed multiplier channel: the ship state carries `slowUntil` (a `w.time` value) and `slowFactor`. Each contact sets `slowUntil` to now plus 2 s and `slowFactor` to 0.8. The factor is set, never multiplied, so overlapping puddles never stack below 0.8.
+   - A ship touching Slime is slowed by 50 percent for 2 s (Ryan, GC). This is a ship speed multiplier channel: the ship state carries `slowUntil` (a `w.time` value) and `slowFactor`. Each contact sets `slowUntil` to now plus 2 s and `slowFactor` to 0.5. The factor is set, never multiplied, so overlapping puddles never stack below 0.5. Splime drops a Slime every 2 s (Ryan, GC).
    - Player bullets, drone shots and orbit blades pass through Slime. Drones ignore Slime. A bomb clears all live Slime. Wells do not pull it.
    - Forge adds `slowUntil` and `slowFactor` to `ShipState` in wave A (defaults 0 and 1) and `stepShip` reads them. Swarm sets them in wave C. While `slowUntil` is in the past the ship path is bit identical to v1.
 

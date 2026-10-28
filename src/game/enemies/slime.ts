@@ -17,7 +17,7 @@ export const def: EnemyDef = { kind: Kind.Slime, radius: 40, speed: 0, value: 0,
 export const RADIUS = 40;
 export const LIFE_SEC = 8;
 export const SLOW_SEC = 2;
-export const SLOW_FACTOR = 0.8;
+export const SLOW_FACTOR = 0.5;
 export const CAP_PER_SPLIME = 3;
 export const CAP_TOTAL = 12;
 
