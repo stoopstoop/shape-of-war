@@ -45,6 +45,17 @@ export interface KillFx {
   x: number;
   y: number;
   colour: PaletteKey;
+  kind: Kind;
+  id: number;
+}
+
+/** Reused 'fx:hit' payload (damage that did not kill, or a Bulwark shield block). */
+export interface HitFx {
+  x: number;
+  y: number;
+  kind: Kind;
+  id: number;
+  blocked: boolean;
 }
 
 export interface PointFx {
@@ -154,6 +165,7 @@ export interface GameState {
   scoring: ScoringPort;
   vibrate: (ms: number) => void;
   killFx: KillFx;
+  hitFx: HitFx;
   pointFx: PointFx;
   hudTimer: number;
   hud: HudPayload;
@@ -279,7 +291,8 @@ function createState(w: World): GameState {
     dronePhase: 0,
     scoring: defaultScoring,
     vibrate: defaultVibrate,
-    killFx: { x: 0, y: 0, colour: 'white' },
+    killFx: { x: 0, y: 0, colour: 'white', kind: Kind.None, id: 0 },
+    hitFx: { x: 0, y: 0, kind: Kind.None, id: 0, blocked: false },
     pointFx: { x: 0, y: 0 },
     hudTimer: 0,
     hud: { score: 0, multiplier: 1, lives: 0, bombs: 0, superCharge: 0 },

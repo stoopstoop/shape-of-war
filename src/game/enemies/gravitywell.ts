@@ -13,7 +13,7 @@
 // to the ship pull.
 import { bus } from '../../core/events';
 import { BULLET_RADIUS, killBullet, STYLE_ORBIT, STYLE_SPREAD, styleRadius } from '../bullets';
-import { killEnemy } from '../combat';
+import { emitHit, emitKill, killEnemy } from '../combat';
 import { killShip } from '../player';
 import { removeEntity } from '../remove';
 import { gs, isHostile, MAX_WELLS, spawnFromDef } from '../state';
@@ -118,10 +118,7 @@ export function explode(w: World, well: number): void {
     const dy = (w.y[0] ?? 0) - y;
     if (dx * dx + dy * dy <= r2) killShip(w);
   }
-  g.killFx.x = x;
-  g.killFx.y = y;
-  g.killFx.colour = def.colour;
-  bus.emit('fx:kill', g.killFx);
+  emitKill(g, x, y, def.colour, Kind.GravityWell, well);
   bus.emit('sfx', 'explode');
 }
 
@@ -176,6 +173,8 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
     const d = Math.sqrt(d2);
     // Any bullet touching the core stops here, pierce included.
     if (d < (w.radius[well] ?? 0) + (style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style))) {
+      const bx = p.x[b] ?? 0;
+      const by = p.y[b] ?? 0;
       killBullet(p, b);
       const hp = (w.hp[well] ?? 0) - 1;
       w.hp[well] = hp;
@@ -183,6 +182,7 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
         killEnemy(w, well, true); // shot down: 250 x multiplier, 5 geoms
         return;
       }
+      emitHit(g, bx, by, Kind.GravityWell, well, false);
       continue;
     }
     if (d < 1e-6) continue;

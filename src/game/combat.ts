@@ -13,13 +13,35 @@ import { collectGeom, def as geomDef, PICKUP_RADIUS, spawnGeoms } from './geoms'
 import { onScoringKill } from './pickup';
 import { killShip } from './player';
 import { removeEntity } from './remove';
-import { gs, isDroppedHazard, isHostile, isV2Enemy, SNAKE_SEGMENTS, SNAKE_SLOTS } from './state';
+import { gs, isDroppedHazard, isHostile, isV2Enemy, SNAKE_SEGMENTS, SNAKE_SLOTS, type GameState, type KillFx } from './state';
 import { SHIP_RADIUS } from './ship';
 import { moveTo } from './steer';
 import { BLADE_COOLDOWN, ORBIT_BLADES, WEAPONS, weaponState } from './weapons';
 import { Kind, type World } from './world';
 
 const hits = new Int32Array(64);
+
+/** Fill the reused kill payload and emit 'fx:kill'. kind and id name the entity that died. */
+export function emitKill(g: GameState, x: number, y: number, colour: KillFx['colour'], kind: Kind, id: number): void {
+  const f = g.killFx;
+  f.x = x;
+  f.y = y;
+  f.colour = colour;
+  f.kind = kind;
+  f.id = id;
+  bus.emit('fx:kill', f);
+}
+
+/** Fill the reused hit payload and emit 'fx:hit' (damage that did not kill, or a shield block). */
+export function emitHit(g: GameState, x: number, y: number, kind: Kind, id: number, blocked: boolean): void {
+  const f = g.hitFx;
+  f.x = x;
+  f.y = y;
+  f.kind = kind;
+  f.id = id;
+  f.blocked = blocked;
+  bus.emit('fx:hit', f);
+}
 
 /** Kills that count for the destroy objective (segments, wells, Mines and Slime do not). */
 export function countsForDestroy(k: number): boolean {
@@ -44,10 +66,7 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   if (isDroppedHazard(k)) {
     // A shot Mine pops: a kill flash, but no score, no geoms, no kill count, no pickup progress.
     removeEntity(w, id);
-    g.killFx.x = x;
-    g.killFx.y = y;
-    g.killFx.colour = d.colour;
-    bus.emit('fx:kill', g.killFx);
+    emitKill(g, x, y, d.colour, k, id);
     bus.emit('sfx', 'explode');
     return;
   }
@@ -55,10 +74,7 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   if (countsForDestroy(k)) g.kills++;
   if (k === Kind.SnakeHead) segmentBurst(w, id);
   removeEntity(w, id);
-  g.killFx.x = x;
-  g.killFx.y = y;
-  g.killFx.colour = d.colour;
-  bus.emit('fx:kill', g.killFx);
+  emitKill(g, x, y, d.colour, k, id);
   bus.emit('sfx', 'explode');
   spawnGeoms(w, x, y, d.geoms);
   onScoringKill(w, x, y);
@@ -73,17 +89,22 @@ export function segmentBurst(w: World, head: number): number {
   for (let s = 0; s < SNAKE_SEGMENTS; s++) {
     const sid = g.snakeSegs[slot * SNAKE_SEGMENTS + s] ?? -1;
     if (sid <= 0 || w.alive[sid] !== 1 || w.kind[sid] !== Kind.SnakeBody || w.a[sid] !== head) continue;
-    g.killFx.x = w.x[sid] ?? 0;
-    g.killFx.y = w.y[sid] ?? 0;
-    g.killFx.colour = 'cyan';
-    bus.emit('fx:kill', g.killFx);
+    emitKill(g, w.x[sid] ?? 0, w.y[sid] ?? 0, 'cyan', Kind.SnakeBody, sid);
     n++;
   }
   return n;
 }
 
-/** Apply n damage. Returns true if the entity died. Snake segments are invulnerable. */
+/**
+ * Apply n damage. Returns true if the entity died. Snake segments are invulnerable. A hit that
+ * leaves the entity alive emits 'fx:hit' at the target centre (blocked false).
+ */
 export function damage(w: World, id: number, n: number): boolean {
+  return hurt(w, id, n, w.x[id] ?? 0, w.y[id] ?? 0);
+}
+
+/** damage() with an explicit impact point for the 'fx:hit' payload (the bullet or blade position). */
+function hurt(w: World, id: number, n: number, hx: number, hy: number): boolean {
   if (w.alive[id] !== 1) return false;
   const k = w.kind[id] ?? 0;
   if (k === Kind.SnakeBody || !isHostile(k)) return false;
@@ -93,6 +114,7 @@ export function damage(w: World, id: number, n: number): boolean {
     killEnemy(w, id, true);
     return true;
   }
+  emitHit(gs(w), hx, hy, k, id, false);
   return false;
 }
 
@@ -121,7 +143,9 @@ export function bulletHits(w: World): void {
     const style = p.style[b] ?? STYLE_SPREAD;
     if (style === STYLE_ORBIT) continue;
     const r = style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style);
-    const n = queryCircleInto(w.grid, w, p.x[b] ?? 0, p.y[b] ?? 0, r, hits);
+    const bx = p.x[b] ?? 0;
+    const by = p.y[b] ?? 0;
+    const n = queryCircleInto(w.grid, w, bx, by, r, hits);
     for (let i = 0; i < n; i++) {
       const id = hits[i] ?? 0;
       if (id === 0 || !isTargetable(w, id)) continue;
@@ -130,7 +154,8 @@ export function bulletHits(w: World): void {
       if (k === Kind.Bulwark) {
         // A pierce bullet already through this Bulwark ignores it; otherwise the front arc absorbs.
         if (style === STYLE_PIERCE && hasHit(p, b, id)) continue;
-        if (shielded(w, id, p.x[b] ?? 0, p.y[b] ?? 0)) {
+        if (shielded(w, id, bx, by)) {
+          emitHit(gs(w), bx, by, Kind.Bulwark, id, true);
           killBullet(p, b);
           break;
         }
@@ -138,12 +163,12 @@ export function bulletHits(w: World): void {
       if (style === STYLE_PIERCE && k !== Kind.SnakeBody) {
         if (hasHit(p, b, id)) continue;
         const stopped = recordHit(p, b, id);
-        damage(w, id, 1);
+        hurt(w, id, 1, bx, by);
         if (stopped) break;
         continue;
       }
       killBullet(p, b);
-      if (k !== Kind.SnakeBody) damage(w, id, 1);
+      if (k !== Kind.SnakeBody) hurt(w, id, 1, bx, by);
       break;
     }
   }
@@ -164,13 +189,16 @@ export function orbitHits(w: World, dt: number): void {
     if (cool > 1e-9) continue;
     const b = s.blades[i] ?? -1;
     if (b < 0 || p.alive[b] !== 1 || p.style[b] !== STYLE_ORBIT) continue;
-    const n = queryCircleInto(w.grid, w, p.x[b] ?? 0, p.y[b] ?? 0, r, hits);
+    const bx = p.x[b] ?? 0;
+    const by = p.y[b] ?? 0;
+    const n = queryCircleInto(w.grid, w, bx, by, r, hits);
     for (let j = 0; j < n; j++) {
       const id = hits[j] ?? 0;
       if (id === 0 || !isTargetable(w, id) || w.kind[id] === Kind.SnakeBody) continue;
       p.lastHit[b] = id;
       // A blade on a Bulwark's front arc is absorbed: it rests without dealing damage.
-      if (!shielded(w, id, p.x[b] ?? 0, p.y[b] ?? 0)) damage(w, id, 1);
+      if (shielded(w, id, bx, by)) emitHit(gs(w), bx, by, Kind.Bulwark, id, true);
+      else hurt(w, id, 1, bx, by);
       s.bladeCool[i] = BLADE_COOLDOWN;
       break;
     }
