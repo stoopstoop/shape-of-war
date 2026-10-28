@@ -5,13 +5,13 @@ import type { InputState } from '../input/types';
 import { bus } from '../core/events';
 import { createThrustOut, stepThrust, type SpaceLevel } from '../core/physics';
 import { confine, createConfineResult } from './arena';
-import { fireSpread } from './bullets';
+import { fireWeapon, weaponRate } from './weapons';
 import type { World } from './world';
 
 export const SHIP_ID = 0;
 export const SHIP_RADIUS = 10;
 export const SHIP_SPEED = 420;
-export const FIRE_RATE = 12; // volleys per second
+export const FIRE_RATE = 12; // spread volleys per second; other weapons in weapons.ts
 export const INVULN_SEC = 2.0;
 
 export interface ShipState {
@@ -138,12 +138,13 @@ export function stepShip(w: World, dt: number, input: InputState): void {
     w.rot[SHIP_ID] = Math.atan2(my, mx);
   }
 
-  const period = 1 / (FIRE_RATE * (s.fireRateScale > 0 ? s.fireRateScale : 1));
+  // weaponRate is FIRE_RATE for spread, so the v1 period is unchanged. Turbo scales every weapon.
+  const period = 1 / (weaponRate(w) * (s.fireRateScale > 0 ? s.fireRateScale : 1));
   if (aiming) {
     // Fire first, then age the cooldown, so a fresh press shoots on this step and the rate is exact.
     let volleys = 0;
     while (s.fireCooldown <= 1e-9 && volleys < 4) {
-      fireSpread(w, res.x, res.y, s.aimAngle);
+      fireWeapon(w, res.x, res.y, s.aimAngle);
       s.fireCooldown += period;
       volleys++;
     }

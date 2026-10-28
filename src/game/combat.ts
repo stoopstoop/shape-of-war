@@ -3,15 +3,17 @@
 // Scored kills call the scoring port's awardKill and emit 'fx:kill'. Scratch buffers are module
 // level, so nothing here allocates per step.
 import { bus } from '../core/events';
-import { BULLET_RADIUS, killBullet } from './bullets';
+import { BULLET_RADIUS, hasHit, killBullet, recordHit, STYLE_ORBIT, STYLE_PIERCE, STYLE_SPREAD, styleRadius } from './bullets';
 import { queryCircleInto } from './collide';
 import { defOf } from './defs';
 import { collectGeom, def as geomDef, PICKUP_RADIUS, spawnGeoms } from './geoms';
+import { onScoringKill } from './pickup';
 import { killShip } from './player';
 import { removeEntity } from './remove';
 import { gs, isHostile, SNAKE_SEGMENTS, SNAKE_SLOTS } from './state';
 import { SHIP_RADIUS } from './ship';
 import { moveTo } from './steer';
+import { BLADE_COOLDOWN, ORBIT_BLADES, WEAPONS, weaponState } from './weapons';
 import { Kind, type World } from './world';
 
 const hits = new Int32Array(64);
@@ -46,6 +48,7 @@ export function killEnemy(w: World, id: number, scored: boolean): void {
   bus.emit('fx:kill', g.killFx);
   bus.emit('sfx', 'explode');
   spawnGeoms(w, x, y, d.geoms);
+  onScoringKill(w, x, y);
 }
 
 /** Snake death burst (docs/01 section 6.4): one 'fx:kill' per live segment, no score, no geoms. */
@@ -85,19 +88,60 @@ export function isTargetable(w: World, id: number): boolean {
   return w.alive[id] === 1 && isHostile(w.kind[id] ?? 0) && (gs(w).tele[id] ?? 0) <= 0;
 }
 
-/** Bullet vs enemy. No pierce: each bullet hits at most one entity. Wells are handled in gravitywell.ts. */
+/**
+ * Bullet vs enemy. Spread and rapid bullets hit one entity and stop. Pierce bullets hit up to 4
+ * different enemies and are stopped by a snake segment. Orbit blades are handled in orbitHits.
+ * Wells are handled in gravitywell.ts.
+ */
 export function bulletHits(w: World): void {
   const p = w.bullets;
   for (let b = 0; b < p.cap; b++) {
     if (p.alive[b] !== 1) continue;
-    const n = queryCircleInto(w.grid, w, p.x[b] ?? 0, p.y[b] ?? 0, BULLET_RADIUS, hits);
+    const style = p.style[b] ?? STYLE_SPREAD;
+    if (style === STYLE_ORBIT) continue;
+    const r = style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style);
+    const n = queryCircleInto(w.grid, w, p.x[b] ?? 0, p.y[b] ?? 0, r, hits);
     for (let i = 0; i < n; i++) {
       const id = hits[i] ?? 0;
       if (id === 0 || !isTargetable(w, id)) continue;
       const k = w.kind[id] ?? 0;
       if (k === Kind.GravityWell) continue;
+      if (style === STYLE_PIERCE && k !== Kind.SnakeBody) {
+        if (hasHit(p, b, id)) continue;
+        const stopped = recordHit(p, b, id);
+        damage(w, id, 1);
+        if (stopped) break;
+        continue;
+      }
       killBullet(p, b);
       if (k !== Kind.SnakeBody) damage(w, id, 1);
+      break;
+    }
+  }
+}
+
+/**
+ * Orbit blades vs enemy. A blade damages the first targetable enemy it touches (wells included,
+ * snake segments ignored) by 1, then rests BLADE_COOLDOWN seconds. Blades are never consumed.
+ */
+export function orbitHits(w: World, dt: number): void {
+  const s = weaponState(w);
+  if (s.kind !== 'orbit') return;
+  const p = w.bullets;
+  const r = WEAPONS.orbit.radius;
+  for (let i = 0; i < ORBIT_BLADES; i++) {
+    const cool = (s.bladeCool[i] ?? 0) - dt;
+    s.bladeCool[i] = cool > 0 ? cool : 0;
+    if (cool > 1e-9) continue;
+    const b = s.blades[i] ?? -1;
+    if (b < 0 || p.alive[b] !== 1 || p.style[b] !== STYLE_ORBIT) continue;
+    const n = queryCircleInto(w.grid, w, p.x[b] ?? 0, p.y[b] ?? 0, r, hits);
+    for (let j = 0; j < n; j++) {
+      const id = hits[j] ?? 0;
+      if (id === 0 || !isTargetable(w, id) || w.kind[id] === Kind.SnakeBody) continue;
+      p.lastHit[b] = id;
+      damage(w, id, 1);
+      s.bladeCool[i] = BLADE_COOLDOWN;
       break;
     }
   }

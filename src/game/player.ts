@@ -6,6 +6,7 @@ import { clearGeoms } from './geoms';
 import { removeEntity } from './remove';
 import { gs, portResetMultiplier } from './state';
 import { deactivateShip, respawnShip } from './ship';
+import { resetWeapon } from './weapons';
 import { Kind, type World } from './world';
 import type { InputState } from '../input/types';
 
@@ -14,8 +15,9 @@ export const BOMB_COOLDOWN = 1.0;
 export const DEATH_VIBRATE_MS = 60;
 
 /**
- * Ship death: lives minus 1, multiplier reset, arena clear without score (wells and spawners
- * stay), geoms removed, drone hidden, 1.5 s respawn delay, 'fx:death' and one vibrate.
+ * Ship death: lives minus 1, multiplier reset, arena clear without score (wells, spawners and a
+ * weapon pickup stay), geoms removed, weapon back to spread, drone hidden, 1.5 s respawn delay,
+ * 'fx:death' and one vibrate.
  * No op while gs(w).invulnerable is set (stress scene), so every kill path is covered.
  */
 export function killShip(w: World): void {
@@ -28,10 +30,11 @@ export function killShip(w: World): void {
   for (let id = 1; id < w.cap; id++) {
     if (w.alive[id] !== 1) continue;
     const k = w.kind[id] ?? 0;
-    if (k === Kind.GravityWell || k === Kind.Spawner || k === Kind.Geom) continue;
+    if (k === Kind.GravityWell || k === Kind.Spawner || k === Kind.Geom || k === Kind.WeaponPickup) continue;
     removeEntity(w, id); // enemies, telegraphs, segments and the drone
   }
   clearGeoms(w);
+  resetWeapon(w); // docs/11 SPEC 3.5 rule 4: death returns to spread
   deactivateShip(w);
   g.shipPullX = 0;
   g.shipPullY = 0;

@@ -12,7 +12,7 @@
 // PULL_BULLET x falloff as a plain acceleration. Bullet and enemy strengths keep their v1.0 ratios
 // to the ship pull.
 import { bus } from '../../core/events';
-import { BULLET_RADIUS, killBullet } from '../bullets';
+import { BULLET_RADIUS, killBullet, STYLE_ORBIT, STYLE_SPREAD, styleRadius } from '../bullets';
 import { killEnemy } from '../combat';
 import { killShip } from '../player';
 import { removeEntity } from '../remove';
@@ -152,12 +152,16 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
   const p = w.bullets;
   for (let b = 0; b < p.cap; b++) {
     if (p.alive[b] !== 1) continue;
+    // Orbit blades are placed from the ship: no pull, and they meet wells in orbitHits instead.
+    const style = p.style[b] ?? STYLE_SPREAD;
+    if (style === STYLE_ORBIT) continue;
     const dx = wx - (p.x[b] ?? 0);
     const dy = wy - (p.y[b] ?? 0);
     const d2 = dx * dx + dy * dy;
     if (d2 >= pr2) continue;
     const d = Math.sqrt(d2);
-    if (d < (w.radius[well] ?? 0) + BULLET_RADIUS) {
+    // Any bullet touching the core stops here, pierce included.
+    if (d < (w.radius[well] ?? 0) + (style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style))) {
       killBullet(p, b);
       const hp = (w.hp[well] ?? 0) - 1;
       w.hp[well] = hp;

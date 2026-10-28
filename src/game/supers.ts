@@ -5,9 +5,10 @@
 //           most 540 deg/s. Bullets fired in the window keep homing until they expire.
 //   Detonate: the drone explodes, killing every enemy within 260 u (scored, geoms dropped,
 //           wells and snake segments excluded); the drone is absent for 3 s.
-//   Turbo: fire rate doubled (24 volleys/s) for 5 s.
+//   Turbo: fire rate doubled (24 volleys/s for spread; every weapon doubles) for 5 s.
 import { bus } from '../core/events';
 import type { SuperKind } from '../levelgen/leveldef';
+import { STYLE_ORBIT } from './bullets';
 import { isTargetable, killEnemy } from './combat';
 import { SUPER_CHARGE_MAX } from './geoms';
 import { removeEntity } from './remove';
@@ -101,10 +102,10 @@ export function detonate(w: World): number {
   return n;
 }
 
-/** Flag every live player bullet as homing. */
+/** Flag every live player bullet as homing. Orbit blades follow the ship and never home. */
 function markHoming(w: World): void {
   const p = w.bullets;
-  for (let b = 0; b < p.cap; b++) if (p.alive[b] === 1) p.homing[b] = 1;
+  for (let b = 0; b < p.cap; b++) if (p.alive[b] === 1 && p.style[b] !== STYLE_ORBIT) p.homing[b] = 1;
 }
 
 /** Collect ids bullets may home on: targetable, not a snake segment, not a well. */

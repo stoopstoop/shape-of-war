@@ -11,6 +11,7 @@ import type { EnemyDef } from './enemies/types';
 import * as wanderer from './enemies/wanderer';
 import * as weaver from './enemies/weaver';
 import * as geoms from './geoms';
+import * as pickup from './pickup';
 import { gs } from './state';
 import { Kind, registerBehaviour, type EntityStep, type World } from './world';
 
@@ -95,6 +96,7 @@ export function registerSwarmBehaviours(): void {
   registerBehaviour(Kind.GravityWell, withTelegraph(gravitywell.step));
   registerBehaviour(Kind.Spawner, withTelegraph(spawnerEnemy.step));
   registerBehaviour(Kind.Geom, geoms.step);
+  registerBehaviour(Kind.WeaponPickup, pickup.step);
   // The drone is moved by stepDrone after stepWorld; a no op keeps the default drift off it.
   registerBehaviour(Kind.Drone, noop);
 }
