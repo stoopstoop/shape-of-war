@@ -1,6 +1,6 @@
 // Pure helpers for the QA suite. Not a test file (vitest only collects *.test.ts).
 import { levelHash } from '../../src/levelgen/generator';
-import { ENEMY_KINDS } from '../../src/levelgen/leveldef';
+import { ENEMY_KINDS, V2_ENEMY_KINDS } from '../../src/levelgen/leveldef';
 import type {
   ArenaDef,
   Band,
@@ -67,6 +67,11 @@ export function spawnsByKind(def: Readonly<LevelDef>): Partial<Record<EnemyKind,
   return out;
 }
 
+/** Pure: every spawn entry in spawnsByKind, v1 and V2 kinds alike. */
+export function spawnTotal(byKind: Readonly<Partial<Record<EnemyKind, number>>>): number {
+  return [...ENEMY_KINDS, ...V2_ENEMY_KINDS].reduce((n, k) => n + (byKind[k] ?? 0), 0);
+}
+
 /**
  * Pure: a small, reviewable description of a LevelDef. Everything except the wave list is copied
  * whole; the wave list is reduced to counts plus the first and last wave. The hash covers every byte
@@ -111,7 +116,7 @@ export function summariseLevel(def: Readonly<LevelDef>): LevelSummary {
       waveCount: waves.waves.length,
       loopFromIndex: waves.loopFromIndex,
       loopPeriodSec: waves.loopPeriodSec,
-      spawnTotal: ENEMY_KINDS.reduce((n, k) => n + (byKind[k] ?? 0), 0),
+      spawnTotal: spawnTotal(byKind),
       spawnsByKind: byKind,
       firstWave: first ?? null,
       lastWave: last ?? null,

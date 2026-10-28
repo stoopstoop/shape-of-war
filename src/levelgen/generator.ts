@@ -26,6 +26,7 @@ import {
   deepFreeze,
   effectiveIndexOf,
   expandSpawns,
+  forEachSpawn,
   round1,
   round2,
   segmentSeed,
@@ -636,21 +637,43 @@ export function generateHazards(r: Rng, arena: ArenaDef, b: BandParams, cfg: Gen
 
 /** Returns par and, for scoreInTime, the target. Pure arithmetic on the expanded schedule. */
 export function computePar(waves: WaveSchedule, objective: ObjectiveDef): { par: number; target: number } {
-  const all = expandSpawns(waves, MAX_EST_SEC);
-  let spawned: { t: number; kind: EnemyKind }[];
+  // ENEMY_BASE and ENEMY_GEOMS are integers, so the sums are exact in any order: only the destroy
+  // cut (the first need spawns by time) needs the sorted list.
+  let n = 0;
+  let baseTotal = 0;
+  let geomTotal = 0;
+  const add = (kind: EnemyKind): void => {
+    n++;
+    baseTotal += ENEMY_BASE[kind];
+    geomTotal += ENEMY_GEOMS[kind];
+  };
   if (objective.kind === 'destroy') {
     const need = Math.ceil(objective.count / KILL_RATE);
-    spawned = all.slice(0, Math.min(need, all.length));
+    let total = 0;
+    forEachSpawn(waves, MAX_EST_SEC, () => {
+      total++;
+    });
+    if (need >= total) {
+      // Every spawn is in the cut, so no sort is needed.
+      forEachSpawn(waves, MAX_EST_SEC, (_t, kind) => add(kind));
+    } else {
+      const all = expandSpawns(waves, MAX_EST_SEC);
+      for (let i = 0; i < need; i++) {
+        const s = all[i];
+        if (s !== undefined) add(s.kind);
+      }
+    }
   } else {
     const T = objective.kind === 'survive' ? objective.durationSec : objective.timeLimitSec;
-    spawned = all.filter((s) => s.t < T);
+    forEachSpawn(waves, MAX_EST_SEC, (t, kind) => {
+      if (t < T) add(kind);
+    });
   }
   let par = PAR_MIN;
-  if (spawned.length > 0) {
-    const baseTotal = spawned.reduce((a, s) => a + ENEMY_BASE[s.kind], 0);
-    const gAvg = spawned.reduce((a, s) => a + ENEMY_GEOMS[s.kind], 0) / spawned.length;
-    const K = objective.kind === 'destroy' ? objective.count : KILL_RATE * spawned.length;
-    const baseSum = objective.kind === 'destroy' ? (baseTotal * objective.count) / spawned.length : KILL_RATE * baseTotal;
+  if (n > 0) {
+    const gAvg = geomTotal / n;
+    const K = objective.kind === 'destroy' ? objective.count : KILL_RATE * n;
+    const baseSum = objective.kind === 'destroy' ? (baseTotal * objective.count) / n : KILL_RATE * baseTotal;
     const mAvg = 1 + GEOM_RATE_PER_KILL * gAvg * K;
     par = Math.max(PAR_MIN, Math.round((baseSum * mAvg * PAR_SCALE) / PAR_STEP) * PAR_STEP);
   }
