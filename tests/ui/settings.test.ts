@@ -1,15 +1,35 @@
-import { describe, expect, it } from 'vitest';
-import { GLOW_PATH_KEY, loadGlowPath, loadSettings, parseGlowPath, type StorageLike } from '../../src/core/settings';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  GLOW_PATH_KEY,
+  loadGlowPath,
+  loadSettings,
+  loadSpacePhysics,
+  parseGlowPath,
+  resetProgress,
+  SPACE_LEVELS,
+  SPACE_PHYSICS_KEY,
+  type StorageLike,
+} from '../../src/core/settings';
+import { MIN_HIT_PX, UI_CSS } from '../../src/ui/dom';
+import { initialFlow, reduceFlow, type FlowAction, type FlowState } from '../../src/ui/flow';
+import { createMenuScreen } from '../../src/ui/menu';
+import { createPauseScreen } from '../../src/ui/pause';
 import {
   confirmTap,
   createSettingsModel,
+  createSettingsScreen,
   fpsLabel,
   glowLabel,
   registerTap,
   seedHashLine,
+  SPACE_ROW_LABEL,
+  spaceButtonStates,
+  spaceLabel,
   STRESS_LABEL,
+  type SettingsActions,
   type SettingsEffects,
 } from '../../src/ui/settings';
+import { asParent, buttonsLabelled, groupButtons, installFakeDocument } from './fakeDom';
 
 function memory(init: Record<string, string> = {}): StorageLike & { data: Map<string, string> } {
   const data = new Map(Object.entries(init));
@@ -38,18 +58,19 @@ function fakeFx(): SettingsEffects & { calls: string[]; neon: number[]; frames: 
     setGlowPath: (p) => calls.push(`glow:${p}`),
     applyNeon: (n) => neon.push(n),
     setVolume: (v) => calls.push(`vol:${v}`),
+    setSpacePhysics: (level) => calls.push(`space:${level}`),
     requestFrame: (cb) => frames.push(cb),
   };
 }
 
 describe('settings screen model', () => {
-  it('defaults to neon 70, volume 70, fps off and bloom, and applies them at boot', () => {
+  it('defaults to neon 70, volume 70, fps off, bloom and space physics off, and applies them at boot', () => {
     const fx = fakeFx();
     const m = createSettingsModel(fx, memory());
-    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom' });
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off' });
     m.applyBoot();
     expect(fx.neon).toEqual([70]);
-    expect(fx.calls).toEqual(['vol:70', 'fps:false', 'glow:bloom']);
+    expect(fx.calls).toEqual(['vol:70', 'fps:false', 'glow:bloom', 'space:off']);
   });
 
   it('neon drag applies at most once per frame, latest value wins, nothing saved until commit', () => {
@@ -164,7 +185,7 @@ describe('settings screen model', () => {
       },
     };
     const m = createSettingsModel(fakeFx(), throwing);
-    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom' });
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off' });
     expect(() => m.neonCommit(30)).not.toThrow();
     expect(() => m.toggleGlowPath()).not.toThrow();
     expect(m.state.glowPath).toBe('fallback');
@@ -223,5 +244,300 @@ describe('play seed line', () => {
     expect(seedHashLine('abc', hashOf)).toBe('Not a valid seed');
     expect(seedHashLine('', hashOf)).toMatch(/^Type a run seed/);
     expect(seedHashLine('7', () => null)).toBe('Seed 7');
+  });
+});
+
+// Space physics row (v2 wave A). The screen tests run on the small fake DOM in ./fakeDom.
+
+describe('space physics: model', () => {
+  it('starts at off when nothing is stored, and the boot push carries it', () => {
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, memory());
+    expect(m.state.spacePhysics).toBe('off');
+    m.applyBoot();
+    expect(fx.calls.filter((c) => c.startsWith('space:'))).toEqual(['space:off']);
+  });
+
+  it('a stored level is shown and pushed through the port at boot', () => {
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, memory({ [SPACE_PHYSICS_KEY]: 'medium' }));
+    expect(m.state.spacePhysics).toBe('medium');
+    m.applyBoot();
+    expect(fx.calls.filter((c) => c.startsWith('space:'))).toEqual(['space:medium']);
+  });
+
+  it('a tap saves the level and calls the effect exactly once', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setSpacePhysics('high');
+    expect(fx.calls).toEqual(['space:high']);
+    expect(store.data.get(SPACE_PHYSICS_KEY)).toBe('high');
+    expect(m.state.spacePhysics).toBe('high');
+    expect(createSettingsModel(fakeFx(), store).state.spacePhysics).toBe('high');
+  });
+
+  it('tapping the level already chosen saves again but does not call the effect again', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setSpacePhysics('low');
+    store.data.delete(SPACE_PHYSICS_KEY); // pretend the first write was lost
+    m.setSpacePhysics('low');
+    expect(fx.calls).toEqual(['space:low']);
+    expect(store.data.get(SPACE_PHYSICS_KEY)).toBe('low');
+  });
+
+  it('a run of taps reaches the effect in order and the last one survives a restart', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    for (const level of ['low', 'medium', 'high', 'off', 'medium'] as const) m.setSpacePhysics(level);
+    expect(fx.calls).toEqual(['space:low', 'space:medium', 'space:high', 'space:off', 'space:medium']);
+    expect(loadSpacePhysics(store)).toBe('medium');
+  });
+
+  it('an invalid stored value falls back to off', () => {
+    for (const bad of ['', 'Medium', 'HIGH', '2', 'true', 'low ']) {
+      const m = createSettingsModel(fakeFx(), memory({ [SPACE_PHYSICS_KEY]: bad }));
+      expect(m.state.spacePhysics, JSON.stringify(bad)).toBe('off');
+    }
+  });
+
+  it('a storage that throws still changes the state and still calls the effect', () => {
+    const broken: StorageLike = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    };
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, broken);
+    expect(m.state.spacePhysics).toBe('off');
+    expect(() => m.setSpacePhysics('high')).not.toThrow();
+    expect(m.state.spacePhysics).toBe('high');
+    expect(fx.calls).toEqual(['space:high']);
+  });
+
+  it('does not move or write any other setting', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setSpacePhysics('medium');
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'medium' });
+    expect([...store.data.keys()]).toEqual([SPACE_PHYSICS_KEY]);
+    expect(fx.neon).toEqual([]);
+  });
+
+  it('reset progress does not reset it', () => {
+    const store = memory();
+    createSettingsModel(fakeFx(), store).setSpacePhysics('high');
+    resetProgress(store);
+    expect(createSettingsModel(fakeFx(), store).state.spacePhysics).toBe('high');
+  });
+});
+
+describe('space physics: row helpers', () => {
+  it('labels are Off, Low, Medium and High under the row title Space physics', () => {
+    expect(SPACE_LEVELS.map(spaceLabel)).toEqual(['Off', 'Low', 'Medium', 'High']);
+    expect(SPACE_ROW_LABEL).toBe('Space physics');
+  });
+
+  it('exactly one button is selected, the current level, in button order', () => {
+    for (const current of SPACE_LEVELS) {
+      const states = spaceButtonStates(current);
+      expect(states.map((s) => s.level)).toEqual([...SPACE_LEVELS]);
+      expect(states.filter((s) => s.selected).map((s) => s.level)).toEqual([current]);
+      expect(states.map((s) => s.label)).toEqual(['Off', 'Low', 'Medium', 'High']);
+    }
+  });
+});
+
+describe('space physics: touch target size', () => {
+  const rule = (selector: string): string => {
+    const escaped = selector.replace(/[.\\[\]()*+?^$|]/g, '\\$&');
+    return new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(UI_CSS)?.[1] ?? '';
+  };
+
+  it('the shared minimum hit height is 44 CSS px or more', () => {
+    expect(MIN_HIT_PX).toBeGreaterThanOrEqual(44);
+  });
+
+  it('the Space physics buttons and every panel button carry a 44px min-height', () => {
+    expect(rule('.sow-choice .sow-btn')).toContain('min-height: 44px');
+    expect(rule('.sow-panel .sow-btn')).toContain('min-height: 44px');
+  });
+
+  it('the selected button has its own style', () => {
+    expect(rule('.sow-btn.sow-on')).not.toBe('');
+  });
+});
+
+describe('space physics: settings screen', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const actions = (): SettingsActions => ({
+    back: () => undefined,
+    playSeed: () => undefined,
+    seedHash: () => null,
+    resetProgress: () => undefined,
+    stress: () => undefined,
+    currentNeon: () => 70,
+    buildId: 'test',
+  });
+
+  function open(store = memory()) {
+    const root = installFakeDocument();
+    const fx = fakeFx();
+    const model = createSettingsModel(fx, store);
+    const screen = createSettingsScreen(asParent(root), model, actions());
+    screen.show();
+    return { root, fx, model, store, buttons: groupButtons(root, SPACE_ROW_LABEL) };
+  }
+
+  const lit = (buttons: readonly { classList: { contains(c: string): boolean } }[]): boolean[] =>
+    buttons.map((b) => b.classList.contains('sow-on'));
+
+  it('shows Off, Low, Medium, High in that order with Off highlighted by default', () => {
+    const { buttons } = open();
+    expect(buttons.map((b) => b.textContent)).toEqual(['Off', 'Low', 'Medium', 'High']);
+    expect(lit(buttons)).toEqual([true, false, false, false]);
+    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false', 'false']);
+  });
+
+  it('highlights the stored level the first time the screen opens', () => {
+    const { buttons } = open(memory({ [SPACE_PHYSICS_KEY]: 'high' }));
+    expect(lit(buttons)).toEqual([false, false, false, true]);
+  });
+
+  it('a tap on Medium saves it, calls the effect once and moves the highlight', () => {
+    const { buttons, fx, store, model } = open();
+    buttons[2]?.tap();
+    expect(fx.calls).toEqual(['space:medium']);
+    expect(store.data.get(SPACE_PHYSICS_KEY)).toBe('medium');
+    expect(model.state.spacePhysics).toBe('medium');
+    expect(lit(buttons)).toEqual([false, false, true, false]);
+    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true', 'false']);
+  });
+
+  it('tapping each button in turn calls the effect once per change, in order', () => {
+    const { buttons, fx } = open();
+    for (const i of [1, 2, 3, 0]) {
+      buttons[i]?.tap();
+      expect(lit(buttons)).toEqual(buttons.map((_, j) => j === i)); // the highlight follows every tap
+    }
+    expect(fx.calls).toEqual(['space:low', 'space:medium', 'space:high', 'space:off']);
+  });
+
+  it('a release with no press, or a release by a different finger, does nothing', () => {
+    const { buttons, fx, store } = open();
+    buttons[3]?.fire('pointerup', 1);
+    buttons[3]?.fire('pointerdown', 1);
+    buttons[3]?.fire('pointerup', 2);
+    expect(fx.calls).toEqual([]);
+    expect(store.data.has(SPACE_PHYSICS_KEY)).toBe(false);
+    expect(lit(buttons)).toEqual([true, false, false, false]);
+  });
+
+  it('the row has no duplicate buttons: one of each label in the whole screen', () => {
+    const { root } = open();
+    for (const label of ['Low', 'Medium', 'High']) expect(buttonsLabelled(root, label)).toHaveLength(1);
+  });
+});
+
+describe('space physics: reachable from the menu and the pause screen', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const actions = (): SettingsActions => ({
+    back: () => undefined,
+    playSeed: () => undefined,
+    seedHash: () => null,
+    resetProgress: () => undefined,
+    stress: () => undefined,
+    currentNeon: () => 70,
+    buildId: 'test',
+  });
+
+  it('menu path: the Settings button opens the row, a tap saves, closing returns to the menu', () => {
+    const root = installFakeDocument();
+    const store = memory();
+    const fx = fakeFx();
+    const model = createSettingsModel(fx, store);
+    let flow: FlowState = initialFlow();
+    const dispatch = (a: FlowAction): void => {
+      flow = reduceFlow(flow, a);
+    };
+    createMenuScreen(asParent(root), {
+      adventure: () => undefined,
+      levels: () => undefined,
+      endless: () => undefined,
+      settings: () => dispatch({ type: 'openSettings' }),
+    });
+    const screen = createSettingsScreen(asParent(root), model, actions());
+    buttonsLabelled(root, 'Settings')[0]?.tap();
+    expect(flow.screen).toBe('settings');
+    expect(flow.settingsFrom).toBe('menu');
+    screen.show();
+    groupButtons(root, SPACE_ROW_LABEL)[3]?.tap();
+    expect(fx.calls).toEqual(['space:high']);
+    dispatch({ type: 'closeSettings' });
+    expect(flow.screen).toBe('menu');
+    expect(loadSpacePhysics(store)).toBe('high');
+  });
+
+  it('pause path: the pause Settings button opens the row, a tap acts on the live world, closing returns to pause', () => {
+    const root = installFakeDocument();
+    const store = memory();
+    const fx = fakeFx();
+    const model = createSettingsModel(fx, store);
+    let flow: FlowState = initialFlow(3);
+    const dispatch = (a: FlowAction): void => {
+      flow = reduceFlow(flow, a);
+    };
+    dispatch({ type: 'start', mode: 'adventure', levelIndex: 3 });
+    const run = flow.run;
+    createPauseScreen(asParent(root), {
+      resume: () => dispatch({ type: 'resume' }),
+      restart: () => dispatch({ type: 'restart' }),
+      settings: () => dispatch({ type: 'openSettings' }),
+      quit: () => dispatch({ type: 'quit' }),
+    });
+    const screen = createSettingsScreen(asParent(root), model, actions());
+    dispatch({ type: 'pause' });
+    expect(flow.screen).toBe('paused');
+
+    buttonsLabelled(root, 'Settings')[0]?.tap();
+    expect(flow.screen).toBe('settings');
+    expect(flow.settingsFrom).toBe('paused');
+    expect(flow.run).toBe(run); // no new world: the effect has to reach the running one
+
+    screen.show();
+    groupButtons(root, SPACE_ROW_LABEL)[1]?.tap();
+    expect(fx.calls).toEqual(['space:low']);
+    expect(store.data.get(SPACE_PHYSICS_KEY)).toBe('low');
+
+    dispatch({ type: 'closeSettings' });
+    expect(flow.screen).toBe('paused');
+    expect(flow.run).toBe(run);
+    expect(loadSpacePhysics(store)).toBe('low');
+  });
+
+  it('a screen built after the change, as on the next launch, shows it lit', () => {
+    const store = memory();
+    const first = installFakeDocument();
+    const model = createSettingsModel(fakeFx(), store);
+    createSettingsScreen(asParent(first), model, actions());
+    groupButtons(first, SPACE_ROW_LABEL)[2]?.tap();
+
+    const second = installFakeDocument();
+    createSettingsScreen(asParent(second), createSettingsModel(fakeFx(), store), actions());
+    const lit = groupButtons(second, SPACE_ROW_LABEL).map((b) => b.classList.contains('sow-on'));
+    expect(lit).toEqual([false, false, true, false]);
   });
 });

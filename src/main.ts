@@ -23,6 +23,7 @@ import {
   saveSetting,
   unlockAfter,
   unlockLevel,
+  type SpaceLevelSetting,
 } from './core/settings';
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
@@ -250,6 +251,11 @@ async function boot(): Promise<void> {
   let level: LevelDef = pick.def;
   let world: World = createGame(level, { scoring: scoringPort });
   let endlessSeed = 0;
+  // V2-A glue point, the one named port call for space physics. Fable replaces the body with
+  // Forge's setShipSpace(world, level) after both branches merge; src/game/ship.ts is not imported
+  // here on purpose. It runs at boot (settingsModel.applyBoot), on every change from the Space
+  // physics row, and whenever startLevel builds a new world, so the level reaches every world.
+  const applySpacePhysics = (_level: SpaceLevelSetting): void => {};
   renderer?.setArena(level);
   // Settings preview arena: grid plus one of each enemy drifting (docs/01 section 10).
   const previewLevel: LevelDef = inlineRectLevel(1);
@@ -307,6 +313,7 @@ async function boot(): Promise<void> {
     }
     hud.setSuper(level.superType);
     resetScore(world);
+    applySpacePhysics(settingsModel.state.spacePhysics); // new world: push the stored level to it
     endCheck = true;
     renderer?.setArena(level);
     sceneWorld = world;
@@ -397,6 +404,7 @@ async function boot(): Promise<void> {
       }
     },
     setVolume: (v) => audio.setVolume(v),
+    setSpacePhysics: (level) => applySpacePhysics(level),
     requestFrame: (cb) => {
       window.requestAnimationFrame(() => cb());
     },
@@ -634,7 +642,7 @@ async function boot(): Promise<void> {
     // Glow's panel and its slider. The panel stays installed for the FPS label it drives.
     panel.close();
   }
-  settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path
+  settingsModel.applyBoot(); // applyNeon(stored neon), volume, Show FPS, glow path, space physics
   installAudio({ volume: settings.volume }); // Glue: Glow's synth listens on the bus; unlock happens on the first gesture
   if (query.sprite) setGlowPath('fallback'); // ?glow=sprite: session only, not persisted
 

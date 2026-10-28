@@ -1,15 +1,21 @@
 // Settings screen (docs/01 section 10, docs/03 sections 7 and 8, SPEC 4). Neon slider 0 to 100
-// over a live preview arena, Volume slider, Show FPS, Bloom / Fallback, Play seed, Reset progress,
-// and a hidden debug menu behind five taps on the version label.
+// over a live preview arena, Volume slider, Space physics (Off, Low, Medium, High; v2), Show FPS,
+// Bloom / Fallback, Play seed, Reset progress, and a hidden debug menu behind five taps on the
+// version label. The same screen opens from the menu and from the pause screen.
 // The model is pure apart from injected effects, so tests drive it with fakes. applyNeon is
 // throttled to one call per animation frame while dragging; the value is saved on finger up.
 import {
   loadGlowPath,
   loadSettings,
+  loadSpacePhysics,
   parseSeedInput,
+  parseSpacePhysics,
   saveGlowPath,
   saveSetting,
+  saveSpacePhysics,
+  SPACE_LEVELS,
   type GlowPathSetting,
+  type SpaceLevelSetting,
   type StorageLike,
 } from '../core/settings';
 import { button, createScreen, el, type Screen } from './dom';
@@ -24,6 +30,11 @@ export interface SettingsEffects {
   applyNeon(n: number): void;
   /** Master volume 0 to 100 (Glow's synth when merged, else a no-op). */
   setVolume(v: number): void;
+  /**
+   * Space physics level (v2). Called at boot, then once per change. Fable glue maps it to Forge's
+   * setShipSpace(world, level); until then main.ts leaves it a no-op.
+   */
+  setSpacePhysics(level: SpaceLevelSetting): void;
   /** requestAnimationFrame, injected for tests. */
   requestFrame(cb: () => void): void;
 }
@@ -33,6 +44,7 @@ export interface SettingsView {
   volume: number;
   showFps: boolean;
   glowPath: GlowPathSetting;
+  spacePhysics: SpaceLevelSetting;
 }
 
 export interface SettingsModel {
@@ -47,6 +59,8 @@ export interface SettingsModel {
   volumeCommit(v: number): void;
   setShowFps(on: boolean): void;
   setGlowPath(p: GlowPathSetting): void;
+  /** Row tap: persist sow.settings.spacePhysics and call the effect once. Same level: no effect call. */
+  setSpacePhysics(level: SpaceLevelSetting): void;
   toggleShowFps(): void;
   toggleGlowPath(): void;
   /** Record a glow change made elsewhere (the debug panel) without calling the renderer again. */
@@ -69,6 +83,7 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
     volume: loaded.volume,
     showFps: loaded.showFps,
     glowPath: loadGlowPath(storage),
+    spacePhysics: loadSpacePhysics(storage),
   };
   const neonThrottle = createFrameThrottle<number>((n) => fx.applyNeon(n), (cb) => fx.requestFrame(cb));
   const model: SettingsModel = {
@@ -78,6 +93,7 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       fx.setVolume(state.volume);
       fx.setShowFps(state.showFps);
       fx.setGlowPath(state.glowPath);
+      fx.setSpacePhysics(state.spacePhysics);
     },
     neonInput(n) {
       state.neon = clamp100(n);
@@ -107,6 +123,13 @@ export function createSettingsModel(fx: SettingsEffects, storage?: StorageLike |
       saveGlowPath(p, storage);
       fx.setGlowPath(p);
     },
+    setSpacePhysics(level) {
+      const next = parseSpacePhysics(level);
+      const changed = next !== state.spacePhysics;
+      state.spacePhysics = next;
+      saveSpacePhysics(next, storage); // always written, so a failed earlier write heals on the next tap
+      if (changed) fx.setSpacePhysics(next);
+    },
     toggleShowFps() {
       model.setShowFps(!state.showFps);
     },
@@ -135,6 +158,31 @@ export function fpsLabel(on: boolean): string {
 
 export function glowLabel(p: GlowPathSetting): string {
   return `Glow: ${p === 'bloom' ? 'Bloom' : 'Fallback'}`;
+}
+
+export const SPACE_ROW_LABEL = 'Space physics';
+
+const SPACE_LABELS: Readonly<Record<SpaceLevelSetting, string>> = {
+  off: 'Off',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
+
+/** Pure: the text on one Space physics button. */
+export function spaceLabel(level: SpaceLevelSetting): string {
+  return SPACE_LABELS[level];
+}
+
+export interface SpaceButtonState {
+  level: SpaceLevelSetting;
+  label: string;
+  selected: boolean;
+}
+
+/** Pure: the four Space physics buttons in order, with the current choice marked. */
+export function spaceButtonStates(current: SpaceLevelSetting): SpaceButtonState[] {
+  return SPACE_LEVELS.map((level) => ({ level, label: spaceLabel(level), selected: level === current }));
 }
 
 /**
@@ -221,6 +269,20 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
   const toggles = el('div', 'sow-row');
   toggles.append(fps, glow);
 
+  // Space physics: label and four buttons on one line (the cover screen is short), selected one lit.
+  const spaceRow = el('div', 'sow-choice');
+  spaceRow.setAttribute('role', 'group');
+  spaceRow.setAttribute('aria-label', SPACE_ROW_LABEL);
+  const spaceButtons = SPACE_LEVELS.map((level) =>
+    button(spaceLabel(level), () => {
+      model.setSpacePhysics(level);
+      refresh();
+    }),
+  );
+  const spaceBtns = el('div', 'sow-choice-btns');
+  spaceBtns.append(...spaceButtons);
+  spaceRow.append(el('div', 'sow-choice-label', SPACE_ROW_LABEL), spaceBtns);
+
   const seedField = el('input', 'sow-input');
   seedField.type = 'text';
   seedField.inputMode = 'numeric';
@@ -275,7 +337,7 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     if (r.fire) debugRow.style.display = debugRow.style.display === 'none' ? '' : 'none';
   });
 
-  panel.append(title, neon.root, volume.root, toggles, seedRow, seedLine, bottom, debugRow, version);
+  panel.append(title, neon.root, volume.root, spaceRow, toggles, seedRow, seedLine, bottom, debugRow, version);
   s.root.append(panel);
 
   function refresh(): void {
@@ -283,6 +345,12 @@ export function createSettingsScreen(parent: HTMLElement, model: SettingsModel, 
     volume.set(model.state.volume);
     fps.textContent = fpsLabel(model.state.showFps);
     glow.textContent = glowLabel(model.state.glowPath);
+    spaceButtonStates(model.state.spacePhysics).forEach((st, i) => {
+      const b = spaceButtons[i];
+      if (b === undefined) return;
+      b.classList.toggle('sow-on', st.selected);
+      b.setAttribute('aria-pressed', st.selected ? 'true' : 'false');
+    });
   }
   refresh();
   paintSeed();
