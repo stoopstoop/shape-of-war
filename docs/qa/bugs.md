@@ -170,6 +170,7 @@ Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to
 | V2-08 | P2 | Decided at D8, doc not updated | `docs/11-v2-spec-addendum.md` | Fable |
 | V2-09 | info | Open, STATUS drift | `docs/STATUS.md` | Fable |
 | V2-10 | info | Measured, no action needed | `src/levelgen/` | Foundry |
+| V2-11 | info | Open, stale todo in the suite | `tests/levelgen/par.test.ts` line 96 | Foundry |
 
 ## Details (v2)
 
@@ -244,9 +245,15 @@ Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to
 ### V2-10 (info): generator cost with the flag on
 
 - DECISIONS 32:30: the CI deploy missed a 500 ms budget at 957 ms and "Foundry owes a generator perf look (200 levels now about 2x slower than v1)".
-- Measured here, same Mac, same seed spread, under a load average of 3 to 7: v1.0.0 sources 3.1 to 3.2 s for 5000 levels (0.63 ms each); current flag off 3.6 s for 5080 (0.71 ms); current flag on 3.9 s (0.76 ms). That is 1.1 times v1 with the flag off and 1.2 times with it on, not 2 times. The slow CI runner and a loaded machine explain the earlier numbers better than the generator does.
+- Measured here, same Mac, same seed spread, under a load average of 3 to 7: v1.0.0 sources 3.1 to 3.2 s for 5000 levels (0.63 ms each); current flag off 3.6 s for 5080 (0.71 ms); current flag on 3.9 s (0.76 ms). That is 1.1 times v1 with the flag off and 1.2 times with it on, not 2 times. The slow CI runner is the likelier explanation for the earlier numbers (an inference: nothing here ran on CI).
 - No action. `tests/qa/generatorFlagSweep.test.ts` bounds flag on at 4 times flag off, which only catches a blow up. The wall clock budget at `tests/levelgen/generator.test.ts` is still QA-005.
 - Owner: Foundry, only if the CI runner misses a budget again.
+
+### V2-11 (info): a stale `it.todo` shows as the one todo in every run
+
+- `tests/levelgen/par.test.ts` line 96: `it.todo('scoreInTime: a competent run that ends at target earns at least 1 star')`. Its comment says the level ends the moment the score reaches the target, so a winning run lands at 0.8 x par and earns 0 stars. That bug was fixed at G4: DECISIONS 21:50, option a, scoreInTime runs the full timer and stars come from the final score.
+- The todo now reports a problem that no longer exists and shows as `1 todo` in every suite run (113 files, 1553 tests, 1 todo at this head).
+- Foundry: turn it into a real test (a run that reaches target and keeps scoring ends with at least 1 star) or delete it. It is not Proctor's file.
 
 ## v1 items carried into v2, status at 6f11afb
 
