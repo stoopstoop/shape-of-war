@@ -17,11 +17,20 @@ describe('evaluateObjective', () => {
   const surv: ObjectiveDef = { kind: 'survive', durationSec: 45 };
   const dest: ObjectiveDef = { kind: 'destroy', count: 30 };
 
-  it('scoreInTime completes on target, fails on time or lives', () => {
+  it('scoreInTime keeps running past target until the time limit', () => {
     expect(evaluateObjective(inp(sit, { score: 4999, clock: 59 }))).toBe('running');
-    expect(evaluateObjective(inp(sit, { score: 5000, clock: 59 }))).toBe('won');
+    expect(evaluateObjective(inp(sit, { score: 5000, clock: 59 }))).toBe('running');
+    expect(evaluateObjective(inp(sit, { score: 50000, clock: 0 }))).toBe('running');
+  });
+
+  it('scoreInTime is decided at the time limit by score against target', () => {
+    expect(evaluateObjective(inp(sit, { score: 5000, clock: 60 }))).toBe('won');
     expect(evaluateObjective(inp(sit, { score: 4999, clock: 60 }))).toBe('lost');
+  });
+
+  it('scoreInTime fails on lives even after target', () => {
     expect(evaluateObjective(inp(sit, { lives: 0 }))).toBe('lost');
+    expect(evaluateObjective(inp(sit, { score: 9999, clock: 30, lives: 0 }))).toBe('lost');
   });
 
   it('survive completes at duration, fails on lives', () => {
@@ -75,6 +84,44 @@ describe('game:over', () => {
     w.ship.invuln = 99;
     for (let i = 0; i < 70; i++) stepGame(w, DT, idle());
     expect(gameState(w).outcome).toBe('lost');
+  });
+
+  it('scoreInTime does not end early at target and wins at the limit with stars from final score', () => {
+    // Ryan's level 14 case: target 0.8 x par, par 39,500.
+    const { w } = makeGame({
+      objective: { kind: 'scoreInTime', target: 31600, timeLimitSec: 0.5 },
+      par: 39500,
+      stars: [39500, 79000, 158000],
+    });
+    w.ship.invuln = 99;
+    const overs: Events['game:over'][] = [];
+    bus.on('game:over', (p) => overs.push({ ...p }));
+    gs(w).score = 31600;
+    for (let i = 0; i < 10; i++) stepGame(w, DT, idle());
+    expect(gameState(w).outcome).toBe('running');
+    expect(overs).toHaveLength(0);
+    gs(w).score += 8000; // keeps scoring after target
+    for (let i = 0; i < 70; i++) stepGame(w, DT, idle());
+    expect(gameState(w).outcome).toBe('won');
+    expect(overs).toHaveLength(1);
+    expect(overs[0]?.score).toBeGreaterThanOrEqual(39600);
+    expect(overs[0]?.stars).toBe(1);
+  });
+
+  it('scoreInTime below target at the limit is lost with 0 stars', () => {
+    const { w } = makeGame({
+      objective: { kind: 'scoreInTime', target: 31600, timeLimitSec: 0.5 },
+      par: 39500,
+      stars: [39500, 79000, 158000],
+    });
+    w.ship.invuln = 99;
+    const overs: Events['game:over'][] = [];
+    bus.on('game:over', (p) => overs.push({ ...p }));
+    gs(w).score = 31599;
+    for (let i = 0; i < 70; i++) stepGame(w, DT, idle());
+    expect(gameState(w).outcome).toBe('lost');
+    expect(overs).toEqual([{ score: overs[0]?.score, stars: 0, levelIndex: 1, mode: 'adventure' }]);
+    expect(overs[0]?.score).toBeLessThan(31600);
   });
 
   it('losing the last life fails the level with 0 stars', () => {

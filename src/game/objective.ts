@@ -20,9 +20,11 @@ export function evaluateObjective(s: ObjectiveInput): Outcome {
   const o = s.objective;
   switch (o.kind) {
     case 'scoreInTime':
-      if (s.score >= o.target) return 'won';
-      if (s.lives <= 0 || s.clock >= o.timeLimitSec) return 'lost';
-      return 'running';
+      // Runs the full timer so the final score can climb past par and earn stars.
+      // Reaching target early does not end the level; the verdict comes at the time limit.
+      if (s.lives <= 0) return 'lost';
+      if (s.clock < o.timeLimitSec) return 'running';
+      return s.score >= o.target ? 'won' : 'lost';
     case 'survive':
       if (s.lives <= 0) return 'lost';
       return s.clock >= o.durationSec ? 'won' : 'running';
