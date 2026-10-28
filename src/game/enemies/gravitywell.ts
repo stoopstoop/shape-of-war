@@ -3,6 +3,14 @@
 // centre enters it (mass plus 1, radius plus 2), explodes at mass 20, can be shot down.
 // Pair handling is a direct loop over all entities because the pull radius exceeds two grid cells
 // and there are at most 3 wells. Mass lives in gs(w).aux.
+//
+// Pull model (B9, v1.1): the ship and each pulled enemy carry a pull velocity channel v that
+// relaxes toward a target T(d) = PEAK x falloff(d) at rate PULL_DAMP per second,
+// v' = PULL_DAMP x (T - v), integrated exactly per step with k = exp(-PULL_DAMP x dt). The settled
+// pull therefore equals T(d): 0 at the rim, rising quadratically to PEAK at the core, and it fades
+// to under 5 percent within 100 ms of leaving the radius. Bullets have no channel and take
+// PULL_BULLET x falloff as a plain acceleration. Bullet and enemy strengths keep their v1.0 ratios
+// to the ship pull.
 import { bus } from '../../core/events';
 import { BULLET_RADIUS, killBullet } from '../bullets';
 import { killEnemy } from '../combat';
@@ -16,14 +24,39 @@ import type { EnemyDef } from './types';
 
 export const def: EnemyDef = { kind: Kind.GravityWell, radius: 24, speed: 0, value: 250, colour: 'red', hp: 40, geoms: 5 };
 
+// Tuning table: every well number lives here (mirrors docs/01 section 6.7).
 export const PULL_RADIUS = 320;
-export const PULL_SHIP = 900;
-export const PULL_BULLET = 1800;
-export const PULL_ENEMY = 600;
+/** Settled pull on the ship at the core, u/s. 160 of 420 is 38 percent of ship speed. */
+export const PULL_SHIP_MAX = 160;
+/** Relaxation rate of the pull channels, per second. exp(-32 x 0.1) = 0.041 left after 100 ms. */
+export const PULL_DAMP = 32;
+/** Ship pull as an equivalent peak acceleration, u/s^2 (PULL_SHIP / PULL_DAMP = PULL_SHIP_MAX). */
+export const PULL_SHIP = PULL_SHIP_MAX * PULL_DAMP;
+/** Settled pull on enemies at the core, u/s. v1.0 ratio to the ship: 200 / 300 = 2/3. */
+export const PULL_ENEMY_MAX = (PULL_SHIP_MAX * 2) / 3;
+/** Peak acceleration on player bullets, u/s^2. v1.0 ratio to the ship settled pull: 1800 / 300 = 6. */
+export const PULL_BULLET = PULL_SHIP_MAX * 6;
 export const MASS_LIMIT = 20;
 export const EXPLODE_RADIUS = 220;
-/** Damping of the integrated pull velocity, per second. Keeps the ship (420 u/s) able to escape. */
-export const PULL_DAMP = 3;
+/** Channel values below this (u/s) snap to 0 so no residue lingers. */
+const PULL_EPS = 1e-3;
+
+/** Pull falloff in [0, 1]: 0 at and beyond the rim, (1 - d / R)^2 inside, 1 at the centre. */
+export function pullFalloff(d: number): number {
+  if (d >= PULL_RADIUS) return 0;
+  const u = 1 - Math.max(0, d) / PULL_RADIUS;
+  return u * u;
+}
+
+/** Settled (terminal) pull speed on the ship at distance d from one well centre, u/s. */
+export function settledShipPull(d: number): number {
+  return PULL_SHIP_MAX * pullFalloff(d);
+}
+
+/** Per step retention factor of a pull channel: exact solution of v' = -PULL_DAMP x v. */
+export function pullRetain(dt: number): number {
+  return Math.exp(-PULL_DAMP * dt);
+}
 
 export function step(w: World, id: number, dt: number): void {
   w.t[id] = (w.t[id] ?? 0) + dt; // pulse clock for render
@@ -96,7 +129,7 @@ function pulledByWell(k: number): boolean {
 }
 
 /** One well: ship contact and pull, bullet hits and pull, enemy feeding and pull. */
-function stepOneWell(w: World, well: number, dt: number): void {
+function stepOneWell(w: World, well: number, dt: number, blend: number): void {
   const g = gs(w);
   const wx = w.x[well] ?? 0;
   const wy = w.y[well] ?? 0;
@@ -110,7 +143,7 @@ function stepOneWell(w: World, well: number, dt: number): void {
     if (d < touch && w.ship.invuln <= 0) {
       killShip(w);
     } else if (d < PULL_RADIUS && d > 1e-6) {
-      const a = (PULL_SHIP * (1 - d / PULL_RADIUS) * dt) / d;
+      const a = (blend * settledShipPull(d)) / d;
       g.shipPullX += dx * a;
       g.shipPullY += dy * a;
     }
@@ -135,7 +168,7 @@ function stepOneWell(w: World, well: number, dt: number): void {
       continue;
     }
     if (d < 1e-6) continue;
-    const a = (PULL_BULLET * (1 - d / PULL_RADIUS) * dt) / d;
+    const a = (PULL_BULLET * pullFalloff(d) * dt) / d;
     p.vx[b] = (p.vx[b] ?? 0) + dx * a;
     p.vy[b] = (p.vy[b] ?? 0) + dy * a;
   }
@@ -153,20 +186,39 @@ function stepOneWell(w: World, well: number, dt: number): void {
       continue;
     }
     if (d < 1e-6) continue;
-    const a = (PULL_ENEMY * (1 - d / PULL_RADIUS) * dt) / d;
+    const a = (blend * PULL_ENEMY_MAX * pullFalloff(d)) / d;
     g.pvx[id] = (g.pvx[id] ?? 0) + dx * a;
     g.pvy[id] = (g.pvy[id] ?? 0) + dy * a;
   }
 }
 
-/** All wells, then integrate the accumulated pull velocities for enemies and the ship. */
+/** Snap a channel component to 0 once it is negligible. */
+function snap(v: number): number {
+  return Math.abs(v) < PULL_EPS ? 0 : v;
+}
+
+/**
+ * Decay every pull channel by k, let each well add (1 - k) x its target pull, then move bodies by
+ * their channel velocity. Settled channel = sum of targets; after leaving it falls as k^n.
+ */
 export function stepWells(w: World, dt: number): void {
   const g = gs(w);
+  const k = pullRetain(dt);
+  for (let id = 1; id < w.cap; id++) {
+    const vx = g.pvx[id] ?? 0;
+    const vy = g.pvy[id] ?? 0;
+    if (vx === 0 && vy === 0) continue;
+    g.pvx[id] = snap(vx * k);
+    g.pvy[id] = snap(vy * k);
+  }
+  g.shipPullX = snap(g.shipPullX * k);
+  g.shipPullY = snap(g.shipPullY * k);
+
   for (let i = g.wellCount - 1; i >= 0; i--) {
     const id = g.wellIds[i] ?? -1;
-    if (id > 0 && w.alive[id] === 1 && w.kind[id] === Kind.GravityWell) stepOneWell(w, id, dt);
+    if (id > 0 && w.alive[id] === 1 && w.kind[id] === Kind.GravityWell) stepOneWell(w, id, dt, 1 - k);
   }
-  const k = Math.max(0, 1 - PULL_DAMP * dt);
+
   for (let id = 1; id < w.cap; id++) {
     const vx = g.pvx[id] ?? 0;
     const vy = g.pvy[id] ?? 0;
@@ -177,15 +229,11 @@ export function stepWells(w: World, dt: number): void {
       continue;
     }
     moveTo(w, id, (w.x[id] ?? 0) + vx * dt, (w.y[id] ?? 0) + vy * dt);
-    g.pvx[id] = Math.abs(vx * k) < 1e-3 ? 0 : vx * k;
-    g.pvy[id] = Math.abs(vy * k) < 1e-3 ? 0 : vy * k;
   }
-  if (w.ship.active && (g.shipPullX !== 0 || g.shipPullY !== 0)) {
-    moveTo(w, 0, (w.x[0] ?? 0) + g.shipPullX * dt, (w.y[0] ?? 0) + g.shipPullY * dt);
-    g.shipPullX *= k;
-    g.shipPullY *= k;
-  } else if (!w.ship.active) {
+  if (!w.ship.active) {
     g.shipPullX = 0;
     g.shipPullY = 0;
+  } else if (g.shipPullX !== 0 || g.shipPullY !== 0) {
+    moveTo(w, 0, (w.x[0] ?? 0) + g.shipPullX * dt, (w.y[0] ?? 0) + g.shipPullY * dt);
   }
 }
