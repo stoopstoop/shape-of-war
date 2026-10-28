@@ -10,7 +10,10 @@ import {
   setEffectsTier,
   trailsOn,
   type EffectsTier,
+  enemyFxGates,
+  mapEffectsOn,
 } from '../../src/render/effects';
+import { ENEMY_TRAIL_CHARGER, ENEMY_TRAIL_SWIRL, enemyTrailParticle } from '../../src/render/trails';
 import {
   createParticlePool,
   emitBurst,
@@ -179,5 +182,75 @@ describe('trail shedding above 80 percent', () => {
     expect(p.trail[0]).toBe(1);
     emitBurst(p, 0, 0, burstSpec(4));
     expect(p.trail[0]).toBe(0);
+  });
+});
+
+describe('v2 enemy fx tier gating', () => {
+  it('low turns map effects and enemy trails off; standard and high turn them on', () => {
+    expect(mapEffectsOn('low')).toBe(false);
+    expect(mapEffectsOn('standard')).toBe(true);
+    expect(mapEffectsOn('high')).toBe(true);
+    const low = enemyFxGates('low');
+    expect(low.trails).toBe(false);
+    expect(low.mapFx).toBe(false);
+    for (const t of ['standard', 'high'] as const) {
+      const g = enemyFxGates(t);
+      expect(g.trails).toBe(true);
+      expect(g.mapFx).toBe(true);
+    }
+  });
+
+  it('tells (lane, ghost, ring, arrival, splat) show on every tier, low included', () => {
+    for (const t of EFFECTS_TIERS) expect(enemyFxGates(t).tells).toBe(true);
+  });
+
+  it('gates follow trailsOn for trails, so ship, bullet and enemy trails switch together', () => {
+    for (const t of EFFECTS_TIERS) expect(enemyFxGates(t).trails).toBe(trailsOn(t));
+  });
+});
+
+describe('enemy trails in the shared pool', () => {
+  function enemyTrail(type: number, seq: number): TrailSpec {
+    const out: TrailSpec = { x: 0, y: 0, vx: 0, vy: 0, life: 0, drag: 0, colour: 0 };
+    enemyTrailParticle(out, 100, 50, 300, 0, type, seq, 0x00ff88);
+    return out;
+  }
+
+  it('builds a short lived particle behind the mover with its colour', () => {
+    for (const type of [ENEMY_TRAIL_SWIRL, ENEMY_TRAIL_CHARGER]) {
+      for (let seq = 1; seq < 50; seq++) {
+        const t = enemyTrail(type, seq);
+        expect(t.x).toBeLessThan(100);
+        expect(t.vx).toBeLessThan(0);
+        expect(t.life).toBeGreaterThan(0);
+        expect(t.life).toBeLessThan(0.5);
+        expect(t.colour).toBe(0x00ff88);
+      }
+    }
+  });
+
+  it('is refused above 80 percent live and shed before bursts', () => {
+    const p = createParticlePool(100, 100);
+    emitBurst(p, 0, 0, burstSpec(70));
+    let seq = 0;
+    while (emitTrail(p, enemyTrail(ENEMY_TRAIL_SWIRL, ++seq))) {
+      expect(seq).toBeLessThan(100);
+    }
+    expect(p.live).toBe(80);
+    expect(emitTrail(p, enemyTrail(ENEMY_TRAIL_CHARGER, ++seq))).toBe(false);
+    // 70 bursts and 10 enemy trails live. 15 more bursts push live to 95: every trail is shed
+    // and every burst survives.
+    emitBurst(p, 0, 0, burstSpec(15));
+    expect(shedTrails(p)).toBe(10);
+    let bursts = 0;
+    let trailsLeft = 0;
+    for (let i = 0; i < p.cap; i++) {
+      if ((p.life[i] ?? 0) <= 0) continue;
+      if (p.trail[i] === 1) trailsLeft++;
+      else bursts++;
+    }
+    expect(trailsLeft).toBe(0);
+    expect(bursts).toBe(85);
+    expect(p.live).toBe(85);
   });
 });

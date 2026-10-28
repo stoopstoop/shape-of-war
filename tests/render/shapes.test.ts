@@ -1,6 +1,7 @@
 // Registry test: keeps pixi.js out of node by testing the pure spec map, not GraphicsContext.
 import { describe, expect, it } from 'vitest';
 import { Kind } from '../../src/game/world';
+import { SLIME_VARIANTS } from '../../src/render/enemyFx';
 import { BASE_PALETTE } from '../../src/render/neon';
 import {
   ALL_KINDS,
@@ -79,7 +80,8 @@ describe('shape registry', () => {
   });
 
   it('visual slots: pickups by w.a, other kinds unchanged, slots past the registry', () => {
-    expect(MAX_SLOT).toBe(MAX_KIND + 3);
+    // Three pickup variants, then the Slime outline variants (enemyShapes.test.ts).
+    expect(MAX_SLOT).toBe(MAX_KIND + 3 + SLIME_VARIANTS);
     expect(visualSlot(Kind.WeaponPickup, 1)).toBe(MAX_KIND + 1);
     expect(visualSlot(Kind.WeaponPickup, 3)).toBe(MAX_KIND + 3);
     expect(visualSlot(Kind.WeaponPickup, -1)).toBe(Kind.WeaponPickup);
@@ -88,6 +90,8 @@ describe('shape registry', () => {
     expect(visualSlot(Kind.Grunt, 2)).toBe(Kind.Grunt);
     expect(visualSlot(200, 1)).toBe(0);
     for (let s = 0; s <= MAX_KIND; s++) expect(specForSlot(s)).toBe(specFor(s));
+    expect(visualSlot(Kind.Slime, 0, 0.5)).toBeGreaterThan(MAX_KIND + 3);
+    expect(visualSlot(Kind.Charger, 0, 0.5)).toBe(Kind.Charger);
     expect(specForSlot(MAX_SLOT + 1)).toBe(UNKNOWN_SPEC);
     expect(PICKUP_SPECS).toHaveLength(4);
   });

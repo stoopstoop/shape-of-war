@@ -24,7 +24,7 @@ import {
   type ParticlePool,
   type TrailSpec,
 } from './particlePool';
-import { bulletTrailParticle, shipTrailParticle, shipTrailRate, stepEmitter, type Emitter } from './trails';
+import { bulletTrailParticle, enemyTrailParticle, shipTrailParticle, shipTrailRate, stepEmitter, type Emitter } from './trails';
 
 export { PARTICLE_CAP } from './particlePool';
 
@@ -168,6 +168,56 @@ export function emitBulletTrail(
     bulletTrailParticle(trailScratch, x, y, vx, vy, style, trailSeq, colour);
     if (!emitTrail(pool, trailScratch)) break;
   }
+}
+
+/**
+ * Enemy trail for one entity for one frame (Swirl trail, Charger dash streak). e is the
+ * entity's emitter, type ENEMY_TRAIL_SWIRL or ENEMY_TRAIL_CHARGER, (vx, vy) the drawn
+ * velocity. Off on low; refused above 80 percent live and shed first, like every trail.
+ */
+export function emitEnemyTrail(
+  e: Emitter,
+  rate: number,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  type: number,
+  colour: number,
+  dt: number,
+): void {
+  if (!trailsEnabled) {
+    e.acc = 0;
+    return;
+  }
+  const n = stepEmitter(e, rate, dt);
+  for (let k = 0; k < n; k++) {
+    trailSeq = (trailSeq + 1) | 0;
+    enemyTrailParticle(trailScratch, x, y, vx, vy, type, trailSeq, colour);
+    if (!emitTrail(pool, trailScratch)) break;
+  }
+}
+
+/** Small burst with explicit speeds and life (Blink arrival flash, Slime splat). */
+export function burstSmall(
+  x: number,
+  y: number,
+  colour: number,
+  count: number,
+  speedMin: number,
+  speedMax: number,
+  life: number,
+): void {
+  scratch.count = count;
+  scratch.speedMin = speedMin;
+  scratch.speedMax = speedMax;
+  scratch.lifeMin = life * 0.7;
+  scratch.lifeMax = life;
+  scratch.drag = 4;
+  scratch.colour = colour;
+  scratch.colour2 = null;
+  scratch.inwardRadius = 0;
+  emitBurst(pool, x, y, scratch);
 }
 
 /** Spray count particles from (x, y) in arena units with default speeds. */

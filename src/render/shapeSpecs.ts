@@ -2,6 +2,8 @@
 // shapes.ts turns each spec into a GraphicsContext. Sizes are arena units and match the
 // hitbox radii in docs/01-game-design.md section 6.2. Facing is +x at rot 0.
 import { Kind } from '../game/world';
+import { hash01 } from './color';
+import { SLIME_RADIUS, SLIME_VARIANTS, slimeVariant } from './enemyFx';
 import type { PaletteKey } from './neon';
 
 export type ShapePrim =
@@ -21,6 +23,8 @@ export interface ShapeLayer {
   readonly colour: PaletteKey | null;
   /** Whether this layer gets the outer glow stroke. */
   readonly glow: boolean;
+  /** Stroke alpha multiplier for the core line and its halos, 1 for solid (Slime rim is lower). */
+  readonly alpha: number;
 }
 
 export interface ShapeSpec {
@@ -63,6 +67,7 @@ interface LayerExtra {
   fill?: number;
   colour?: PaletteKey | null;
   glow?: boolean;
+  alpha?: number;
 }
 
 function layer(prims: readonly ShapePrim[], width: number, extra: LayerExtra = {}): ShapeLayer {
@@ -72,8 +77,196 @@ function layer(prims: readonly ShapePrim[], width: number, extra: LayerExtra = {
     fill: extra.fill ?? 0,
     colour: extra.colour ?? null,
     glow: extra.glow ?? true,
+    alpha: extra.alpha ?? 1,
   };
 }
+
+/** Round to 0.01 u so baked geometry is stable across platforms and readable in snapshots. */
+function r2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** Open polyline along a circle arc of radius r from a0 to a1 (radians), n segments. */
+export function arcLine(r: number, a0: number, a1: number, n: number): ShapePrim {
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    pts.push(r2(Math.cos(a) * r), r2(Math.sin(a) * r));
+  }
+  return { t: 'line', pts };
+}
+
+/** Closed outline of n points at radius rad(theta) around (cx, cy). */
+function radialPoly(n: number, rad: (theta: number) => number, cx = 0, cy = 0): ShapePrim {
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = rad(a);
+    pts.push(r2(cx + Math.cos(a) * r), r2(cy + Math.sin(a) * r));
+  }
+  return { t: 'poly', pts };
+}
+
+/** Archimedean spiral from radius r0 to r1 over the given turns, as an open polyline. */
+function spiralLine(r0: number, r1: number, turns: number, n: number): ShapePrim {
+  const pts: number[] = [];
+  const total = turns * Math.PI * 2;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    const a = u * total;
+    const r = r0 + (r1 - r0) * u;
+    pts.push(r2(Math.cos(a) * r), r2(Math.sin(a) * r));
+  }
+  return { t: 'line', pts };
+}
+
+// v2 enemies (wave C). Facing is +x at rot 0, so a glyph's front and rear follow the heading.
+// Every silhouette is chosen to read apart at a 12 u radius: an arrow, a square behind a shield
+// arc, a broken ring, a spiral, a notched hexagon, a dripping blob, a spiked diamond and a soft
+// puddle. Sizes follow the hitbox radii in docs/11 6.2.
+
+/** Charger: a heavy arrow (head plus shaft), apart from the Dart's thin dart. Hitbox 15. */
+const CHARGER_SPEC: ShapeSpec = {
+  tint: 'charger',
+  radius: 15,
+  layers: [layer([{ t: 'poly', pts: [15, 0, 1, -12, 1, -5, -14, -5, -14, 5, 1, 5, 1, 12] }], 2.5)],
+};
+
+/** Bulwark shield arc from the render contract: radius 26 u, plus and minus 60 degrees. */
+export const BULWARK_SHIELD_R = 26;
+export const BULWARK_SHIELD_HALF = Math.PI / 3;
+
+/** Bulwark: a square body with a thick frontal shield arc and an inner rim. Hitbox 18. */
+const BULWARK_SPEC: ShapeSpec = {
+  tint: 'bulwark',
+  radius: BULWARK_SHIELD_R,
+  layers: [
+    layer([{ t: 'rect', w: 24, h: 24 }], 2.5),
+    layer([arcLine(BULWARK_SHIELD_R, -BULWARK_SHIELD_HALF, BULWARK_SHIELD_HALF, 16)], 3.5),
+    layer([arcLine(BULWARK_SHIELD_R - 4, -BULWARK_SHIELD_HALF * 0.9, BULWARK_SHIELD_HALF * 0.9, 14)], 1.5, { glow: false }),
+  ],
+};
+
+/** Blink ring gap, centred on the heading. */
+export const BLINK_GAP = (100 * Math.PI) / 180;
+
+function blinkTick(a: number): ShapePrim {
+  return { t: 'line', pts: [r2(Math.cos(a) * 13), r2(Math.sin(a) * 13), r2(Math.cos(a) * 17), r2(Math.sin(a) * 17)] };
+}
+
+/**
+ * Blink: a broken ring, its gap toward the heading and both gap ends flared outward, with a
+ * bright centre dot. Reads apart from the Snake body circle. Hitbox 13.
+ */
+const BLINK_SPEC: ShapeSpec = {
+  tint: 'blink',
+  radius: 17,
+  layers: [
+    layer([arcLine(13, BLINK_GAP / 2, Math.PI * 2 - BLINK_GAP / 2, 26)], 2.5),
+    layer([blinkTick(BLINK_GAP / 2), blinkTick(-BLINK_GAP / 2)], 2),
+    layer([{ t: 'circle', r: 2.5 }], 0, { fill: 1, glow: false }),
+  ],
+};
+
+/** Swirl: an open spiral glyph with a centre dot. Hitbox 12. */
+const SWIRL_SPEC: ShapeSpec = {
+  tint: 'swirl',
+  radius: 12,
+  layers: [layer([spiralLine(1.5, 12, 1.6, 36)], 2.2), layer([{ t: 'circle', r: 1.8 }], 0, { fill: 1, glow: false })],
+};
+
+/**
+ * Sower: a hexagon (radius 16) pointing fore and aft, unlike the Snake head's pointy top, with a
+ * deep V drop notch cut into the rear vertex (a swallowtail) where its Mines fall, and a small
+ * seed inside. Hitbox 16.
+ */
+const SOWER_SPEC: ShapeSpec = {
+  tint: 'sower',
+  radius: 16,
+  layers: [
+    layer([{ t: 'poly', pts: [16, 0, 8, 13.86, -8, 13.86, -13.1, 5, -5, 0, -13.1, -5, -8, -13.86, 8, -13.86] }], 2.5),
+    layer([{ t: 'poly', pts: [1, 0, 4.5, -3.5, 8, 0, 4.5, 3.5] }], 1.4, { fill: 0.6, glow: false }),
+  ],
+};
+
+/** Splime body radius (hitbox 16). The rear dips into a drip notch and a droplet hangs off it. */
+const SPLIME_R = 16;
+
+function splimeBody(theta: number): number {
+  const back = Math.max(0, -Math.cos(theta)); // 1 at the rear (theta = pi)
+  return SPLIME_R * (1 + 0.05 * Math.cos(3 * theta + 0.6)) - 4.5 * back ** 12;
+}
+
+/** Splime: a rounded blob, a soft filled nucleus, a drip notch at the rear and its droplet. */
+const SPLIME_SPEC: ShapeSpec = {
+  tint: 'splime',
+  radius: 22,
+  layers: [
+    layer([radialPoly(40, splimeBody)], 2.5, { fill: 0.12 }),
+    layer([radialPoly(10, () => 2.6, -19.5, 0)], 1.6, { fill: 0.7 }),
+    layer([{ t: 'circle', r: 5.5 }], 1, { fill: 0.45, glow: false, alpha: 0.6 }),
+  ],
+};
+
+/** Mine: a small diamond crossed by an X of spikes that stick out past its edges. Hitbox 9. */
+const MINE_SPEC: ShapeSpec = {
+  tint: 'sower',
+  radius: 12,
+  layers: [
+    layer([{ t: 'poly', pts: [0, -9, 9, 0, 0, 9, -9, 0] }], 2),
+    layer(
+      [
+        { t: 'line', pts: [2.5, 2.5, 8, 8] },
+        { t: 'line', pts: [-2.5, 2.5, -8, 8] },
+        { t: 'line', pts: [2.5, -2.5, 8, -8] },
+        { t: 'line', pts: [-2.5, -2.5, -8, -8] },
+      ],
+      1.5,
+      { glow: false },
+    ),
+    layer([{ t: 'circle', r: 2.2 }], 0, { fill: 1, glow: false }),
+  ],
+};
+
+/** Slime outline points: smooth enough that no corner reads (no hard polygon). */
+const SLIME_POINTS = 56;
+
+/** Largest edge wobble as a fraction of the radius (sum of the three harmonics below). */
+export const SLIME_WOBBLE = 0.145;
+
+/**
+ * Pure: Slime outline radius at theta for a variant seed (an integer). Three low harmonics with
+ * phases from hash01(seed), so the edge is soft and irregular, within 40 u +- 14.5 percent.
+ */
+export function slimeEdge(theta: number, seed: number): number {
+  const tau = Math.PI * 2;
+  const p1 = hash01(seed * 3 + 1) * tau;
+  const p2 = hash01(seed * 3 + 2) * tau;
+  const p3 = hash01(seed * 3 + 3) * tau;
+  const w = 0.07 * Math.cos(2 * theta + p1) + 0.05 * Math.cos(3 * theta + p2) + 0.025 * Math.cos(5 * theta + p3);
+  return SLIME_RADIUS * (1 + w);
+}
+
+/**
+ * Slime: a translucent puddle (low fill), a brighter but soft rim with a faint halo, and a
+ * faint inner ring. No hard polygon and no bright core, so it reads as the floor and not as an
+ * enemy. Drawn on the floor layer, under every entity.
+ */
+function slimeSpec(seed: number): ShapeSpec {
+  const edge = (a: number): number => slimeEdge(a, seed);
+  return {
+    tint: 'slime',
+    radius: SLIME_RADIUS * (1 + SLIME_WOBBLE),
+    layers: [
+      layer([radialPoly(SLIME_POINTS, edge)], 0, { fill: 0.2, glow: false }),
+      layer([radialPoly(SLIME_POINTS, edge)], 2.2, { alpha: 0.7 }),
+      layer([radialPoly(SLIME_POINTS, (a) => edge(a) * 0.62)], 1.2, { glow: false, alpha: 0.3 }),
+    ],
+  };
+}
+
+/** Slime outline variants, picked per entity from hash01(id) (enemyFx.ts slimeVariant). */
+export const SLIME_SPECS: readonly ShapeSpec[] = Array.from({ length: SLIME_VARIANTS }, (_, v) => slimeSpec(v + 1));
 
 /** Pinwheel blades: four triangles around the centre. */
 function pinwheelBlades(r: number): ShapePrim[] {
@@ -90,14 +283,6 @@ function pinwheelBlades(r: number): ShapePrim[] {
 }
 
 const DIAMOND_14: ShapePrim = { t: 'poly', pts: [0, -14, 14, 0, 0, 14, -14, 0] };
-
-/**
- * V2 stub: the magenta circle of UNKNOWN_SPEC, as a fresh object per Kind so the registry test can
- * tell a registered entry from the fallback. Glow replaces each with a real glyph in waves B and C.
- */
-function placeholderSpec(): ShapeSpec {
-  return { tint: 'magenta', radius: 12, layers: [layer([{ t: 'circle', r: 12 }], 2.5)] };
-}
 
 /** Kind.WeaponPickup as a plain number, for the renderer's per kind checks. */
 export const PICKUP_KIND: number = Kind.WeaponPickup;
@@ -236,16 +421,29 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   // Weapon pickup with no known weapon index: the outline and a centre dot. The renderer draws
   // the per weapon variants (PICKUP_SPECS) through pickupSlot.
   [Kind.WeaponPickup]: pickupSpec('white', [layer([{ t: 'circle', r: 2.5 }], 0, { fill: 1, glow: false })]),
-  // V2 contract stubs: magenta circle placeholders until Glow draws the real glyphs (wave C).
-  [Kind.Charger]: placeholderSpec(),
-  [Kind.Bulwark]: placeholderSpec(),
-  [Kind.Blink]: placeholderSpec(),
-  [Kind.Swirl]: placeholderSpec(),
-  [Kind.Sower]: placeholderSpec(),
-  [Kind.Mine]: placeholderSpec(),
-  [Kind.Splime]: placeholderSpec(),
-  [Kind.Slime]: placeholderSpec(),
+  // V2 enemies and hazards (wave C).
+  [Kind.Charger]: CHARGER_SPEC,
+  [Kind.Bulwark]: BULWARK_SPEC,
+  [Kind.Blink]: BLINK_SPEC,
+  [Kind.Swirl]: SWIRL_SPEC,
+  [Kind.Sower]: SOWER_SPEC,
+  [Kind.Mine]: MINE_SPEC,
+  [Kind.Splime]: SPLIME_SPEC,
+  // Plain Kind.Slime slot: the first outline. Live puddles use the per id variant slots.
+  [Kind.Slime]: SLIME_SPECS[0] ?? slimeSpec(1),
 };
+
+/** Kind values the renderer checks per entity, as plain numbers (the enum is const). */
+export const KIND_NUM = {
+  charger: Kind.Charger as number,
+  bulwark: Kind.Bulwark as number,
+  blink: Kind.Blink as number,
+  swirl: Kind.Swirl as number,
+  sower: Kind.Sower as number,
+  mine: Kind.Mine as number,
+  splime: Kind.Splime as number,
+  slime: Kind.Slime as number,
+} as const;
 
 /** Drawn for any kind value outside the registry: a magenta circle. */
 export const UNKNOWN_SPEC: ShapeSpec = {
@@ -265,27 +463,46 @@ export function specFor(kind: number): ShapeSpec {
 export const MAX_KIND: number = Math.max(...ALL_KINDS);
 
 // Visual slots: 0 is the unknown glyph, 1..MAX_KIND the registry kinds, then one slot per pickup
-// variant. The renderer caches contexts and glow textures per slot, not per Kind, so a pickup
-// can change its inner mark without a Kind of its own.
+// variant, then one per Slime outline variant. The renderer caches contexts and glow textures
+// per slot, not per Kind, so a pickup can change its inner mark and puddles can differ in shape
+// without a Kind of their own.
+
+/** First Slime variant slot. */
+export const SLIME_SLOT_BASE: number = MAX_KIND + PICKUP_VARIANTS + 1;
 
 /** Highest visual slot, for the context and texture cache sizes. */
-export const MAX_SLOT: number = MAX_KIND + PICKUP_VARIANTS;
+export const MAX_SLOT: number = MAX_KIND + PICKUP_VARIANTS + SLIME_VARIANTS;
 
 /** Pure: visual slot for a pickup weapon index. Unknown indices give the plain pickup slot. */
 export function pickupSlot(weapon: number): number {
   return Number.isInteger(weapon) && weapon >= 1 && weapon <= PICKUP_VARIANTS ? MAX_KIND + weapon : Kind.WeaponPickup;
 }
 
-/** Pure: visual slot for an entity. a is w.a[id], read only for weapon pickups. */
-export function visualSlot(kind: number, a: number): number {
+/** Pure: visual slot for a Slime outline variant from hash01(id) in [0, 1). */
+export function slimeSlot(h: number): number {
+  return SLIME_SLOT_BASE + slimeVariant(h);
+}
+
+/**
+ * Pure: visual slot for an entity. a is w.a[id], read only for weapon pickups. h is hash01(id),
+ * read only for Slime (its outline variant).
+ */
+export function visualSlot(kind: number, a: number, h = 0): number {
   if (kind === Kind.WeaponPickup) return pickupSlot(a);
+  if (kind === Kind.Slime) return slimeSlot(h);
   return kind >= 1 && kind <= MAX_KIND ? kind : 0;
 }
 
 /** Pure: spec for a visual slot, with the magenta fallback. */
 export function specForSlot(slot: number): ShapeSpec {
-  if (slot > MAX_KIND && slot <= MAX_SLOT) return PICKUP_SPECS[slot - MAX_KIND] ?? UNKNOWN_SPEC;
+  if (slot >= SLIME_SLOT_BASE && slot <= MAX_SLOT) return SLIME_SPECS[slot - SLIME_SLOT_BASE] ?? UNKNOWN_SPEC;
+  if (slot > MAX_KIND && slot < SLIME_SLOT_BASE) return PICKUP_SPECS[slot - MAX_KIND] ?? UNKNOWN_SPEC;
   return specFor(slot);
+}
+
+/** Pure: whether a visual slot draws on the floor layer (under every entity): the Slime puddles. */
+export function isFloorSlot(slot: number): boolean {
+  return slot === Kind.Slime || (slot >= SLIME_SLOT_BASE && slot <= MAX_SLOT);
 }
 
 /** Pickup spin, radians per second (render only). */

@@ -29,14 +29,28 @@ export const BASE_PALETTE = {
   bomb: [200, 0.75, 0.8],
   /** Homing bullets (super). Hot pink, apart from the yellow standard shot. */
   homing: [335, 0.8, 0.65],
-  // V2 contract stubs (docs/10-v2-plan.md). Placeholder HSL; Glow tunes them in waves B and C.
-  charger: [10, 0.75, 0.55],
-  bulwark: [240, 0.75, 0.6],
-  blink: [335, 0.75, 0.6],
-  swirl: [160, 0.75, 0.55],
-  sower: [75, 0.75, 0.55],
-  splime: [110, 0.75, 0.55],
-  slime: [95, 0.75, 0.55],
+  // V2 enemies (wave C). Each sits in a hue gap of docs/01 section 11, at least 15 degrees from
+  // every other enemy family (tests/render/enemyPalette.test.ts). Lightness stays at or under
+  // 0.62 so every weapon colour is at least 0.1 lighter (tests/render/weaponPalette.test.ts).
+  // Enemy hue ring: red 355, charger 12, orange 28, yellow 55, sower 75, geom 95, green 125,
+  // swirl 162, cyan 185, blue 215, bulwark 242, purple 275, splime 292, magenta 310, blink 332.
+  /** Charger: vermilion, between the well ring red (355) and Dart orange (28). */
+  charger: [12, 0.8, 0.56],
+  /** Bulwark: indigo, between Grunt blue (215) and Wanderer purple (275), 16 from pierce. */
+  bulwark: [242, 0.75, 0.6],
+  /** Blink: rose, between Pinwheel magenta (310) and the well red (355). */
+  blink: [332, 0.78, 0.58],
+  /** Swirl: jade, between Weaver green (125) and Snake cyan (185), 19 from orbit. */
+  swirl: [162, 0.75, 0.52],
+  /** Sower: chartreuse, between Spawner yellow (55) and the geom green (95). */
+  sower: [75, 0.75, 0.5],
+  /** Splime: orchid, the widest remaining gap, between purple (275) and magenta (310). */
+  splime: [292, 0.75, 0.6],
+  /**
+   * Slime: the Splime hue, darker and less saturated. The puddle also draws at low fill alpha
+   * with no halo, so it reads as the Splime's floor hazard and never as an enemy.
+   */
+  slime: [292, 0.6, 0.45],
   // Weapon styles (wave B). Each sits in a hue gap between the enemy families of docs/01
   // section 11 and the wave C stubs, at least 85 degrees from the yellow player bullet and 75
   // from the pink homing shot, and is lighter than every enemy (L 0.72 to 0.8 against 0.5 to 0.6), so a

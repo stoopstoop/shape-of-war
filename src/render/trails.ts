@@ -108,3 +108,40 @@ export function bulletTrailParticle(
   out.drag = 6;
   out.colour = colour;
 }
+
+/** Enemy trail types: Swirl trail and Charger dash streak. */
+export const ENEMY_TRAIL_SWIRL = 0;
+export const ENEMY_TRAIL_CHARGER = 1;
+/** Enemy trail particle life (s) and sideways jitter (u) by trail type. */
+const ENEMY_TRAIL_LIFE: readonly number[] = [0.35, 0.22];
+const ENEMY_TRAIL_SIDE: readonly number[] = [4, 9];
+
+/**
+ * Fill out with one enemy trail particle. (x, y) is the drawn position and (vx, vy) the drawn
+ * velocity in u/s. The particle starts just behind the body and drifts back slowly, so a fast
+ * mover leaves a line and a circling Swirl leaves an arc.
+ */
+export function enemyTrailParticle(
+  out: TrailSpec,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  type: number,
+  seq: number,
+  colour: number,
+): void {
+  const speed = Math.sqrt(vx * vx + vy * vy);
+  const inv = speed > 0 ? 1 / speed : 0;
+  const dx = vx * inv;
+  const dy = vy * inv;
+  const side = (hash01(seq * 3 + 1) - 0.5) * (ENEMY_TRAIL_SIDE[type] ?? 4);
+  const back = 6 + hash01(seq * 3 + 2) * 6;
+  out.x = x - dx * back - dy * side;
+  out.y = y - dy * back + dx * side;
+  out.vx = -vx * 0.08;
+  out.vy = -vy * 0.08;
+  out.life = (ENEMY_TRAIL_LIFE[type] ?? 0.3) * (0.8 + 0.4 * hash01(seq * 3 + 3));
+  out.drag = 4;
+  out.colour = colour;
+}
