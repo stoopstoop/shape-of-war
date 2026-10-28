@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cometAlpha } from '../../src/render/comet';
 import type { TrailSpec } from '../../src/render/particlePool';
 import {
   bulletTrailParticle,
@@ -35,8 +36,12 @@ describe('ship trail rate', () => {
     expect(shipTrailRate(260) - shipTrailRate(160)).toBeCloseTo(shipTrailRate(160) - shipTrailRate(60), 9);
   });
 
-  it('every space physics top speed (420, 460, 520) gives a visible trail', () => {
-    for (const v of [420, 460, 520]) expect(shipTrailRate(v)).toBeGreaterThan(60);
+  it('every space physics top speed (420, 460, 520) gives a full comet and a spray of sparks', () => {
+    // Run 0180: the comet ribbon is the trail body; the particles are its sparks.
+    for (const v of [420, 460, 520]) {
+      expect(cometAlpha(v)).toBe(1);
+      expect(shipTrailRate(v)).toBeGreaterThan(30);
+    }
   });
 });
 

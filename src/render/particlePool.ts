@@ -28,6 +28,8 @@ export interface ParticlePool {
   readonly fresh: Uint8Array;
   /** 1 for a trail particle (ship or bullet trail), 0 for a burst particle. */
   readonly trail: Uint8Array;
+  /** Draw size multiplier (1 for an ordinary spark, larger for a burst's embers). */
+  readonly size: Float32Array;
   /** Active cap, 1..cap. The ring cursor and every emit stay below it. */
   limit: number;
   cursor: number;
@@ -49,6 +51,26 @@ export interface Burst {
   colour2: number | null;
   /** Particles start on a ring of this radius and fly inward (telegraph). 0 for outward. */
   inwardRadius: number;
+  /**
+   * Two sizes (run 0180): every bigEvery-th particle (k % bigEvery === 0) is an ember, drawn
+   * bigSize times larger, flying at bigSpeedMul of the speed for bigLifeMul of the life, always in
+   * colour (never colour2). 0 or unset: every particle is an ordinary spark.
+   */
+  bigEvery?: number;
+  bigSize?: number;
+  bigSpeedMul?: number;
+  bigLifeMul?: number;
+}
+
+/** Ember defaults for a Burst that sets bigEvery but not the rest. */
+export const EMBER_SIZE = 2.1;
+export const EMBER_SPEED_MUL = 0.45;
+export const EMBER_LIFE_MUL = 1.4;
+
+/** Pure: is particle k of a burst an ember. */
+export function isEmber(b: Burst, k: number): boolean {
+  const e = b.bigEvery ?? 0;
+  return e >= 1 && k % Math.floor(e) === 0;
 }
 
 export function createParticlePool(cap: number = PARTICLE_CAP, limit: number = cap): ParticlePool {
@@ -64,6 +86,7 @@ export function createParticlePool(cap: number = PARTICLE_CAP, limit: number = c
     colour: new Uint32Array(cap),
     fresh: new Uint8Array(cap),
     trail: new Uint8Array(cap),
+    size: new Float32Array(cap).fill(1),
     limit: Math.max(1, Math.min(cap, Math.floor(limit))),
     cursor: 0,
     live: 0,
@@ -84,8 +107,9 @@ export function emitBurst(p: ParticlePool, x: number, y: number, b: Burst): numb
     const s = p.seq * 4;
     // Even angular spread plus jitter keeps a burst round without a PRNG.
     const ang = (k / n + hash01(s + 1) * 0.15) * Math.PI * 2;
-    const speed = mix(b.speedMin, b.speedMax, hash01(s + 2));
-    const life = mix(b.lifeMin, b.lifeMax, hash01(s + 3));
+    const ember = isEmber(b, k);
+    const speed = mix(b.speedMin, b.speedMax, hash01(s + 2)) * (ember ? (b.bigSpeedMul ?? EMBER_SPEED_MUL) : 1);
+    const life = mix(b.lifeMin, b.lifeMax, hash01(s + 3)) * (ember ? (b.bigLifeMul ?? EMBER_LIFE_MUL) : 1);
     const cx = Math.cos(ang);
     const cy = Math.sin(ang);
     if ((p.life[id] ?? 0) <= 0) p.live++;
@@ -103,9 +127,10 @@ export function emitBurst(p: ParticlePool, x: number, y: number, b: Burst): numb
     p.life[id] = life;
     p.maxLife[id] = life;
     p.drag[id] = b.drag;
-    p.colour[id] = b.colour2 !== null && (k & 1) === 1 ? b.colour2 : b.colour;
+    p.colour[id] = !ember && b.colour2 !== null && (k & 1) === 1 ? b.colour2 : b.colour;
     p.fresh[id] = 1;
     p.trail[id] = 0;
+    p.size[id] = ember ? (b.bigSize ?? EMBER_SIZE) : 1;
   }
   return n;
 }
@@ -132,6 +157,8 @@ export interface TrailSpec {
   life: number;
   drag: number;
   colour: number;
+  /** Draw size multiplier, 1 when unset. */
+  size?: number;
 }
 
 /**
@@ -153,6 +180,7 @@ export function emitTrail(p: ParticlePool, t: TrailSpec): boolean {
   p.colour[id] = t.colour;
   p.fresh[id] = 1;
   p.trail[id] = 1;
+  p.size[id] = t.size !== undefined && t.size > 0 ? t.size : 1;
   return true;
 }
 

@@ -9,11 +9,72 @@
 // Brightness: the whole grid layer alpha is applyNeon's gridAlpha (bindNeon writes it); the
 // major and minor alphas below are fixed multipliers on their own meshes.
 // Dust: DUST_COUNT Particles created once, drifting behind the lattice.
-import { Buffer, BufferUsage, Container, Geometry, Mesh, Particle, ParticleContainer, Rectangle, Texture } from 'pixi.js';
+// Run 0180 map effects:
+// Glow: a third line mesh over the same position buffer, drawn in the bloom layer with additive
+// blending and a per node vertex colour (the heat field of lattice/heat.ts), so a kill sends a
+// ring of its hue through the grid lines and the bloom spreads it. One small custom shader (the
+// default mesh shader has no vertex colour); the colour buffer is uploaded only while warm and
+// the mesh is hidden while the field sleeps. Its layer alpha is a multiplier set by the renderer
+// from the neon glow, never the SPEC 4 grid alpha.
+// Ambient: a slow row and column drift added as positions are written (lattice/ambient.ts), so
+// the field never sits still. While it runs the position buffer uploads every frame.
+import {
+  Buffer,
+  BufferUsage,
+  Container,
+  Geometry,
+  Mesh,
+  Particle,
+  ParticleContainer,
+  Rectangle,
+  Shader,
+  Texture,
+} from 'pixi.js';
 import type { ArenaDef } from '../levelgen/leveldef';
+import { createAmbient, stepAmbient, type Ambient } from './lattice/ambient';
 import { createDust, dustAlpha, insideArena, seedDust, stepDust, type Dust } from './lattice/dust';
+import { addHeatPulse, createHeat, stepHeat, writeHeatColours, type HeatField, type HeatPulse } from './lattice/heat';
 import { buildLattice, type LatticeLayout } from './lattice/layout';
-import { createLatticeSim, latticeAlpha, stepLattice, writePositions, type LatticeSim } from './lattice/sim';
+import {
+  createLatticeSim,
+  latticeAlpha,
+  stepLattice,
+  writePositions,
+  writePositionsAmbient,
+  type LatticeSim,
+} from './lattice/sim';
+
+// Vertex colour line shader. Written in the GLSL style pixi's own programs use: no version line,
+// so GlProgram adds the WebGL1 defines (in, out, finalColor) and it compiles on both contexts.
+// Uniform names are the ones GlMeshAdaptor binds (global group 100, local group 101).
+const HEAT_VERTEX = `
+in vec2 aPosition;
+in vec4 aColor;
+
+out vec4 vColor;
+
+uniform mat3 uProjectionMatrix;
+uniform mat3 uWorldTransformMatrix;
+uniform vec4 uWorldColorAlpha;
+uniform mat3 uTransformMatrix;
+uniform vec4 uColor;
+
+void main(void) {
+    mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+    gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
+    vColor = aColor * uColor * uWorldColorAlpha;
+}
+`;
+
+const HEAT_FRAGMENT = `
+in vec4 vColor;
+
+out vec4 finalColor;
+
+void main(void) {
+    finalColor = vColor;
+}
+`;
 
 /** Line alpha multipliers inside the grid layer (whose alpha is gridAlpha). */
 export const MAJOR_ALPHA = 1;
@@ -31,6 +92,14 @@ interface Gpu {
   readonly major: Mesh<Geometry>;
   readonly majorEcho: Mesh<Geometry>;
   readonly minor: Mesh<Geometry>;
+  /** Heat glow: RGBA bytes per node, its buffer, every segment's indices, geometry and mesh. */
+  readonly heatColours: Uint8Array;
+  readonly heatBuf: Buffer;
+  readonly allIdx: Buffer;
+  readonly heatGeom: Geometry;
+  readonly heatMesh: Mesh<Geometry, Shader>;
+  /** The same heat lines one device pixel over: two pixel glow lines feed the bloom. */
+  readonly heatEcho: Mesh<Geometry, Shader>;
 }
 
 export interface LatticeView {
@@ -46,8 +115,8 @@ export interface LatticeView {
   build(arena: ArenaDef, spacing: number): void;
   /** Free the lattice GPU data and hide it (low tier). */
   clear(): void;
-  /** Step the sim by dt and upload positions if they moved. */
-  frame(dt: number): void;
+  /** Step the sim and heat by dt, add the ambient drift at render time timeSec, upload. */
+  frame(dt: number, timeSec: number): void;
   /** Drift and draw the dust. timeSec is the render clock. */
   dustFrame(dt: number, timeSec: number): void;
   /** Re-seed the dust for an arena. */
@@ -56,6 +125,12 @@ export interface LatticeView {
   setColour(c: number): void;
   /** One device pixel in arena units: the major line echo offset. */
   setPixel(px: number): void;
+  /** Heat glow lines. Add inside the bloom layer. Its alpha is the renderer's multiplier. */
+  readonly glow: Container;
+  /** Send a colour pulse through the lattice (no-op while off). */
+  pulse(x: number, y: number, colour: number, p: HeatPulse): void;
+  /** Ambient drift amplitude in arena units, 0 for none (the lattice may then sleep). */
+  setAmbient(amp: number): void;
   destroy(): void;
 }
 
@@ -74,7 +149,15 @@ function bounds(arena: ArenaDef, pad: number): Rectangle {
   return new Rectangle(-arena.width / 2 - pad, -arena.height / 2 - pad, arena.width + 2 * pad, arena.height + 2 * pad);
 }
 
-function makeGpu(layout: LatticeLayout, arena: ArenaDef, colour: number): Gpu {
+/** Every segment of the lattice, major then minor, for the heat glow mesh. */
+function allSegments(layout: LatticeLayout): Uint32Array {
+  const out = new Uint32Array(Math.max(2, layout.major.length + layout.minor.length));
+  out.set(layout.major, 0);
+  out.set(layout.minor, layout.major.length);
+  return out;
+}
+
+function makeGpu(layout: LatticeLayout, arena: ArenaDef, colour: number, heatShader: Shader): Gpu {
   const positions = new Float32Array(layout.count * 2);
   for (let i = 0; i < layout.count; i++) {
     positions[2 * i] = layout.restX[i] ?? 0;
@@ -98,7 +181,31 @@ function makeGpu(layout: LatticeLayout, arena: ArenaDef, colour: number): Gpu {
     m.boundsArea = area;
     return m;
   };
+  const heatColours = new Uint8Array(Math.max(1, layout.count) * 4);
+  const heatBuf = new Buffer({ data: heatColours, label: 'lattice-heat', usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+  const allIdx = new Buffer({ data: allSegments(layout), label: 'lattice-all', usage: BufferUsage.INDEX });
+  const heatGeom = new Geometry({
+    attributes: {
+      aPosition: { buffer: posBuf, format: 'float32x2', stride: 8, offset: 0 },
+      aColor: { buffer: heatBuf, format: 'unorm8x4', stride: 4, offset: 0 },
+    },
+    indexBuffer: allIdx,
+    topology: 'line-list',
+  });
+  const heatLines = (label: string): Mesh<Geometry, Shader> => {
+    const m = new Mesh<Geometry, Shader>({ geometry: heatGeom, shader: heatShader, texture: Texture.WHITE, label });
+    m.blendMode = 'add';
+    m.boundsArea = area;
+    m.visible = false;
+    return m;
+  };
   return {
+    heatColours,
+    heatBuf,
+    allIdx,
+    heatGeom,
+    heatMesh: heatLines('latticeHeat'),
+    heatEcho: heatLines('latticeHeatEcho'),
     positions,
     posBuf,
     uvBuf,
@@ -116,8 +223,13 @@ function freeGpu(g: Gpu): void {
   g.minor.destroy();
   g.major.destroy();
   g.majorEcho.destroy();
+  g.heatMesh.destroy();
+  g.heatEcho.destroy();
   g.majorGeom.destroy(false);
   g.minorGeom.destroy(false);
+  g.heatGeom.destroy(false);
+  g.heatBuf.destroy();
+  g.allIdx.destroy();
   g.posBuf.destroy();
   g.uvBuf.destroy();
   g.majorIdx.destroy();
@@ -132,8 +244,13 @@ export function createLatticeView(dotTexture: Texture): LatticeView {
     texture: dotTexture,
     dynamicProperties: { position: true, rotation: false, uvs: false, vertex: false, color: true },
   });
+  const glow = new Container({ label: 'latticeGlow' });
+  const heatShader = Shader.from({ gl: { vertex: HEAT_VERTEX, fragment: HEAT_FRAGMENT, name: 'lattice-heat' }, resources: {} });
   let gpu: Gpu | null = null;
   let sim: LatticeSim | null = null;
+  let heat: HeatField | null = null;
+  let ambient: Ambient | null = null;
+  let ambientAmp = 0;
   let colour = 0xffffff;
   let pixel = 1;
   let arenaNow: ArenaDef | null = null;
@@ -149,25 +266,56 @@ export function createLatticeView(dotTexture: Texture): LatticeView {
   function clear(): void {
     if (gpu) {
       lines.removeChildren();
+      glow.removeChildren();
       freeGpu(gpu);
     }
     gpu = null;
     sim = null;
+    heat = null;
+    ambient = null;
   }
 
   function build(arena: ArenaDef, spacing: number): void {
     clear();
     const layout = buildLattice(arena, spacing);
-    gpu = makeGpu(layout, arena, colour);
+    gpu = makeGpu(layout, arena, colour, heatShader);
     gpu.majorEcho.position.set(pixel, pixel);
     lines.addChild(gpu.minor, gpu.major, gpu.majorEcho);
+    gpu.heatEcho.position.set(pixel, pixel);
+    glow.addChild(gpu.heatMesh, gpu.heatEcho);
     sim = createLatticeSim(layout);
+    heat = createHeat(layout.count);
+    ambient = createAmbient(layout);
   }
 
-  function frame(dt: number): void {
+  function frame(dt: number, timeSec: number): void {
     if (!sim || !gpu) return;
     stepLattice(sim, dt);
-    if (writePositions(sim, gpu.positions, latticeAlpha(sim))) gpu.posBuf.update();
+    if (ambient && ambientAmp > 0) {
+      stepAmbient(ambient, timeSec, ambientAmp);
+      writePositionsAmbient(sim, gpu.positions, latticeAlpha(sim), ambient);
+      gpu.posBuf.update();
+    } else if (writePositions(sim, gpu.positions, latticeAlpha(sim))) gpu.posBuf.update();
+    if (heat) {
+      const wasAwake = heat.awake;
+      stepHeat(heat, sim.layout, dt);
+      if (writeHeatColours(heat, gpu.heatColours)) gpu.heatBuf.update();
+      // Hidden while cold: no draw call. One last upload above wrote the cooled zeros.
+      const show = heat.awake || wasAwake;
+      gpu.heatMesh.visible = show;
+      gpu.heatEcho.visible = show;
+    }
+  }
+
+  function pulse(x: number, y: number, c: number, p: HeatPulse): void {
+    if (heat) addHeatPulse(heat, x, y, c, p);
+  }
+
+  function setAmbient(amp: number): void {
+    const next = Number.isFinite(amp) && amp > 0 ? amp : 0;
+    // Turning the drift off writes the rest positions once so no offset is left behind.
+    if (next === 0 && ambientAmp > 0 && sim) sim.dirty = true;
+    ambientAmp = next;
   }
 
   function seed(arena: ArenaDef): void {
@@ -218,6 +366,7 @@ export function createLatticeView(dotTexture: Texture): LatticeView {
   function setPixel(px: number): void {
     pixel = Number.isFinite(px) && px > 0 ? px : 1;
     gpu?.majorEcho.position.set(pixel, pixel);
+    gpu?.heatEcho.position.set(pixel, pixel);
   }
 
   return {
@@ -239,9 +388,14 @@ export function createLatticeView(dotTexture: Texture): LatticeView {
     seedDust: seed,
     setColour,
     setPixel,
+    glow,
+    pulse,
+    setAmbient,
     destroy(): void {
       clear();
       lines.destroy({ children: true });
+      glow.destroy({ children: true });
+      heatShader.destroy();
       dustLayer.destroy();
     },
   };

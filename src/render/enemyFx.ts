@@ -242,4 +242,5 @@ export function splimeDropRing(t: number, out: SplimeRing): SplimeRing {
 
 // Trail rates for the enemy trails (particles per second per entity), through the shared pool.
 export const SWIRL_TRAIL_RATE = 30;
-export const CHARGER_DASH_TRAIL_RATE = 90;
+/** Run 0180: 90 to 120 with a longer, larger particle, so the dash reads as a fast mover. */
+export const CHARGER_DASH_TRAIL_RATE = 120;

@@ -286,6 +286,16 @@ function rayArc(f: WallArc, x: number, y: number, dx: number, dy: number, best: 
 }
 
 /**
+ * Pure: direction of the wall at a point on it, in radians: along a segment, or tangent to an
+ * arc at (x, y). Used to lay a bullet hit glow along the wall. 0 for a missing feature.
+ */
+export function wallTangent(f: WallFeature | undefined, x: number, y: number): number {
+  if (!f) return 0;
+  if (f.t === 'seg') return Math.atan2(f.y2 - f.y1, f.x2 - f.x1);
+  return Math.atan2(y - f.cy, x - f.cx) + Math.PI / 2;
+}
+
+/**
  * Pure: distance along the unit ray (dx, dy) from (x, y) to the first wall, capped at maxLen.
  * Clips the Charger lane line at the arena edge, where its dash ends. Allocates nothing.
  */
