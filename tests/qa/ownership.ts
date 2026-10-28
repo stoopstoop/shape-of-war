@@ -1,5 +1,8 @@
-// Pure ownership rules for the audit (docs/05 W3 table "Owns (exclusive)", plus the standing roster
-// files in .claude/agents/). No imports, so Node can run the CLI wrapper with type stripping.
+// Pure ownership rules for the audit. OWNERS is the v1 table (docs/05 W3 "Owns (exclusive)", plus the
+// standing roster files in .claude/agents/). OWNERS_V2 holds one table per v2 wave (docs/10 "Agents and
+// ownership" for waves A to E, docs/11 SPEC 7.3 for Chorus). Fixer branches own "only the files named in
+// the brief", so they are audited with ownsFromList (the CLI flag --owns=a,b,c) instead of a table.
+// No imports, so Node can run the CLI wrapper with type stripping.
 // Dirs end in "/" and match by prefix; files match exactly; "except" removes exact files from the dirs.
 
 export interface OwnerRule {
@@ -25,6 +28,77 @@ export const OWNERS: Readonly<Record<string, OwnerRule>> = {
     except: ['src/core/types.ts'],
   },
 };
+
+export type Wave = 'A' | 'B' | 'C' | 'D' | 'E';
+
+const SETTINGS_UI_MAIN: OwnerRule = {
+  dirs: ['src/ui/', 'tests/ui/', 'tests/settings/'],
+  files: ['src/main.ts', 'src/core/settings.ts'],
+  except: [],
+};
+const RENDER: OwnerRule = { dirs: ['src/render/', 'tests/render/'], files: [], except: [] };
+const AUDIO: OwnerRule = { dirs: ['src/audio/', 'tests/audio/'], files: [], except: [] };
+const PROCTOR: OwnerRule = { dirs: ['tests/qa/', 'docs/qa/'], files: ['docs/device-checklist.md'], except: [] };
+
+/**
+ * v2 ownership per wave (docs/10 "Agents and ownership" in each wave section). Roles that do not run in
+ * a wave are absent. Glow does not own src/audio in v2 (docs/11 SPEC 7.3 item 2); Chorus owns it in waves
+ * A and D. Forge owns four named files in A and Swarm owns src/game/ in B (that includes ship.ts, for the
+ * one dispatch line) except scoring.ts. In C Swarm also owns scoring.ts and defs.ts, and Foundry owns the
+ * level pin test and its snapshot files. Ledger's v2 briefs do not list scoring.ts, so in A, B and D it
+ * belongs to no builder. Proctor runs in wave E only, so tests/qa/ belongs to nobody in A, B and D.
+ */
+export const OWNERS_V2: Readonly<Record<Wave, Readonly<Record<string, OwnerRule>>>> = {
+  A: {
+    forge: {
+      dirs: [],
+      files: ['src/core/physics.ts', 'src/game/ship.ts', 'tests/core/physics.test.ts', 'tests/game/ship.space.test.ts'],
+      except: [],
+    },
+    ledger: SETTINGS_UI_MAIN,
+    chorus: AUDIO,
+  },
+  B: {
+    swarm: { dirs: ['src/game/', 'tests/game/'], files: [], except: ['src/game/scoring.ts'] },
+    ledger: SETTINGS_UI_MAIN,
+    glow: RENDER,
+  },
+  C: {
+    swarm: { dirs: ['src/game/', 'tests/game/', 'tests/scoring/'], files: [], except: [] },
+    foundry: {
+      dirs: ['src/levelgen/', 'tests/levelgen/', 'tests/qa/__snapshots__/levels/'],
+      files: ['tests/qa/levelSnapshots.test.ts'],
+      except: [],
+    },
+    glow: RENDER,
+  },
+  D: {
+    glow: RENDER,
+    chorus: AUDIO,
+    ledger: SETTINGS_UI_MAIN,
+  },
+  E: {
+    proctor: PROCTOR,
+    scribe: { dirs: ['docs/handoffs/'], files: ['docs/STATUS.md', 'docs/DECISIONS.md'], except: [] },
+  },
+};
+
+export const WAVES: readonly Wave[] = ['A', 'B', 'C', 'D', 'E'];
+
+/** Pure: the wave letter if s is one of A to E (any case), else null. */
+export function parseWave(s: string | undefined): Wave | null {
+  const u = (s ?? '').toUpperCase();
+  return u === 'A' || u === 'B' || u === 'C' || u === 'D' || u === 'E' ? u : null;
+}
+
+/** Pure: an owner rule from a comma separated list; entries ending in "/" are directories, the rest exact files. */
+export function ownsFromList(list: string): OwnerRule {
+  const items = list
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x !== '');
+  return { dirs: items.filter((x) => x.endsWith('/')), files: items.filter((x) => !x.endsWith('/')), except: [] };
+}
 
 export interface Change {
   status: string;
@@ -61,9 +135,12 @@ export function parseNameStatus(text: string): Change[] {
   return out;
 }
 
-/** Pure: split changed paths into owned and outside for one agent. Unknown agent: everything is outside. */
-export function auditPaths(agent: string, changes: readonly Change[]): Audit {
-  const rule = OWNERS[agent];
+/**
+ * Pure: split changed paths into owned and outside for one agent. Unknown agent: everything is outside.
+ * `table` defaults to the v1 table; pass OWNERS_V2[wave] for a v2 wave, or { agent: ownsFromList(...) } for a fixer.
+ */
+export function auditPaths(agent: string, changes: readonly Change[], table: Readonly<Record<string, OwnerRule>> = OWNERS): Audit {
+  const rule = table[agent];
   const owned: string[] = [];
   const outside: string[] = [];
   for (const c of changes) {
@@ -73,10 +150,10 @@ export function auditPaths(agent: string, changes: readonly Change[]): Audit {
   return { agent, owned, outside };
 }
 
-/** Pure: which agents own `path` (more than one means a shared file such as src/main.ts across waves). */
-export function ownersOf(path: string): string[] {
-  return Object.keys(OWNERS).filter((a) => {
-    const rule = OWNERS[a];
+/** Pure: which agents own `path` in a table (more than one means a shared file such as src/main.ts in v1). */
+export function ownersOf(path: string, table: Readonly<Record<string, OwnerRule>> = OWNERS): string[] {
+  return Object.keys(table).filter((a) => {
+    const rule = table[a];
     return rule !== undefined && isOwned(rule, path);
   });
 }

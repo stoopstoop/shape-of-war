@@ -1,6 +1,6 @@
 # Shape of War: device checklist (G4)
 
-Owner: Proctor. Source: `docs/06-test-and-acceptance.md` section 3 (58 line items, counted: 4 + 4 + 7 + 4 + 6 + 5 + 5 + 4 + 4 + 4 + 5 + 4 + 2). Steps were checked against the code at main 5bef4ae. Ryan runs every line at G4 on the Z Fold 7, about 20 minutes, and pastes the block at the end back to Fable.
+Owner: Proctor. Source: `docs/06-test-and-acceptance.md` section 3 (58 line items, counted: 4 + 4 + 7 + 4 + 6 + 5 + 5 + 4 + 4 + 4 + 5 + 4 + 2). Steps were checked against the code at main 5bef4ae. Ryan runs every line at G4 on the Z Fold 7, about 20 minutes, and pastes the block at the end back to Fable. The v2 checklist (V2-G4) is the last section of this file.
 
 ## Bad news first
 
@@ -172,4 +172,153 @@ Fill in every `=` with `pass`, `fail` or `n/a`. Put the build id from the bottom
 ```text
 G4: I1= I2= I3= I4= F1= F2= F3= F4= T1= T2= T3= T4= T5= T6= T7= U1= U2= U3= U4= N1= N2= N3= N4= N5= N6= D1= D2= D3= D4= D5= P1= P2= P3= P4= P5= O1= O2= O3= O4= A1= A2= A3= A4= R1= R2= R3= R4= S1= S2= S3= S4= S5= E1= E2= E3= E4= L1= L2= build=
 G4 extra: browser=<chrome or samsung> motion=<standard or adaptive> fps_cover=<avg/min> fps_main=<avg/min> notes=<text, one line per fail>
+```
+
+---
+
+# v2 device checklist (V2-G4)
+
+Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to GD passed). Sources: the gate sections of `docs/10-v2-plan.md` (GA to GD), `docs/11-v2-spec-addendum.md` for every number, the GA to GD rows of `docs/STATUS.md`, and `docs/DECISIONS.md` lines 31:10 to 35:50. Ryan runs it on the Z Fold 7 after wave E merges and pastes the block at the end back to Fable. Triage of what is already known is in `docs/qa/bugs.md` (section "v2 triage"); the IDs V2-01 to V2-10 below point there.
+
+## Bad news first (v2)
+
+1. Every Result and Notes cell is blank. Nothing here was run on a device, and no earlier gate result is copied into a Result cell. A line with no result is not a pass. The GA to GD pastes appear only inside "Pass when" as a baseline, so a regression is visible.
+2. A result without a build id is void. Write the id from the bottom right label after `build=`. Fable gives you the id; if the label differs, close the app from recents, reopen online, wait 5 seconds, close and reopen. Still different: stop.
+3. This is longer than the 25 minutes docs/10 plans for GE: about 55 lines, closer to 45 minutes with the suggested order. If time is short, run these first, in this order: V-X1 to V-X4 (the never cut items), V-D1, V-D2, V-D3, V-D6, V-D7, V-D8, V-D9, V-D12, then the rest. A skipped line is `n/a`, never `pass`.
+4. Where docs/10 gives a number, the pass line uses it. Where it does not, the pass line is the earlier paste (no worse than the gate you already passed) and is marked (proposed). Fable may edit the proposed lines before sending this file. The proposed lines are V-A3 to V-A5 (control 4 or better, turn 4 or better), V-D2 and V-D3 (3 or better, from a GD rating of 2), V-D6 (4 or better, from a GD rating of 3), V-D10 and V-D11 (no worse than GD).
+5. The two wave E fixes (Glow run 0180 for trails and map effects, Chorus run 0181 for kill voicing, intensity range and glitches) were dispatched in parallel with this file. Their lines (V-D2, V-D3, V-D6, V-D7, V-D12) are written from DECISIONS 35:50, not from their hand-offs. If a hand-off says something else, Fable edits the criteria.
+6. The Slime and Splime numbers here are the addendum's (Slime slows by 50 percent for 2 s, a Splime drops every 2 s), not the old 20 percent in `docs/10-v2-plan.md` (V2-07).
+7. The expected `#hash` values below come from the generator (pinned in `tests/levelgen/gcTriage.test.ts` and `tests/qa/levelSnapshots.test.ts`, and for seed 42 levels 1 to 5 equal to tag v1.0.0), not from a device. If the HUD shows another hash, you are on the wrong seed or the wrong build: stop and tell Fable.
+8. The Low tier measured below Standard at GD (V2-03). V-D1 asks for the three tiers in a fixed order so the number can be trusted this time.
+
+## Before you start (v2)
+
+1. Build id: the dim `build <sha> <date>` label bottom right. Write it down.
+2. Motion smoothness: Android Settings, Display, Motion smoothness. Write down Standard or Adaptive. Standard caps the cover screen at 60 and is accepted when recorded.
+3. Show FPS: Settings, `Show FPS: On`.
+4. Defaults to start from: Settings, Space physics Off, Weapon pickups On, Effects Standard, Music 50, Neon where you like it. V-X1 changes them on purpose and says when to put them back.
+5. Stress scene: `https://<gh-user>.github.io/shape-of-war/?stress=400`, or in Settings tap the `build ...` label 5 times within 3 seconds and then `Stress: 400 entities, 2000 particles`. Unfolded unless a line says folded.
+6. Opening a level: add `?seed=42&level=<n>` to the URL in a browser tab (the intro card shows the seed). Level hash: the end of the top line during play, `L3  Par 1,000  #<hash>`.
+7. Folded means the cover screen, unfolded means the main screen. A fold or unfold pauses the game; tap Resume.
+8. Rating lines: 1 to 5 as the line says. Write the numbers in Notes. A line marked `r/d/c` means reaction, drift, control.
+9. Result column: `pass`, `fail` or `n/a`. For every fail, write what you saw and on which screen.
+
+Suggested order, to save switching: V-X4 first (build id, install), then one folded session on Medium physics (V-A2 to V-A8, V-B7, T-reg1 to T-reg3), then unfold for the seed 42 sessions (V-B1 to V-B6, V-C1 to V-C9, V-D2 to V-D12), then the stress scene (V-D1, V-A8, P-reg lines), then V-X1 to V-X3, then fold lines (F-reg), then offline (O-reg) last.
+
+Seed 42 levels used below (hash from the generator):
+
+| Level | Hash | Band | What it is for |
+|---|---|---|---|
+| 3 | `#E811153A` | 1 | First pickup (rapid only in band 1); same hash as v1.0.0 |
+| 6 | `#93A4C56E` | 2 | Charger |
+| 7 | `#CC6859DC` | 2 | Swirl |
+| 9 | `#5BD14124` | 2 | Splime and Slime (one gravity well) |
+| 13 | `#18B193B3` | 2 | Pierce is possible from band 2 (rapid and pierce) |
+| 16 | `#D736C51F` | 3 | Bulwark, and orbit is possible from band 3 |
+| 17 | `#43CADCE4` | 3 | Blink |
+| 20 | `#D25C4D7D` | 3 | A crowded level for look, sound and orbit |
+| 31 | `#66AF8BD7` | 4 | Sower (and two spawners) |
+
+## V-A Space physics (gate GA)
+
+Physics is judged folded first: docs/11 risk 13 is thumb ergonomics on the cover screen. GA paste for reference: `off_ok yes, low 4/1/5, medium 4/3/4/4, high 4/4/4/4, wall ok, persist yes, fps 60/60`.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V-A1 | GA | Settings, Space physics, tap Off. Play 60 s | Off is highlighted. The ship stops the moment you let go, like v1.1.0, with no drift | | |
+| V-A2 | GA | Tap Low. Play 60 s. Rate r/d/c: reaction (1 sluggish, 5 crisp), drift (1 none, 5 far too much), control (1 lost, 5 fine) | Control 4 or better (docs/10 GA pass; GA paste: Low 4/1/5) | | |
+| V-A3 | GA | Tap Medium. Play 60 s. Rate r/d/c | Control 4 or better (proposed; GA paste: Medium 4/3/4) | | |
+| V-A4 | GA | Tap High. Play 60 s. Rate r/d/c | Control 4 or better (proposed; GA paste: High 4/4/4) | | |
+| V-A5 | GA | On Medium hold one direction for 2 s, then flip the stick the other way. Rate the turn around (1 slow, 5 snappy) | Turn 4 or better (proposed; GA paste: 4) | | |
+| V-A6 | GA | On Medium fly at a wall at full speed and let go | You slide along the wall and do not stick (GA paste: wall ok) | | |
+| V-A7 | GA | Close the app from recents and reopen. Settings | The level you chose (Medium) is still highlighted (GA paste: persist yes) | | |
+| V-A8 | GA | Medium, Show FPS on, `?stress=400`. Folded 10 s, then unfolded 10 s | Main 59 or better on average, cover 60 or better with motion recorded (GA paste: 60/60) | | |
+
+## V-B Weapons (gate GB)
+
+Pickups drop at the 15th scoring kill and then every 25, at most one on screen, 8 s of life, 20 s of weapon. Band 1 (levels 1 to 5) drops rapid only, pierce arrives in band 2 (level 6 up), orbit in band 3 (level 16 up). GB paste for reference: `pickup, rapid, pierce, orbit, death reset, toggle, drift orbit all ok; fps_main 60`.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V-B1 | GB | Open `?seed=42&level=3`. Play until a pickup appears (about 15 kills) and fly onto it | The HUD shows the weapon name and a countdown bar beside the multiplier, the way you fire changes, and the indicator is hidden while you hold the plain spread | | |
+| V-B2 | GB | Collect rapid (level 3 is enough). Fire for a few seconds | Clearly different from spread: two parallel fast shots (ok or fail) | | |
+| V-B3 | GB | Open `?seed=42&level=13` and collect pierce. Fire down a line of enemies | Clearly different: one long bright shot that passes through several enemies (ok or fail) | | |
+| V-B4 | GB | Open `?seed=42&level=20` and collect orbit | Clearly different: four blades circle the ship and hurt what they touch (ok or fail) | | |
+| V-B5 | GB | Die while holding a weapon | Back to spread, and no pickup is left on screen | | |
+| V-B6 | GB | Settings, Weapon pickups Off. Play 60 s. Close from recents, reopen. Then set it back to On | No pickup appears in the 60 s, and Off is still selected after reopening | | |
+| V-B7 | GB | Medium physics, orbit active. Drift across the arena | The blades follow the ship while it drifts | | |
+
+## V-C Enemies (gate GC)
+
+One level per enemy, seed 42, hash from the table above. For each, answer tell (can you see what it will do, yes or no), counter (did you learn how to beat it, yes or no) and fairness (1 unfair, 5 fair). GC paste for reference: `charger 4, bulwark 4, splime 5, swirl, blink, sower all read and countered`. V-C1 to V-C3 are the three Ryan said were not obvious at GC (Glow wave D added the Charger lane band, the Bulwark shield plate and the Splime drop ring); judge those fixes (V2-05).
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V-C1 | GC | `?seed=42&level=6`, confirm `#93A4C56E`. Meet a Charger | Tell yes (you see the lane line while it winds up), counter yes (leave the lane, shoot it while it rests), fairness 3 or better | | |
+| V-C2 | GC | `?seed=42&level=16`, confirm `#D736C51F`. Meet a Bulwark | Tell yes (you see the shield plate on its front), counter yes (flank it), fairness 3 or better | | |
+| V-C3 | GC | `?seed=42&level=9`, confirm `#5BD14124`. Meet a Splime | Tell yes (you see its drop ring and the puddles), counter yes (shoot it from range), fairness 3 or better | | |
+| V-C4 | GC | `?seed=42&level=7`, confirm `#CC6859DC`. Meet a Swirl | Tell yes, counter yes (lead it along the tangent, sidestep the dive), fairness 3 or better | | |
+| V-C5 | GC | `?seed=42&level=17`, confirm `#43CADCE4`. Meet a Blink | Tell yes (ghost at the old spot, ring at the destination), counter yes, fairness 3 or better | | |
+| V-C6 | GC | `?seed=42&level=31`, confirm `#66AF8BD7`. Meet a Sower | Tell yes, counter yes (shoot the mines from range, stay off the walls), fairness 3 or better | | |
+| V-C7 | GC | Open `?seed=42&level=16` twice (close the tab between) | Same hash and the same enemies at the same times both times | | |
+| V-C8 | GC | Medium physics, `?seed=42&level=17`. Meet a Blink | Still fair with drift (GC paste: blink fair under Medium) | | |
+| V-C9 | GC | `?seed=42&level=9`. Drive through a Slime puddle, stay in it for a few seconds, fire across it, then fire a bomb | You slow by about half for about 2 s, staying in keeps you slowed, your shots pass through, the bomb clears every puddle, the puddle never kills you, fairness 3 or better (GC paste: slime ok at 50 percent) | | |
+
+## V-D Look and sound (gate GD)
+
+GD paste for reference: `fps_low 50/59, fps_standard 59/59, fps_high 59; grid 4, trails 2, particles 3, map effects 2; music layers ok, intensity 3 of 5, some glitches, pause and fold ok, slider 0 ok`. V-D2, V-D3, V-D6, V-D7 and V-D12 judge the wave E fixes.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V-D1 | GD | Unfolded, `?stress=400`, Show FPS on. In this order: Settings Effects Standard, then High, then Low last. For each: 10 s for the average, then one bomb and the lowest value you saw. Write average/bomb dip for each | Standard 59 or better average and a bomb dip not below 50 (docs/10 GD rule says 60 and a dip above 50; 59/59 was accepted at D8, so 59 is the line, V2-08). High recorded (GD: 59). Low average not below Standard's (Low is the cheapest tier; GD paste showed 50, see V2-03). Put Effects back to Standard | | |
+| V-D2 | GD | Effects Standard, `?seed=42&level=20`, 2 minutes. Rate trails (ship trail while drifting on Medium, bullet trails, dash and swirl trails), 1 dull to 5 close to your reference | 3 or better (proposed; GD paste: 2) | | |
+| V-D3 | GD | Same session. Rate map effects (wall pulse and wall flashes in a crowded wave), 1 dull to 5 | 3 or better (proposed; GD paste: 2) | | |
+| V-D4 | GD | Settings, Music 50. Sit in the menus, then start a level and tap once | Silent in the menus, music after the first tap in play | | |
+| V-D5 | GD | Watch the layers on `?seed=42&level=20`. When a new enemy type appears, then when the last of that type dies | A note sounds as the type enters, its motif joins within a bar or two, and the motif leaves about 2 bars after the last one is gone (ok or fail; GD paste: ok) | | |
+| V-D6 | GD | Compare an empty arena (just after the level starts) with a crowded wave. Rate the difference in drive, 1 flat to 5 huge | 4 or better (proposed; GD paste: 3 of 5, and Ryan asked for a wider range, DECISIONS 35:50) | | |
+| V-D7 | GD | Play 3 minutes of crowded waves on `?seed=42&level=20` with the music on and listen for clicks, dropouts or stutter. Write none, some or bad | None (GD paste: some, V2-01). `some` or `bad` is a fail | | |
+| V-D8 | GD | Pause and resume. Then fold and unfold mid level. Tap Resume each time | The music stops on pause and picks up again after Resume, there is no reload, and it still plays after the fold | | |
+| V-D9 | GD | Drag the Music slider to 0 and play. Drag it back to 50 | Silence from the music while sound effects still play (GD paste: ok). Back at 50 the music returns | | |
+| V-D10 | GD | Same 2 minute session on Standard. Rate grid deformation (kill ripples, bomb ring, well dimple, wake), 1 dull to 5 | No worse than the GD paste, 4 (proposed) | | |
+| V-D11 | GD | Same session. Rate particles (kill bursts, sparks), 1 dull to 5 | No worse than the GD paste, 3 (proposed) | | |
+| V-D12 | GD | Only if Chorus run 0181 shipped kill voicing: kill a few dozen enemies in a crowded wave with the music on | Some kills sound a note and not every kill does (the selection rule, DECISIONS 35:50), and nothing glitches. If it did not ship, write n/a | | |
+
+## V-X Never cut items (docs/11 "Engineering rules that stay")
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V-X1 | all | The Off invariant. Settings: Space physics Off, Weapon pickups Off, Effects Low, Music 0. Play 60 s on `?seed=42&level=3`. Then put them back (Off, On, Standard, 50) | It looks and plays like v1.1.0: the static grid with its ripple, no trails, no music, the ship stops the instant you let go, no pickups | | |
+| V-X2 | all | Generator. Open `?seed=42&level=3`, then `?seed=42&level=1` | Level 3 shows `#E811153A` and level 1 shows `#CD2B515B`, the same hashes tag v1.0.0 produced for those seeds. Level 6 shows `#93A4C56E` (the v2 content; v1.0.0 showed `#D56C5986`) | | |
+| V-X3 | all | The neon slider. Settings, drag Neon from 0 to 100 slowly, on Effects Standard and again with Glow set to Fallback | Glow, colour and the grid brightness change while you drag, including the new lattice and trails, on both paths | | |
+| V-X4 | all | Look at the build label, close the app from recents, open it from the home screen icon | The label is the id Fable gave you and there is no address bar (the install still works) | | |
+
+## v1 regression lines (touch, fold, offline, fps)
+
+Short forms of the v1 lines above. If one fails, say which v1 line it matches (T, F, U, O or P).
+
+| ID | v1 | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| T-reg1 | T1, T2 | Folded. Left thumb drags to move, right thumb drags to aim and fire | The stick appears under the thumb, the ship follows, and the right stick fires continuously | | |
+| T-reg2 | T3, T5 | Hold both thumbs for 10 s, lift one. Then tap within 24 CSS px of each screen edge | The released stick vanishes and the other keeps working, nothing sticks, and an edge tap spawns no stick | | |
+| T-reg3 | T6, F3 | Tap bomb, super (after collecting geoms) and pause once each. Swipe in from the left edge | Each responds once per tap, and the edge swipe pauses without exiting | | |
+| T-reg4 | T4 | Unfold and repeat T-reg1 to T-reg3 | Same behaviour on the main screen | | |
+| F-reg1 | F1 | Launch from the home screen icon | No status or navigation bar | | |
+| F-reg2 | F2 | In a browser tab (not the icon), load the page and tap once | The page enters fullscreen on that first tap, and stays landscape (B2) | | |
+| F-reg3 | U2, U3 | Mid level, fold, tap Resume, then unfold and tap Resume | No reload, ship visible, sticks work again, the arena is letterboxed on the cover screen and the HUD is not clipped (B2) | | |
+| F-reg4 | U4 | Note score and lives. Fold and unfold 5 times in 20 s, Resume | No crash, score and lives preserved, fullscreen kept (U4), and the fps recovers within 2 s | | |
+| O-reg1 | O2 | Airplane mode on, close from recents, open from the icon | The menu loads within 3 s | | |
+| O-reg2 | O3 | Still offline. Start a level and play it to the results screen | It plays to the results, and the music (synthesised, no files) still plays | | |
+| O-reg3 | O4 | Airplane mode off | No error and the app keeps running | | |
+| P-reg1 | P1 | Folded, stress scene, 10 s, Standard effects | 60 or better with motion recorded (G4: accepted at 60 with Adaptive) | | |
+| P-reg2 | P2 | Unfolded, stress scene, 10 s, Standard effects | Average 59 or better, minimum not below 55 (GD paste: 59) | | |
+| P-reg3 | P3 | Unfolded, play a normal level for 60 s on Standard | 59 or better with no visible hitch on explosions | | |
+| P-reg4 | P5 | Unfolded, Effects Standard, Music 50, play 10 minutes (Endless is fine) | Still 59 or better at the end, no stutter in the music, no drift, and the phone is not hot | | |
+
+## Paste-back for V2-G4
+
+Fill every `=` with `pass`, `fail` or `n/a`. Put the build id after `build=`. Copy both lines into the Desktop chat; the second line is the numbers, so write them even when the first line says pass.
+
+```text
+V2-G4: V-A1= V-A2= V-A3= V-A4= V-A5= V-A6= V-A7= V-A8= V-B1= V-B2= V-B3= V-B4= V-B5= V-B6= V-B7= V-C1= V-C2= V-C3= V-C4= V-C5= V-C6= V-C7= V-C8= V-C9= V-D1= V-D2= V-D3= V-D4= V-D5= V-D6= V-D7= V-D8= V-D9= V-D10= V-D11= V-D12= V-X1= V-X2= V-X3= V-X4= T-reg1= T-reg2= T-reg3= T-reg4= F-reg1= F-reg2= F-reg3= F-reg4= O-reg1= O-reg2= O-reg3= P-reg1= P-reg2= P-reg3= P-reg4= build=
+V2-G4 numbers: browser=<chrome or samsung> motion=<standard or adaptive> A2=<r/d/c> A3=<r/d/c> A4=<r/d/c> A5=<turn> fps_low=<avg>/<bomb dip> fps_standard=<avg>/<bomb dip> fps_high=<avg>/<bomb dip> fps_cover=<avg/min> fps_main=<avg/min> trails=<1-5> map=<1-5> grid=<1-5> particles=<1-5> drive=<1-5> glitch=<none/some/bad> C1=<tell>/<counter>/<fair> C2=<tell>/<counter>/<fair> C3=<tell>/<counter>/<fair> C4=<tell>/<counter>/<fair> C5=<tell>/<counter>/<fair> C6=<tell>/<counter>/<fair> C9=<fair> notes=<text, one line per fail>
 ```
