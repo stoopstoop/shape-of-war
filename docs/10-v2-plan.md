@@ -1,12 +1,12 @@
 # Shape of War: v2 plan (five features)
 
-Derived from SPEC.md, `docs/01-game-design.md`, `docs/03-architecture.md`, `docs/05-build-plan.md` and `docs/09-v2-roadmap.md`. Status: draft by Scribe for Fable review, 2026-10-28. Not canon until Fable merges it and writes the v2 SPEC addendum (decision D1). SPEC.md wins on v1 behaviour; the addendum wins on v2 additions.
+Derived from SPEC.md, `docs/01-game-design.md`, `docs/03-architecture.md`, `docs/05-build-plan.md` and `docs/09-v2-roadmap.md`. Status: draft by Scribe for Fable review, 2026-10-28, revised the same day with Ryan's answers (section "Questions for Ryan"). Not canon until Fable merges it and writes the v2 SPEC addendum (decision D1). SPEC.md wins on v1 behaviour; the addendum wins on v2 additions.
 
 Priority order from Ryan (`docs/STATUS.md` v2 backlog, brief v2-plan):
 
-1. Space physics: the ship keeps its velocity, accelerates exponentially toward the stick direction and drifts. Settings option "Space physics": off, low, medium, high. Default off. v1 feel stays reachable. Owner Forge.
+1. Space physics: thrust. Acceleration builds the longer the stick is held (exponential in hold time), the ship drifts under drag on release, and a brake assist speeds up reversals. Settings option "Space physics": off, low, medium, high. Default off. Off is exactly v1. Owner Forge.
 2. Weapon upgrades that change firing style (spread, rapid, pierce, orbit), deterministic. Owner Swarm, Ledger for settings and persistence.
-3. Advanced enemy types beyond v1 (at least four, each with its own movement rule and counter). Owner Swarm, Foundry for generator weights.
+3. Advanced enemy types beyond v1 (six, floor five, each with its own movement rule and counter): Charger, Bulwark, Blink, Swirl, Sower and Splime, plus the Mine and Slime hazards. Owner Swarm, Foundry for generator weights.
 4. Visual pass toward the Geometry Wars 3 reference: higher resolution grid deformation, more particles, richer trails and map effects inside the 60 fps budget. Owner Glow.
 5. Dynamic generative music: WebAudio only, a composed base track, each enemy type entering the arena adds a note, motif or loop, intensity scales with threat. Owner Chorus (new roster nickname, Appendix A).
 
@@ -14,7 +14,7 @@ Curved surfaces stay a hook: Foundry keeps the flat `surface` field and `src/cor
 
 ## Bad news first
 
-1. The clock binds, not the money. About $137 of Console credits remain (STATUS says $192.49 start, about $55 spent) and they expire 2026-10-29. This plan costs about $57 to $82 including the B9 fix wave (Cost section) but needs about 12.5 hours of serial wall clock with Ryan at five gates. Unspent credits are lost. A further $200 expires 2026-11-29 (`docs/DECISIONS.md`, 0:00); whether it is usable for v2 is unknown (question 1).
+1. Money is not the constraint (Ryan, question 1). About $137 of Console credits remain (STATUS says $192.49 start, about $55 spent) and they expire 2026-10-29. A further $200 expires 2026-11-29 (`docs/DECISIONS.md`, 0:00) and Ryan confirms it is usable for v2. The plan costs about $58 to $84 including the B9 fix wave (Cost section) against about $337 usable. What does bind is about 12.5 hours of serial wall clock with Ryan at five gates, and Ryan confirms he is available for all five (question 2). Whatever is left of the first $137 on 2026-10-29 is lost; the plan does not add scope to use it (D11).
 2. Every feature here is outside the v1 scope rules. SPEC 3.4 (enemy catalogue), 3.5 (weapon), 3.6 (scores), 3.7 (cuts), 7.3 (fixed roster, no Chorus) and `docs/01` sections 4.2, 6 and 14 (no pierce, no enemy types beyond section 6, no reactive grid, no music) all say no. CLAUDE.md tells builders "no feature outside docs/01". Without a v2 SPEC addendum every builder must refuse its brief. I did not edit SPEC.md. The addendum is drafted by Scribe (as the docs/09 header says) and committed by Fable before T0 (D1).
 3. This plan does not use `docs/09-v2-roadmap.md` sections 1, 2 and 4. No Three.js migration, no Lens or Lattice agents, no curved surfaces. Glow stays on PixiJS v8 and builds the deforming grid under `src/render/lattice/`, not `src/fx/lattice/` (docs/09 section 3.9). Docs/09 section 3.5 (procedural music, Glow) is superseded by Chorus. Gamepad (docs/09 section 3.13) stays out: touch only.
 4. B9 (left stick feels limited, STATUS) is open. Space physics tuning is meaningless on an unfixed stick. Wave A starts only after B9 closes (D2). Note for Forge: at a1a8887 `stepShip` sets velocity directly from the stick, so a B9 cause in ship acceleration must sit elsewhere (the input path, the `stepWells` pull channel or the loop divisor). Forge reads the B9 hand-offs before tuning.
@@ -22,18 +22,18 @@ Curved surfaces stay a hook: Foundry keeps the flat `surface` field and `src/cor
 6. The visual pass is the highest performance risk. v1 holds 60 fps on the main screen with motion Adaptive (G4 P1 accepted at 60, not 120). A per frame Graphics redraw of thousands of lattice lines is the v7 habit that kills frame rate. The lattice must draw from one geometry buffer, and whether PixiJS 8.22 supports the needed line topology and per frame buffer updates is unverified (Glow checks the `node_modules/pixi.js` types first).
 7. Advanced enemies change generator output for bands 2 and up. Same seed, different level. Levels 1 to 5 and every level with the flag off must keep today's hashes (the five pins in `tests/qa/levelSnapshots.test.ts`, which Foundry pins to flag off in wave C). Progress keys survive; level content for 6 and up does not.
 8. Music can glitch on Android Chrome under load, and an AudioContext can suspend on fold (the U4 fullscreen after fold bug is the precedent). CPU headroom next to 24 sfx voices is unknown. Chorus caps music voices at 16 and Ryan listens at GD.
-9. The GW3 reference screenshots (shared 2026-10-27) are not in the repo. Builders cannot see them. Briefs below describe the targets in words (question 10).
+9. The GW3 reference screenshots (shared 2026-10-27) are not in the repo yet. Ryan will add them under `docs/ref/` (question 10). Until they land builders cannot see them, so briefs below describe the targets in words and must be satisfiable without them. SPEC 1 requirement 5 (no Geometry Wars sprites) and a public repo still apply to what goes in `docs/ref/`; Fable decides whether that folder is git-ignored.
 
 ## Knowns and unknowns
 
 | Known | Unknown |
 |---|---|
-| v1.0.0 tagged at 4fbdaf7; sim 120 Hz; ship velocity set directly from the stick at 420 u/s (`src/game/ship.ts`) | Exact credit expiry hour on 2026-10-29 and Ryan's gate availability |
+| v1.0.0 tagged at 4fbdaf7; sim 120 Hz; ship velocity set directly from the stick at 420 u/s (`src/game/ship.ts`) | Whether the thrust numbers Ryan gave feel right on the Fold (tuned at GA) |
 | Grid is static at 50 u spacing plus a ripple (`src/render/gridGeom.ts`, `ripple.ts`); particle cap 2048 (`particlePool.ts`) | Whether a 25 u lattice plus 4096 particles holds 60 fps on the main screen with bloom |
-| Settings enum precedent: `glowPath` (`src/core/settings.ts`); bus in `src/core/events.ts`; stateless `hash01` in `src/core/rng.ts` | Whether "exponential acceleration" means velocity easing toward the stick (this plan) or thrust that ramps up (question 3) |
+| Settings enum precedent: `glowPath` (`src/core/settings.ts`); bus in `src/core/events.ts`; stateless `hash01` in `src/core/rng.ts`; "exponential acceleration" means thrust that builds with hold time (Ryan, question 3) | Whether the Slime slow (20 percent for 2 s) reads as fair and not as a trap on the 21:9 cover screen (GC paste) |
 | Synth in `src/audio/synth.ts`: oscillators and a hashed noise buffer, 24 voice cap, no audio files | Music CPU cost beside sfx on the Fold, and fold behaviour of the AudioContext |
 | Run cost per merged branch in STATUS: $0.26 to $4.21; the large builds (forge-core, glow-fx) cost $2.88 to $4.21 | B9 root cause and whether it touches Forge's ship feel |
-| Dispatcher: `MAX_PARALLEL` 4, `WALL_MS` 90 min per run, `MAX_BUDGET_USD` default 25 (`scripts/dispatcher.mjs`); it refuses a job whose `.claude/agents/<nickname>.md` is missing | Which new enemies Ryan actually wants (question 8) |
+| Dispatcher: `MAX_PARALLEL` 4, `WALL_MS` 90 min per run, `MAX_BUDGET_USD` default 25 (`scripts/dispatcher.mjs`); it refuses a job whose `.claude/agents/<nickname>.md` is missing | Whether a sixth enemy plus a second hazard entity fits the wave C build window (cut 6 if not) |
 
 ## Scope
 
@@ -92,6 +92,18 @@ npm run build. The tests/qa snapshots must not change. Commit "glue: V2 contract
 End with your hand-off.
 ```
 
+The first stubs run is merged on main (47b727f). Ryan's answer to question 8 adds a sixth enemy, Splime, and a second hazard, Slime. A follow-up stubs run (Scribe, after Fable commits the addendum, same rules and invariant) adds:
+
+| File | Follow-up stub |
+|---|---|
+| `src/game/world.ts` | Append `Splime, Slime` to `Kind`, after `Mine` (existing values unchanged) |
+| `src/levelgen/leveldef.ts` | Add `'splime'` to `EnemyKind` and to `V2_ENEMY_KINDS` (not to `ENEMY_KINDS`); a `splime` entry with zero weight, base value and geoms in every table, including the `NO_V2_ENEMIES` object; Slime has no `EnemyKind` |
+| `src/game/defs.ts` | `kindOf` case for `'splime'`; `defOf` returns null for it |
+| `src/render/neon.ts` | Palette keys `splime` and `slime` (placeholder HSL, Glow tunes them) |
+| `src/render/shapeSpecs.ts`, `tests/render/shapes.test.ts` | Placeholder `SHAPE_SPECS` entries for `Kind.Splime` and `Kind.Slime`; the registry test's `LAST_KIND` moves from `Kind.Mine` to `Kind.Slime` and its length checks follow |
+
+The same rule covers any other exhaustive record or switch that `tsc` flags (placeholder entry only, list each file in the hand-off). The `slowUntil` and `slowFactor` ship fields are not a stub: Forge adds them in wave A.
+
 Job file shape for every brief below (same as docs/05; the table above each brief gives the values):
 
 ```json
@@ -113,7 +125,7 @@ T0 is the moment Fable queues the W0 job. Hours after T0, estimates. Evidence: v
 
 Waves are serial because they share `src/game/` and `src/render/`. Lanes that touch disjoint directories ride along (Chorus in wave A). Max 4 parallel runs (dispatcher default). Waves A to D run 3 each; wave E runs up to 4.
 
-Budget clock check at every gate (D10): Fable compares the hours left before the credits expire with the hours the remaining waves need (table above) and takes the next cut if the first is smaller.
+Budget check at every gate (D10): Fable compares spend to date with the usable pool (about $137 expiring 2026-10-29 plus $200 expiring 2026-11-29, Ryan's answer to question 1). The pool is four to six times the plan cost, so no cut is expected on budget. Cuts are triggered by gate pastes, hand-offs and Ryan's availability. Fable takes the next cut only if a trigger in the cut order table fires.
 
 ## Decision points
 
@@ -122,13 +134,13 @@ Budget clock check at every gate (D10): Fable compares the hours left before the
 | D1 | before T0 | v2 SPEC addendum (3.4, 3.5, 3.6, section 5 perf wording, 7.3 roster) and approval of this plan | Scribe drafts, Fable commits, Ryan approves | Fable, Ryan |
 | D2 | before T0 | B9 closed on device | Wave A waits for it | Ryan |
 | D3 | T0 | Rider lane: Chorus engine in wave A, dark (not wired) until D | Yes. If no, Chorus runs only in D and D grows by one serial run | Fable |
-| D4 | GA | Physics interpretation and numbers from the paste | Accept, or one Forge fix run changing `SPACE_TABLE` only, or drop High | Ryan |
-| D5 | 2:30 | Weapon acquisition: pickup or level based | Pickup based; the level band gates the pool (no LevelDef change) | Ryan |
-| D6 | 5:00 | Generator flag `enableV2Enemies` default and `GENERATOR_VERSION` 2 | On; levels 1 to 5 and flag-off hashes unchanged | Ryan |
-| D7 | GC | Keep or cut Sower from the fairness paste | Keep unless "unfair" | Ryan |
+| D4 | GA | Thrust numbers from the paste (the model is decided, question 3) | Accept, or one Forge fix run changing `SPACE_TABLE` only, or drop High | Ryan |
+| D5 | 2:30 | Weapon acquisition: pickup or level based | Pickup based (Ryan, question 6); the level band gates the pool (no LevelDef change) | Ryan |
+| D6 | 5:00 | Generator flag `enableV2Enemies` default and `GENERATOR_VERSION` 2 | On; levels 1 to 5 and flag-off hashes unchanged (question 9, unanswered) | Ryan |
+| D7 | GC | Keep or cut Sower and Mine, then Splime and Slime, from the fairness paste | Keep unless "unfair". Cutting Splime and Slime goes below the floor of five, so Ryan decides | Ryan |
 | D8 | GD | Effects tier default from fps; lattice spacing | Standard unless fps_main is below 60 | Fable, Ryan |
-| D9 | GD | Music default level and menu music | 50, in play only | Ryan |
-| D10 | every gate | Credit clock check against remaining waves | Next cut if short | Fable |
+| D9 | GD | Music default level and menu music | 50, in play only (Ryan, question 11) | Ryan |
+| D10 | every gate | Budget check against the usable pool | No budget cut expected; gate triggers only | Fable |
 | D11 | T0 | Use of surplus credits | Nothing added. Optional: two Forge feel variants at GA (different `SPACE_TABLE`), Ryan picks on device | Ryan |
 
 ## Cut order
@@ -137,15 +149,18 @@ Cut from the top. At most one cut per checkpoint unless a trigger fires twice. E
 
 | Cut # | Item | Decision clock | Trigger |
 |---|---|---|---|
-| 1 | Music motifs for enemy kinds beyond the first three (keep stingers, base track, intensity) | 7:30 | D setup later than 8:30 on the credit clock, or the Chorus A hand-off reports scheduler glitches |
-| 2 | Music entirely (Chorus D not dispatched; engine stays unwired) | 8:00 | Under 5 hours of credit clock left at D setup |
+| 1 | Music motifs for enemy kinds beyond the first three (keep stingers, base track, intensity) | 7:30 (Chorus A glitches) or 10:00 (GD) | The Chorus A hand-off reports scheduler glitches, or music glitches at GD persist after one Chorus fix run |
+| 2 | Music entirely (Chorus D not dispatched, or its output left unwired; engine stays unwired) | 10:00 | Music glitches at GD persist after cut 1 and a second Chorus fix run |
 | 3 | Map effects and dust (keep the lattice) | 9:00 | Glow D incomplete at the 9:00 check |
 | 4 | Visual tiers: High, then Standard lattice 25 u to 33 u, then Low (v1 grid and ripple) | 10:00 | `fps_main` under 60 at GD |
-| 5 | Sower and Mine (four enemies remain) | 6:50 | Fairness paste "unfair" or Mine cap trouble |
-| 6 | Orbit weapon (rapid and pierce remain) | 4:20 | Orbit fails at GB or collides with the pool |
-| 7 | Space physics High (low and medium remain) | 2:30 | Paste says High is unplayable and no retune fits |
+| 5 | Sower and Mine (five enemies remain, the floor) | 6:50 | Fairness paste "unfair" or Mine cap trouble |
+| 6 | Splime and Slime (four enemies remain, below the floor, so reported to Ryan first) | 6:50 | Fairness paste "unfair" for Splime or Slime, Slime cap trouble, or the Swarm C build window runs out before Splime |
+| 7 | Orbit weapon (rapid and pierce remain) | 4:20 | Orbit fails at GB or collides with the pool |
+| 8 | Space physics High (low and medium remain) | 2:30 | Paste says High is unplayable and no retune fits |
 
-Never cut: the Off invariant (shared rule 5); touch controls; generator determinism with flags off; the neon slider; PWA install. Floors: at least four new enemies and at least two new weapon styles. Below a floor the feature is reported incomplete to Ryan; Fable does not ship a partial feature silently.
+Order of the two enemy cuts is Ryan's: Sower and Mine first, Splime and Slime second. Because Splime is the last item in Swarm's task order (wave C brief), running out of window cuts it cleanly.
+
+Never cut: the Off invariant (shared rule 5); touch controls; generator determinism with flags off; the neon slider; PWA install. Floors: at least five of the six new enemies and at least two new weapon styles. Below a floor the feature is reported incomplete to Ryan; Fable does not ship a partial feature silently. Cut 6 is below the floor by construction, so it needs Ryan's reply, not just Fable's decision.
 
 ## Cost
 
@@ -156,15 +171,15 @@ Assumptions: Opus run $3 to $4 (brief), Sonnet run $1 to $2 for small tasks (per
 | V2-W0 | Scribe: SPEC addendum draft and stubs (Sonnet, two runs) | $1 | $2 |
 | V2-A | Forge, Chorus (Opus); Ledger (Sonnet) | $7 | $10 |
 | V2-B | Swarm, Glow (Opus); Ledger (Sonnet) | $7 | $10 |
-| V2-C | Swarm, Foundry, Glow (Opus) | $9 | $12 |
+| V2-C | Swarm, Foundry, Glow (Opus); Splime and Slime add about $1 to $2 across the three | $10 | $14 |
 | V2-D | Glow, Chorus (Opus); Ledger (Sonnet) | $7 | $10 |
 | V2-E | Proctor (Sonnet); two fixers (Opus) | $7 | $10 |
 | Reserve | five reruns or fixes (Opus) | $15 | $20 |
-| Plan total | | $53 | $74 |
+| Plan total | | $54 | $76 |
 | B9 fix wave (v1.1, Thumbs and Forge, same pool) | | $4 | $8 |
-| Grand total | | $57 | $82 |
+| Grand total | | $58 | $84 |
 
-Remaining credits about $137.49 ($192.49 start less about $55 spent, `docs/STATUS.md`). That leaves about $55 to $80 unspent at plan end. Nothing here justifies adding scope to spend it (D11). Fable runs on Max, not on credits.
+Remaining credits about $137.49 ($192.49 start less about $55 spent, `docs/STATUS.md`) plus the second $200 (usable, Ryan question 1), about $337 in all. The plan uses about 17 to 25 percent of it. Nothing here justifies adding scope to spend it (D11). Fable runs on Max, not on credits. The $137 part expires 2026-10-29 and anything left of it then is lost.
 
 Per run cost cap: the dispatcher default `MAX_BUDGET_USD` is 25 (integer env var). Recommend Ryan restarts the dispatcher with `MAX_BUDGET_USD=8` for v2. The largest v1 run cost $4.21.
 
@@ -208,36 +223,52 @@ Not touched in A: the rest of `src/game/`, `src/render/`, `src/input/`, `src/lev
 
 ### Design: the physics model
 
-Per sim step, with stick target `t = stick * 420 u/s` (stick magnitude capped at 1 as in v1) and `held` true when the stick is active past its dead zone:
+Ryan's model (question 3): thrust, not easing. Acceleration builds the longer the stick is held. Per sim step, with `dir` the stick vector (magnitude capped at 1 as in v1) and `held` true when the stick is active past its dead zone:
 
 ```
-tau = held ? tauAccel : tauDrift
-target = held ? t : 0
-k = 1 - exp(-dt / tau)
-v = v + (target - v) * k
+if held:
+  t = t + dt                          // continuous hold time
+  a = min(A_MIN * exp(t / TAU), A_MAX)
+  if dot(dir, v) < 0: a = a * BRAKE   // brake assist when reversing
+  v = v + a * dir * dt
+  if |v| > V_MAX: v = v * V_MAX / |v|
+else:
+  t = 0
+  v = v * exp(-DRAG * dt)             // drift
 ```
 
-Exponential in both directions: ease toward the stick, ease toward rest. Exact for any dt, so 120 Hz and 60 Hz agree. Starting values, tuned at GA:
+Low, Medium and High each set one row of `SPACE_TABLE` (A_MIN, TAU, A_MAX, V_MAX, DRAG, BRAKE). Off reproduces v1 exactly: velocity is set directly from the stick and every existing feel test passes. Starting values, tuned at GA:
 
-| Level | tauAccel (s) | tauDrift (s) | 90 percent speed in | Coast after release at 420 u/s |
-|---|---|---|---|---|
-| off | none (instant) | none | one step | none, exactly v1 |
-| low | 0.06 | 0.25 | 0.14 s | 105 u |
-| medium | 0.18 | 0.80 | 0.41 s | 336 u |
-| high | 0.35 | 1.80 | 0.81 s | 756 u |
+| Level | A_MIN (u/s2) | TAU (s) | A_MAX (u/s2) | V_MAX (u/s) | DRAG (1/s) | BRAKE |
+|---|---|---|---|---|---|---|
+| off | none, velocity set from the stick | none | none | 420 | none | none |
+| low | 1200 | 0.6 | 2400 | 420 | 4 | 2.5 |
+| medium | 800 | 0.8 | 2000 | 460 | 2.5 | 2.0 |
+| high | 500 | 1.0 | 1800 | 520 | 1.2 | 1.6 |
 
-Arenas are 700 to 1100 u high (docs/01 section 2.3), so high coasts about one arena height. Low is the "v1 feel reachable" step: 90 percent speed inside 0.15 s. Off is the exact v1 path.
+Derived values from the formulas, not measured:
+
+| Level | From rest to V_MAX | Hold time at which a reaches A_MAX | Coast after release at V_MAX (V_MAX / DRAG) | To 10 percent speed after release | Stop on reversal after a long hold |
+|---|---|---|---|---|---|
+| low | 0.28 s | 0.42 s | 105 u | 0.58 s | 0.07 s |
+| medium | 0.43 s | 0.73 s | 184 u | 0.92 s | 0.12 s |
+| high | 0.71 s | 1.28 s | 433 u | 1.92 s | 0.18 s |
+
+Arenas are 700 to 1100 u high (docs/01 section 2.3), so High coasts 0.4 to 0.6 of an arena height. A_MAX binds on a reversal after a long hold, not on the first push from rest. Off is the exact v1 path. Medium and High cap speed above the v1 420 u/s (460 and 520), which Forge must keep out of the Off path.
 
 Interactions, all decided here so Forge does not guess:
 
-1. Walls: slide as v1. The into-wall component is removed and the stored velocity is the post slide velocity, so the ship does not keep pushing into the wall. No bounce (question 4).
-2. Gravity wells: unchanged. The pull stays a separate displacement channel (`shipPullX` and `shipPullY` applied in `stepWells`, `src/game/enemies/gravitywell.ts`). Wells do not transfer momentum under physics. Known gap, optional for Swarm in wave B.
-3. Bullets: `fireSpread` adds the ship velocity along the aim, clamped to 1600. Unchanged.
-4. Nose direction: aim while aiming, else stick direction (v1). Not the velocity.
-5. Reversal passes through rest. No brake assist (question 3).
-6. A half deflected stick targets a lower speed, and the ship eases down to it with tauAccel.
-7. Respawn zeroes velocity (`respawnShip`). Pause and fold hold no extra state.
-8. Changing the setting mid level takes effect on the next step with the current velocity.
+1. Walls: slide as v1, no bounce (Ryan, question 3). The into-wall component is removed and the stored velocity is the post slide velocity, so the ship does not keep pushing into the wall. A wall hit does not reset the hold time.
+2. Hold time `t` resets only when the stick is released. A direction change while held keeps it, and the brake multiplier does the turning.
+3. Drag acts only while released. Below 3 u/s on release the velocity snaps to 0, so a coast ends in finite time (starting value).
+4. Gravity wells: unchanged. The pull stays a separate displacement channel (`shipPullX` and `shipPullY` applied in `stepWells`, `src/game/enemies/gravitywell.ts`). Wells do not transfer momentum under physics. Known gap, optional for Swarm in wave B.
+5. Bullets: `fireSpread` adds the ship velocity along the aim, clamped to 1600. Unchanged.
+6. Nose direction: aim while aiming, else stick direction (v1). Not the velocity.
+7. `dir` is not normalised above magnitude 1, so a half deflected stick gives half thrust. V_MAX does not scale with deflection.
+8. Slow channel for Slime (question 8): `ShipState` gains `slowUntil` (a `w.time` value, default 0) and `slowFactor` (default 1). While `w.time < slowUntil` the speed cap is V_MAX x `slowFactor`; under Off the stick velocity is multiplied by `slowFactor`. Forge adds the fields and the read in wave A so the physics work stays in one owner. Swarm sets them in wave C. The Off path gains only guarded added lines that do nothing while `slowUntil` is in the past, so Off stays bit identical to v1 whenever no Slime exists.
+9. Respawn zeroes velocity and hold time, and resets `slowUntil` to 0 and `slowFactor` to 1 (`respawnShip`). Pause and fold hold no extra state.
+10. Changing the setting mid level takes effect on the next step with the current velocity and hold time.
+11. Thrust integration is first order at the fixed 120 Hz step, so 60 Hz and 120 Hz agree to a tolerance, not exactly. The drag term is exact for any dt.
 
 ### Brief: Forge (space physics)
 
@@ -250,29 +281,46 @@ tests/game/ship.space.test.ts. Everything else is read only.
 
 Task:
 1. src/core/physics.ts (new, pure, no allocation): SpaceLevel = 'off' | 'low' | 'medium' |
-   'high'; SPACE_TABLE with tauAccel and tauDrift (plan table); stepVelocity(level, vx, vy,
-   tx, ty, held, dt, out) with k = 1 - exp(-dt / tau), tau = tauAccel when held else
-   tauDrift, target = held ? stick * SHIP_SPEED : 0, writing into out.
-2. ship.ts: ShipState gains space: SpaceLevel (default 'off'); export setShipSpace(w, level).
-   In stepShip the 'off' branch runs the existing v1 lines unchanged (the diff must show no
-   edit inside the v1 path). Any other level computes velocity with stepVelocity, caps speed
-   at SHIP_SPEED, then confines and slides exactly as v1 and stores the post slide velocity
-   in w.vx and w.vy.
-3. Firing, aim, nose direction, invulnerability and respawn are untouched.
-4. No new dependency, no allocation per step, no Math.random.
+   'high'; SPACE_TABLE with aMin, tau, aMax, vMax, drag and brake for low, medium and high
+   (plan table); stepThrust(level, vx, vy, dirX, dirY, held, holdT, dt, slowFactor, out)
+   implementing the plan model: when held, holdT += dt, a = min(aMin * exp(holdT / tau), aMax),
+   a *= brake when dot(dir, v) < 0, v += a * dir * dt, then cap |v| at vMax * slowFactor; when
+   released, holdT = 0, v *= exp(-drag * dt), and speed under 3 u/s becomes 0. Writes vx, vy and
+   holdT into out. Starting numbers are the plan table; keep them in SPACE_TABLE only so GA
+   tuning is a one file edit.
+2. ship.ts: ShipState gains space: SpaceLevel (default 'off'), holdT (0), slowUntil (0, a w.time
+   value) and slowFactor (1); export setShipSpace(w, level). In stepShip the 'off' branch runs
+   the existing v1 lines; the only addition inside it is one guarded block, placed before the
+   confine call, that multiplies vx and vy by slowFactor while w.time < slowUntil (the diff
+   must show nothing else edited in the v1 path). Any other level computes velocity with stepThrust, then confines and slides exactly
+   as v1 and stores the post slide velocity in w.vx and w.vy. respawnShip also zeroes holdT and
+   resets slowUntil to 0 and slowFactor to 1.
+3. Slime slow channel (Ryan's Splime answer): slowUntil and slowFactor are for Swarm's Slime in
+   wave C, which sets slowUntil = w.time + 2 and slowFactor = 0.8 on contact. Forge only adds the
+   fields, the read in stepShip and the reset. Nothing in src/ sets them in wave A. Do not add
+   Slime logic.
+4. Firing, aim, nose direction and invulnerability are untouched.
+5. No new dependency, no allocation per step, no Math.random.
 
 Definition of done: npm test and npm run build pass, tests/game/ship.test.ts unmodified and
 green, no any.
 Tests to add:
-- tests/core/physics.test.ts: table values match the plan; velocity reaches 63.2 percent of
-  the target after one tauAccel and decays to 36.8 percent after one tauDrift (within 1e-3);
-  tau ordering low < medium < high; 120 steps at 1/120 equal 60 steps at 1/60 (1e-9); speed
-  never above SHIP_SPEED over 1000 fuzzed inputs; no NaN at dt 0.
+- tests/core/physics.test.ts: table values match the plan; a reaches aMax at tau * ln(aMax /
+  aMin) of hold and never exceeds it; from rest speed reaches vMax in the plan time (within 5
+  percent) and low < medium < high; after release speed is 36.8 percent of its start after
+  1 / drag seconds (within 1e-3) and snaps to 0 under 3 u/s; reversing (dot < 0) decelerates
+  brake times faster than the same step without the brake; holdT resets on release and survives
+  a direction change; 120 steps at 1/120 and 60 steps at 1/60 agree within 2 percent of speed
+  after 0.5 s of hold (first order integration) and within 1e-9 for pure drag; speed never above
+  vMax * slowFactor over 1000 fuzzed inputs; no NaN at dt 0.
 - tests/game/ship.space.test.ts: off matches a frozen inline copy of the v1 formula over a
-  recorded 600 step input stream (x, y, vx, vy equal); medium coasts about 336 u after
-  release at full speed (within 5 percent); wall slide keeps the tangent and drops the
-  normal component; respawn zeroes velocity; the same stream twice gives identical values;
-  fireSpread still receives the ship velocity.
+  recorded 600 step input stream (x, y, vx, vy equal), with default state; medium coasts about
+  184 u after release at full speed (within 5 percent); after a 2 s hold at full speed a
+  reversal stops in about 0.12 s (within 15 percent); wall slide keeps the tangent and drops the
+  normal component; respawn zeroes velocity, holdT and the slow fields; the same stream twice
+  gives identical values; fireSpread still receives the ship velocity; slow channel: with
+  slowUntil in the future and slowFactor 0.8 the off velocity is 0.8 of the stick velocity and
+  the medium cap is 0.8 x 460, and both return to normal once w.time passes slowUntil.
 End with the hand-off block.
 ```
 
@@ -354,7 +402,7 @@ End with the hand-off block.
 
 ### Gate GA (1:50 to 2:30)
 
-Fable verifies: `git diff main...feat/forge-space-physics -- src/game/ship.ts` shows no edit inside the v1 path; `tests/game/ship.test.ts` unmodified; the shared gate checks; `grep -rnE "initMusic|startMusic" src | grep -v src/audio` returns nothing (music is dark); the setting defaults to `off`.
+Fable verifies: `git diff main...feat/forge-space-physics -- src/game/ship.ts` shows no edit inside the v1 path except the one guarded slow block (a no-op while `slowUntil` is in the past); `ShipState` carries `slowUntil` and `slowFactor` and `respawnShip` resets them; no code in `src/` other than tests sets them; `tests/game/ship.test.ts` unmodified; the shared gate checks; `grep -rnE "initMusic|startMusic" src | grep -v src/audio` returns nothing (music is dark); the setting defaults to `off`.
 
 Ryan verifies on device:
 
@@ -364,11 +412,13 @@ V2-GA device check, about 8 minutes. Confirm build id <id>.
    Expect: the same feel as v1.0.0 plus the B9 fix.
 2. Select Low, play 60 seconds. Medium, 60 seconds. High, 60 seconds. After each rate
    reaction (1 sluggish to 5 crisp), drift (1 none to 5 far too much), control (1 lost to 5 fine).
+   Hold one direction for two seconds, then flip the stick the other way: rate the turn around
+   (1 slow to 5 snappy).
 3. On Medium fly at a wall at full speed and release. Expect: slide along the wall, no sticking.
 4. Close the app from recents and reopen. Expect: the chosen level is still selected.
 5. Show FPS on, Medium, ?stress=400. Note fps cover and main.
 Paste back:
-V2-GA: off_ok=<yes/no> low=<r>/<d>/<c> medium=<r>/<d>/<c> high=<r>/<d>/<c> wall_ok=<yes/no> persist=<yes/no> fps_cover=<n> fps_main=<n> notes=<text>
+V2-GA: off_ok=<yes/no> low=<r>/<d>/<c>/<t> medium=<r>/<d>/<c>/<t> high=<r>/<d>/<c>/<t> wall_ok=<yes/no> persist=<yes/no> fps_cover=<n> fps_main=<n> notes=<text>
 ```
 
 Pass: off_ok yes, persist yes, wall_ok yes, fps as v1, low control 4 or better. Medium and high are judged by feel and feed D4.
@@ -378,9 +428,9 @@ Pass: off_ok yes, persist yes, wall_ok yes, fps as v1, low control 4 or better. 
 | Failure | Action | Deadline |
 |---|---|---|
 | Off differs from v1.0.0 | P0. Forge fix run owning `ship.ts` only | before B setup |
-| A level feels wrong | Fable edits `SPACE_TABLE` numbers as glue (under 20 lines), or one Forge fix run | before B setup |
+| A level feels wrong | Fable edits `SPACE_TABLE` numbers (A_MIN, TAU, A_MAX, V_MAX, DRAG, BRAKE) as glue (under 20 lines), or one Forge fix run | before B setup |
 | Setting does not persist | Ledger fix run | before B setup |
-| High unplayable and no retune fits | Execute cut 7 | 2:30 |
+| High unplayable and no retune fits | Execute cut 8 | 2:30 |
 
 ---
 
@@ -407,7 +457,7 @@ Swarm cannot touch `src/render/`, so Glow runs in this wave or the new bullets a
 
 Starting values. Orbit radius 80 u sits outside the Attack drone orbit (60 u) so the two read apart.
 
-Acquisition, pickup based (D5 default), no LevelDef change so v1 hashes stay:
+Acquisition, pickups from kills, lost on death, 20 s (Ryan, question 6; D5), no LevelDef change so v1 hashes stay:
 
 1. A counter of scoring kills drives drops. First drop at kill 15, then every 25 kills. Only one pickup is live; a due drop waits.
 2. The pickup appears at the kill position as `Kind.WeaponPickup`, lives 8 s (blinks the last 2 s), collect radius 28 u from the ship. Bombs leave it alone. Level end clears it.
@@ -557,7 +607,7 @@ V2-GB: pickup=<ok/fail> rapid=<ok/fail> pierce=<ok/fail> orbit=<ok/fail> death_r
 |---|---|---|
 | Pickup never appears or appears twice | Swarm fix run (`src/game/weapons.ts`, `combat.ts`) | before C setup |
 | A weapon is invisible or unreadable | Glow fix run, render only | before C setup |
-| Orbit fails or crowds the pool | Execute cut 6 | 4:20 |
+| Orbit fails or crowds the pool | Execute cut 7 | 4:20 |
 | Spread differs from v1 | P0, Swarm fix run | before C setup |
 
 ---
@@ -574,7 +624,7 @@ V2-GB: pickup=<ok/fail> rapid=<ok/fail> pierce=<ok/fail> orbit=<ok/fail> death_r
 
 Swarm owns `scoring.ts` this wave because Ledger does not run (`baseValue` is keyed by `Kind`, so new kinds score 0 until it is edited). Chorus and Ledger idle. Foundry owns the level pin test because those pins call `generateLevel` with the default config; with `enableV2Enemies` on by default they would change for bands 2 and up (they pin levels 13, 18 and 36).
 
-### Design: five enemies, one hazard entity
+### Design: six enemies, two hazard entities
 
 Each has its own movement rule and a counter the player can learn. All v1 global rules hold (docs/01 section 6.1): 0.6 s telegraph, contact kills the ship, speeds times `speedScale` and the arena factor (`src/game/tuning.ts`), soft separation between same type, `maxLiveEnemies` cap, variation only from LevelDef fields, `w.simRng` or `hash01`. Starting values.
 
@@ -585,9 +635,13 @@ Each has its own movement rule and a counter the player can learn. All v1 global
 | Blink | Drifts toward the ship at 100 u/s for 2.2 s, then a 0.4 s warp phase: harmless and untargetable, a ghost fades at the old spot and a ring marks the destination, then it jumps. Destination is 180 to 260 u from the ship, ahead along the ship velocity when it moves faster than 40 u/s, else at an angle from `hash01(id, cycle)`; pulled inside the arena as in docs/01 section 6.5 | Change direction when the ring shows; shoot right after it lands | 100 | 1 | 130 | 13 | 2 |
 | Swirl | Orbits the ship at radius 240 u (0.6 rad/s, direction from `hash01(id)`), closing 20 u/s. At radius 90 u it commits to a straight dive at 300 u/s | Lead it along the tangent while it circles (pierce and spread both work); sidestep the committed dive | about 144 tangential | 1 | 80 | 12 | 1 |
 | Sower | Hugs the nearest arena boundary at 70 u/s, circulating clockwise, and drops a Mine every 3.0 s (6 live mines per Sower, 24 in total) | Shoot the mines from range; stay off the walls; kill the Sower | 70 | 4 | 180 | 16 | 3 |
+| Splime | Walks straight toward the ship at about 0.35 x ship speed (147 u/s at 420), no turn limit. Every 3.5 s it drops one Slime at its position; at 3 live Slime per Splime or 12 in total it skips the drop. Contact kills the ship like any enemy | Shoot it from range (slow, 3 HP); keep moving so its puddles end up behind you; kill it before it fills your lane | 147 | 3 | 140 | 16 | 2 |
 | Mine (not in rosters) | Static. Harmless for 0.8 s after the drop, then kills the ship on contact. 1 HP, removed after 12 s, no score, no geoms, not pulled by wells, not a destroy kill | Shoot it | 0 | 1 | 0 | 9 | 0 |
+| Slime (hazard, not an enemy, not in rosters) | Static puddle, radius 40 u, lives 8 s. Not deadly. While the ship overlaps it, each step sets `ship.slowUntil = w.time + 2` and `ship.slowFactor = 0.8`: slowed by 20 percent for 2 s, the timer refreshed on each contact, never below 0.8 because the factor is set, not multiplied. Player bullets, drone shots and orbit blades pass through. Drones ignore it. A bomb clears all live Slime. Not pulled by wells, no score, no geoms, not a destroy kill | Steer around it; a bomb clears it | 0 | none | 0 | 40 | 0 |
 
-Shapes must differ at a glance at 12 u radius. Four enemies satisfy the brief; Sower and Mine are the first cut (cut 5).
+Shapes must differ at a glance at 12 u radius. Five of the six enemies satisfy the floor. Sower and Mine are the first cut (cut 5). Splime and Slime are the second (cut 6), which goes below the floor, so Ryan decides.
+
+Splime and Slime numbers beyond Ryan's (speed about 0.35 of the ship, radius about 40 u, lifetime about 8 s, a few per Splime, 20 percent for 2 s, bombs clear all) are Scribe's starting values for Fable to confirm: drop every 3.5 s, 3 per Splime and 12 in total, HP 3, base 140, hitbox 16 u, 2 geoms. Detonate versus Slime is not specified (Known gaps).
 
 New sim events (Appendix B), emitted by Swarm, consumed by Glow in this wave and by Chorus in wave D:
 
@@ -595,7 +649,7 @@ New sim events (Appendix B), emitted by Swarm, consumed by Glow in this wave and
 |---|---|
 | `sim:enemyEnter` `{ kind, live }` | The telegraph ends and no other live entity of that kind existed |
 | `sim:enemyExit` `{ kind }` | The last live entity of that kind is removed (kill, bomb, death clear) |
-| `sim:threat` `{ level }` | At most every 100 ms: `clamp(sum(weight * live) / 40, 0, 1)`. Weights: grunt 1, wanderer 0.5, weaver 1.5, pinwheel 0.8, dart 0.4, snake 3, charger 2, bulwark 2.5, blink 2, swirl 1.5, sower 3, mine 0.2, well 0.5, spawner 1. Telegraphing entities do not count |
+| `sim:threat` `{ level }` | At most every 100 ms: `clamp(sum(weight * live) / 40, 0, 1)`. Weights: grunt 1, wanderer 0.5, weaver 1.5, pinwheel 0.8, dart 0.4, snake 3, charger 2, bulwark 2.5, blink 2, swirl 1.5, sower 3, splime 2, mine 0.2, slime 0, well 0.5, spawner 1. Telegraphing entities do not count. Hazards (Mine, Slime) emit no enter or exit |
 
 Generator target shares (Foundry picks the mechanism, section "Brief: Foundry"):
 
@@ -606,6 +660,9 @@ Generator target shares (Foundry picks the mechanism, section "Brief: Foundry"):
 | Bulwark | 0 | 0 | 12 | 16 |
 | Blink | 0 | 0 | 10 | 14 |
 | Sower | 0 | 0 | 0 | 10 |
+| Splime | 0 | 8 | 10 | 10 |
+
+The Splime row is Scribe's proposal (Ryan gave no shares). Band 4 new kinds now total 80 percent, so Foundry may rescale the v1 remainder, but roster size, spawner and well counts stay as in v1.
 
 Render contract for Glow (what it reads from the World arrays):
 
@@ -615,7 +672,9 @@ Render contract for Glow (what it reads from the World arrays):
 | Bulwark | shield arc centred on `w.rot[id]`, plus and minus 60 deg, radius 26 u |
 | Blink | `w.t[id]` phase in [0, 2.6): during 2.2 to 2.6 a ghost fades from alpha 1 to 0 at the entity position and a ring is drawn at (`w.vx[id]`, `w.vy[id]`), which hold the destination |
 | Swirl, Sower | position and rotation only |
+| Splime | `w.t[id]` seconds since its last drop in [0, 3.5): the body may swell over the last 0.5 s as the tell for the next drop. Rotation is the heading |
 | Mine | `w.t[id]` seconds since the drop: dim under 0.8, bright after, blinking in the last 2 s of 12 |
+| Slime | `w.t[id]` seconds since the drop in [0, 8): the blob grows from half to full radius over the first 0.3 s, blinks in the last 2 s. `w.radius[id]` is 40 |
 
 ### Brief: Swarm (enemies)
 
@@ -629,28 +688,45 @@ Glow draws the new kinds from the render contract table in the plan.
 
 Task, in order (stop at the deadline, do not reorder):
 1. One file per enemy under src/game/enemies/ exporting def and step: charger.ts, bulwark.ts,
-   blink.ts, swirl.ts, sower.ts, mine.ts, with the plan table values and the plan's use of
+   blink.ts, swirl.ts, sower.ts, mine.ts, then splime.ts and slime.ts last (cut 6 removes
+   them cleanly, so do not interleave them), with the plan table values and the plan's use of
    w.t, w.rot, w.vx and w.vy as the render contract. Register in defs.ts; kindOf and defOf
-   cover the five names. Compute seek vectors through steer.ts helpers so a later surface
-   change is one edit. Variation only from hash01 or w.simRng.
+   cover the six names (Kind.Splime and Kind.Slime are stubbed; Slime has no EnemyKind).
+   Compute seek vectors through steer.ts helpers so a later surface change is one edit.
+   Variation only from hash01 or w.simRng.
 2. Combat: Bulwark shield (absorbs player bullets, drone shots and orbit blades in the front
    arc; bombs and Detonate ignore it), Mine shot-able, Charger not pulled by wells while
-   dashing, Mines not pulled. Swirl, Blink, Bulwark, Charger and Sower are pulled like other
-   enemies. ENTITY_CAP respected: spawn returns -1, never throw. Mine cap 6 per Sower, 24 total.
-3. scoring.ts baseValue: Charger 120, Bulwark 150, Blink 130, Swirl 80, Sower 180, Mine 0
-   (countsAsKill false for Mine). Geom drops per the table.
-4. Bus: emit 'sim:enemyEnter', 'sim:enemyExit' and 'sim:threat' as the plan defines, threat at
-   most every 100 ms, computed with the plan weights.
-5. spawner.ts and the objective code accept the new EnemyKind names from a LevelDef.
+   dashing, Mines not pulled. Swirl, Blink, Bulwark, Charger, Sower and Splime are pulled like
+   other enemies. ENTITY_CAP respected: spawn returns -1, never throw. Mine cap 6 per Sower,
+   24 total. Slime cap 3 per Splime, 12 total (skip the drop at the cap).
+3. Slime rules: not an enemy and not a kill. Player bullets, drone shots and orbit blades never
+   collide with it, drones ignore it, wells do not pull it, a bomb removes every live Slime (no
+   score, no geoms). While the ship overlaps a Slime, slime.ts sets w.ship.slowUntil = w.time + 2
+   and w.ship.slowFactor = 0.8 (set, never multiplied). The fields and the read in stepShip are
+   Forge's wave A work: do not edit stepShip's slow handling, only set the fields.
+4. scoring.ts baseValue: Charger 120, Bulwark 150, Blink 130, Swirl 80, Sower 180, Splime 140,
+   Mine 0, Slime 0 (countsAsKill false for Mine and Slime). Geom drops per the table. Slime and
+   Mine never count toward a destroy objective.
+5. Bus: emit 'sim:enemyEnter', 'sim:enemyExit' and 'sim:threat' as the plan defines, threat at
+   most every 100 ms, computed with the plan weights (splime 2, slime 0). Mine and Slime emit
+   no enter or exit.
+6. spawner.ts and the objective code accept the new EnemyKind names (including 'splime') from a
+   LevelDef.
 
 Definition of done: npm test and npm run build pass, no any, no new dependency, no per step
 allocation, 400 live entities hold.
 Tests to add: one per enemy (charger phases and dash end at a wall; bulwark blocks a frontal
 bullet and loses HP to a side hit; blink never targetable during the warp and lands 180 to 260
 u from the ship; swirl radius closes and dives at 90 u; sower drops a mine every 3 s up to the
-cap; mine arms after 0.8 s and expires at 12 s); scoring values; events (enter on 0 to 1, exit
-on last removal, threat rate limit and clamp); determinism (same LevelDef and input log give an
-identical spawn and event log over 60 s); every existing test unmodified and green.
+cap; mine arms after 0.8 s and expires at 12 s; splime closes on the ship at 0.35 x ship speed
+(within 5 percent) and drops a Slime every 3.5 s up to 3 live and 12 total; slime expires at
+8 s, a ship overlap sets slowUntil to now plus 2 and slowFactor to 0.8, a second overlap
+refreshes the timer and leaves the factor at 0.8 (not 0.64), a bullet passes through it and
+both survive, a drone ignores it, a bomb clears all of it, wells do not pull it, it scores 0 and
+never counts toward a destroy objective); scoring values; events (enter on 0 to 1, exit on last
+removal, threat rate limit and clamp, no enter or exit for Mine and Slime); determinism (same
+LevelDef and input log give an identical spawn and event log over 60 s); every existing test
+unmodified and green.
 End with the hand-off block.
 ```
 
@@ -665,8 +741,10 @@ Own: src/levelgen/, tests/levelgen/. src/core/surface.ts is read only.
 Task:
 1. GenConfig.enableV2Enemies (default true). With it false, generateLevel and generateEndless
    output is byte identical to v1 for every seed (the existing goldens and tests/qa snapshots
-   do not change). With it true, bands 2 and up may use the five new kinds per the plan's target
-   share table. Mechanism is yours but must satisfy: the v1 draw sequence is untouched; a
+   do not change). With it true, bands 2 and up may use the six new kinds (charger, bulwark,
+   blink, swirl, sower, splime) per the plan's target share table. Mine and Slime are hazards
+   with no EnemyKind and are never in a roster or a wave. Mechanism is yours but must satisfy:
+   the v1 draw sequence is untouched; a
    separate salted stream (as docs/09 section 2.5 does for surface) runs after it and
    substitutes non Grunt roster and wave kinds; band 1 never contains a new kind; roster size
    stays 3 to 6 with Grunt forced; wave spawn units for the new kinds are 1.
@@ -674,14 +752,16 @@ Task:
    still reports version 1, so v1 hashes and anything keyed by them stay valid. Keep
    LEVELDEF_VERSION 1 unless a field shape changes. Record how the version is carried in the
    hand-off. validateLevel accepts the new kinds.
-3. Tables: ENEMY_BASE and ENEMY_GEOMS values from the plan; par and star calculations include
-   them (tests/levelgen/par.test.ts and parSim.ts stay green).
+3. Tables: ENEMY_BASE and ENEMY_GEOMS values from the plan (splime 140 and 2 geoms); par and
+   star calculations include them (tests/levelgen/par.test.ts and parSim.ts stay green).
+   Splime weights per the share table (0, 8, 10, 10 by band); the splime entry is already
+   stubbed at zero.
 4. generateEndless includes the new kinds in its band 4 ramp when the flag is on.
 5. Flat hook: do not change src/core/surface.ts or the `surface: 'flat'` emission and
    validator check. Add a test that every generated level is 'flat' with the flag on and that
    any other value fails validation.
-6. In the hand-off list, for run seed 42, the first level index in each band where each new
-   kind is in the roster (Ryan uses these at GC).
+6. In the hand-off list, for run seed 42, the first level index in each band where each of the
+   six new kinds is in the roster (Ryan uses these at GC).
 7. tests/qa/levelSnapshots.test.ts: pin the existing five pins to enableV2Enemies false so
    their hard coded hashes and snapshot files stay byte for byte unchanged, and add flag on
    pins as new files. Touch nothing else under tests/qa.
@@ -690,7 +770,8 @@ Definition of done: npm test and npm run build pass, no any, no new dependency, 
 Date, no Math.random, no DOM).
 Tests to add: flag off equals v1 over 1000 seeds (hash compare); flag on validates for 1000
 seeds; band 1 has no new kind; share of each new kind within 3 points of the table over 1000
-seeds per band; roster 3 to 6 and Grunt present; JSON round trip; Math.random stubbed to throw
+seeds per band (splime included); roster 3 to 6 and Grunt present; no roster or wave ever names
+a hazard; JSON round trip; Math.random stubbed to throw
 still generates; levelHash goldens for the flag on path (seeds 1, 42, 0xDEADBEEF at index 7
 and 20); surface stays flat.
 End with the hand-off block.
@@ -706,13 +787,20 @@ Own: src/render/, tests/render/. Everything else is read only.
 
 Task:
 1. Tune the five enemy palette keys (stubbed in neon.ts) in the hue gaps left by docs/01
-   section 11, roughly 10, 240, 335, 160 and 75, and check each against its neighbours.
+   section 11, roughly 10, 240, 335, 160 and 75, and check each against its neighbours. Then
+   tune `splime` in the remaining gap and `slime` as the same hue family at lower alpha, so the
+   puddle reads as the Splime's and as a hazard, not as an enemy.
 2. shapes.ts and shapeSpecs.ts: Charger (arrowhead), Bulwark (square with the shield arc),
    Blink (ring with a gap, ghost and destination ring from the render contract), Swirl
-   (spiral glyph), Sower (hexagon with a drop notch), Mine (small diamond, dim until armed,
-   blinking at the end). Silhouettes must differ at 12 u radius.
+   (spiral glyph), Sower (hexagon with a drop notch), Splime (rounded blob body with a soft
+   inner nucleus and a drip notch, swelling over the last 0.5 s before a drop), Mine (small
+   diamond, dim until armed, blinking at the end), Slime (a soft blob: irregular rounded
+   puddle, translucent fill, brighter rim, edge wobble from hash01(id), no hard polygon; grows
+   from half to full radius over 0.3 s and blinks in the last 2 s of 8). Silhouettes must
+   differ at 12 u radius, and Slime must read as a floor hazard, never as an enemy.
 3. Enemy fx: Charger lane line during the wind up and a dash streak, a Blink arrival flash,
-   a Swirl trail. Trails use the shared particle pool and obey the 80 percent shedding rule.
+   a Swirl trail, a small splat flash when a Slime lands. Trails use the shared particle pool
+   and obey the 80 percent shedding rule.
 4. Threat driven map effects from bus 'sim:threat': a slow pulse of the arena wall glow and a
    brief wall flash on kills within 120 u of a wall ('fx:kill' x, y). Each effect is a
    multiplier on its own layer. Never write bloom strength, threshold, saturation, glow width
@@ -724,7 +812,7 @@ Definition of done: npm test and npm run build pass, no any, no v7 APIs, no new 
 Desktop Chrome with stress(400, 2000) is a proxy only; report it.
 Tests to add: shapes registry covers every Kind including the new ones; render contract
 helpers as pure functions (charger phase to lane visibility, blink phase to ghost alpha, mine
-arming); threat to pulse mapping is monotonic and bounded; tier gating; the neon tests still
+arming, slime age to radius scale and blink, splime phase to swell); threat to pulse mapping is monotonic and bounded; tier gating; the neon tests still
 assert the SPEC 4 endpoints.
 End with the hand-off block.
 ```
@@ -737,24 +825,27 @@ End with the hand-off block.
 
 ### Gate GC (6:50 to 7:30)
 
-Fable verifies: the shared gate checks; flag off goldens unchanged (existing files under `tests/qa/__snapshots__` untouched, the five hard coded hashes unchanged, new flag on files only added); `git diff main...feat/foundry-v2-enemies -- src/core src/game` is empty; `tests/levelgen/surface.test.ts` unmodified; `grep -rn "mulberry32" src/game` returns nothing; Foundry's level index list is in the hand-off.
+Fable verifies: the shared gate checks; flag off goldens unchanged (existing files under `tests/qa/__snapshots__` untouched, the five hard coded hashes unchanged, new flag on files only added); `git diff main...feat/foundry-v2-enemies -- src/core src/game` is empty; `tests/levelgen/surface.test.ts` unmodified; `grep -rn "mulberry32" src/game` returns nothing; `git diff main...feat/swarm-enemies -- src/game/ship.ts` is empty (Swarm only sets the slow fields, Forge's read stays as merged); no roster or wave in any generated level names Mine or Slime; Foundry's level index list is in the hand-off.
 
 Ryan verifies on device:
 
 ```text
-V2-GC device check, about 12 minutes. Confirm build id <id>.
+V2-GC device check, about 14 minutes. Confirm build id <id>.
 1. Use the level indices from Foundry's hand-off: <Fable fills in from the hand-off>. Play one
    level per new enemy, seed 42.
-2. For each of Charger, Bulwark, Blink, Swirl, Sower: can you tell what it will do (yes/no) and
-   did you learn a counter (yes/no). Rate fairness 1 unfair to 5 fair.
+2. For each of Charger, Bulwark, Blink, Swirl, Sower, Splime: can you tell what it will do
+   (yes/no) and did you learn a counter (yes/no). Rate fairness 1 unfair to 5 fair.
 3. Same level twice. Expect: same enemies, same hash.
 4. Turn on Medium space physics and meet a Blink. Note whether it still feels fair.
-5. Show FPS on with ?stress=400. Note fps main.
+5. On a Splime level, drive through a Slime puddle. Expect: you slow by about a fifth for
+   about two seconds, staying in it keeps you slowed, your shots pass through it, a bomb
+   clears every puddle, the puddle is not deadly. Rate the slow 1 unfair to 5 fair.
+6. Show FPS on with ?stress=400. Note fps main.
 Paste back:
-V2-GC: charger=<tell>/<counter>/<fair> bulwark=<tell>/<counter>/<fair> blink=<tell>/<counter>/<fair> swirl=<tell>/<counter>/<fair> sower=<tell>/<counter>/<fair> hash_same=<yes/no> fps_main=<n> notes=<text>
+V2-GC: charger=<tell>/<counter>/<fair> bulwark=<tell>/<counter>/<fair> blink=<tell>/<counter>/<fair> swirl=<tell>/<counter>/<fair> sower=<tell>/<counter>/<fair> splime=<tell>/<counter>/<fair> slime=<ok/fail>/<fair> hash_same=<yes/no> fps_main=<n> notes=<text>
 ```
 
-Pass: all five tell and counter yes, no fairness under 3, hash_same yes. A fairness 1 or 2 on Sower triggers cut 5 (D7). A failure on any of the other four is a Swarm fix run, because four is the floor.
+Pass: all six tell and counter yes, no fairness under 3, slime ok, hash_same yes. A fairness 1 or 2 on Sower triggers cut 5 (D7). A fairness 1 or 2 on Splime or on the Slime slow triggers cut 6, which is below the floor of five, so Fable reports it to Ryan and Ryan decides. A failure on any of Charger, Bulwark, Blink or Swirl is a Swarm fix run, because five is the floor.
 
 ### If GC fails
 
@@ -763,6 +854,7 @@ Pass: all five tell and counter yes, no fairness under 3, hash_same yes. A fairn
 | Hash differs for one seed | P0, Foundry fix run (`src/levelgen/` only) | before D setup |
 | An enemy is unreadable or unfair | Tuning numbers as glue, or a Swarm fix run | before D setup |
 | Sower or Mine unfair | Execute cut 5 | 6:50 |
+| Splime or Slime unfair, or Slime cap trouble | Tune the slow (factor or seconds) or the drop interval as glue first; if that fails, execute cut 6 after Ryan agrees (below the floor) | 6:50 |
 | fps under 60 | Glow fix run first (trails and map effects), then lower the particle cap | before D setup |
 
 ---
@@ -777,7 +869,7 @@ Pass: all five tell and counter yes, no fairness under 3, hash_same yes. A fairn
 | Chorus | opus | feat/chorus-layers | `src/audio/` | ../sow-chorus-v2d |
 | Ledger | sonnet | feat/ledger-fx-music | `src/core/settings.ts`, `src/ui/`, `src/main.ts` | ../sow-ledger-v2d |
 
-Three disjoint lanes. Glow and Chorus both depend on the events Swarm emitted in wave C, now merged. Cut 1 and cut 2 are decided at setup; cuts 3 and 4 at the end.
+Three disjoint lanes. Glow and Chorus both depend on the events Swarm emitted in wave C, now merged. Cut 1 is decided at setup if the Chorus A hand-off reports scheduler glitches, otherwise at GD together with cut 2; cuts 3 and 4 at the end.
 
 ### Design: visual targets in words
 
@@ -845,7 +937,7 @@ Wave A built the bed (bass, pad, kick, hat, arp) driven by threat. Wave D adds t
 
 1. Event `sim:enemyEnter` for a kind plays a stinger: one note of the current chord (or its pentatonic neighbour), quantized to the next sixteenth. Then the kind's motif joins, quantized to the next bar, fading in over one bar.
 2. A kind's motif leaves 2 bars after `sim:enemyExit`.
-3. Eleven kinds (six v1, five new) each get a distinct timbre, register and rhythmic character that mirrors the behaviour: grunts a steady pulse, wanderers a drifting random walk, weavers off beat dodges, pinwheels a rotating cycle, darts fast runs, snakes long sliding notes, chargers a rising wind up each cycle, bulwarks a heavy low pair, blinks a bright staccato with gaps, swirls a looping spiral arpeggio, sowers a sparse tick. Chorus writes the exact table in its hand-off. Hazards (wells, spawners) add no layer in v2.0.
+3. Twelve kinds (six v1, six new) each get a distinct timbre, register and rhythmic character that mirrors the behaviour: grunts a steady pulse, wanderers a drifting random walk, weavers off beat dodges, pinwheels a rotating cycle, darts fast runs, snakes long sliding notes, chargers a rising wind up each cycle, bulwarks a heavy low pair, blinks a bright staccato with gaps, swirls a looping spiral arpeggio, sowers a sparse tick, splimes a slow wobbling glide between two low notes. Chorus writes the exact table in its hand-off. Hazards (wells, spawners, Mine, Slime) add no layer in v2.0.
 4. Motifs are pure functions of (level seed, kind, bar) built on `hash01`. At most 6 kinds are live (roster limit), so at most 6 motif voices plus the bed fit inside the 16 voice cap.
 5. Music plays in play and not in menus (D9). Level start calls `startMusic(seed)`; quit and game over call `stopMusic()`.
 
@@ -859,7 +951,7 @@ Own: src/audio/, tests/audio/. Everything else is read only.
 
 Task:
 1. src/audio/music/layers.ts: a registry mapping every EnemyKind (grunt, wanderer, weaver,
-   pinwheel, dart, snake, charger, bulwark, blink, swirl, sower) to { stinger degree, motif
+   pinwheel, dart, snake, charger, bulwark, blink, swirl, sower, splime) to { stinger degree, motif
    builder, timbre, register, gain }. Distinct timbre and register per kind, character per the
    plan's design section. Motifs are 2 bar loops of 4 to 8 notes, pure functions of
    (seed, kind, bar) on hash01, all notes inside the scale.
@@ -1031,29 +1123,32 @@ Same as docs/05: split Fable's session at every landing boundary (T+0:30, 2:30, 
 
 ## Questions for Ryan
 
-Defaults in brackets. Items 1 and 2 gate the whole plan.
+Ryan replied on 2026-10-28 with seven numbered items that cover these questions as follows (his item number in brackets). His item numbers differ from the numbers below: item 3 answers questions 3 and 4, item 4 answers 6, item 5 answers 8, item 6 answers 11 and item 7 answers 10. Questions he did not cover keep their bracketed default and say so.
 
-1. Exact expiry hour of the $192.49 credits on 2026-10-29, and is the second $200 (expires 2026-11-29) still unspent and usable for this work? [Assume end of 2026-10-29 local and only the $137; the plan needs about 12.5 hours.]
-2. When are you free for five gates (GA to GE, 10 to 25 minutes each) and the B9 recheck? [Within the next 13 hours; otherwise gates run provisional and the plan compresses by cut order.]
-3. Space physics: does "exponential acceleration" mean the ship eases toward the stick velocity (this plan, with drift on release), or thrust that builds up the longer you hold? Should high ever coast forever? Should reversing get a brake assist? [Easing model, long but finite coast, no brake assist.]
-4. Walls under physics: slide (v1) or bounce? [Slide on all levels.]
-5. Separate score tables per space physics level? [No: one table, the level is shown on the results line.]
-6. Weapon acquisition: pickups from kills or unlock by level? Does death lose the weapon? Weapon length 20 s? [Pickups, lost on death, 20 s.]
-7. Weapon pickups on by default? [On; the Settings switch turns them off.]
-8. Enemies: Charger, Bulwark, Blink, Swirl, Sower (with Mines). Any you dislike, or behaviours you want instead? [As drafted; Sower is the first cut.]
-9. Bands 2 and up change for the same run seed after v2. Levels 1 to 5, unlocked progress and old scores stay. Acceptable? [Yes, behind `enableV2Enemies`.]
-10. Reference images: put 3 to 6 GW3 screenshots under `docs/ref/` (docs only, never shipped). Which matter most: grid deformation, trails, colour, background? [Grid, trails, particles, then background.]
-11. Music taste: mood, key and tempo? Menu music? Default volume? [Minor key, 120 BPM, in play only, 50.]
-12. Is the 60 fps main screen floor strict for Standard, with High opt in only if it also holds 60? [Yes.]
-13. Restart the dispatcher with `MAX_BUDGET_USD=8` for v2? [Yes.]
-14. Chorus as a tenth roster nickname (SPEC 7.3 lists nine)? [Yes, through the addendum.]
-15. Curved surfaces: confirm they stay a flat hook only for this plan. [Yes.]
+1. Exact expiry hour of the $192.49 credits on 2026-10-29, and is the second $200 (expires 2026-11-29) still unspent and usable for this work? Answered [item 1]: the second $200 credit is usable, so budget is not the constraint. The exact expiry hour of the first credit was not given and no longer gates the plan.
+2. When are you free for five gates (GA to GE, 10 to 25 minutes each) and the B9 recheck? Answered [item 2]: all five gates are available.
+3. Space physics: does "exponential acceleration" mean the ship eases toward the stick velocity, or thrust that builds up the longer you hold? Should high ever coast forever? Should reversing get a brake assist? Answered [item 3]: thrust, not easing. Acceleration is `a(t) = A_MIN x exp(t / TAU)` capped at `A_MAX`, with `t` the continuous hold time; velocity gains `a x dir x dt`, capped at `V_MAX`; on release the ship drifts under exponential drag `DRAG`. Brake assist on reversing: when the stick opposes the velocity (dot below 0) the deceleration is multiplied by `BRAKE`. Low, Medium and High each set the row (A_MIN, TAU, A_MAX, V_MAX, DRAG, BRAKE). Off reproduces v1 exactly and every existing feel test passes. Starting numbers are in "Design: the physics model", tuned at GA. Exponential drag never reaches zero by itself, so the snap to rest below 3 u/s (so no level coasts forever) is Scribe's addition for Fable to confirm.
+4. Walls under physics: slide (v1) or bounce? Answered [item 3]: walls slide, no bounce.
+5. Separate score tables per space physics level? Not covered by Ryan's reply. Default stands: no, one table, the level is shown on the results line. No docs/10 brief gives Ledger the results line task (open).
+6. Weapon acquisition: pickups from kills or unlock by level? Does death lose the weapon? Weapon length 20 s? Answered [item 4]: pickups from kills, lost on death, 20 s.
+7. Weapon pickups on by default? Not covered by Ryan's reply. Default stands: on; the Settings switch turns them off.
+8. Enemies: Charger, Bulwark, Blink, Swirl, Sower (with Mines). Any you dislike, or behaviours you want instead? Answered [item 5]: as drafted plus a sixth enemy, Splime. It moves slowly (about 0.35 x ship speed) toward the ship and every few seconds drops Space Slime, a static puddle hazard (radius about 40 u, lifetime about 8 s, a few live per Splime). Slime is not deadly; a ship touching it is slowed 20 percent for 2 s (a ship speed multiplier channel, timer refreshed on each contact, not stacking below 0.8). Bullets pass through Slime, a bomb clears all of it, drones ignore it. New names: Kinds `Splime` and `Slime`, `EnemyKind` `'splime'`, palette keys `splime` and `slime`. Slime is drawn as a soft blob and is a hazard, not an enemy, for the destroy objective. Cut order: Sower and Mine first, Splime and Slime second. Floor five of six.
+9. Bands 2 and up change for the same run seed after v2. Levels 1 to 5, unlocked progress and old scores stay. Acceptable? Not covered by Ryan's reply. Default stands: yes, behind `enableV2Enemies`.
+10. Reference images: put 3 to 6 GW3 screenshots under `docs/ref/` (docs only, never shipped). Which matter most: grid deformation, trails, colour, background? Answered [item 7]: priority grid deformation, trails, particles. Ryan will add screenshots to `docs/ref/`. Background and colour were not ranked.
+11. Music taste: mood, key and tempo? Menu music? Default volume? Answered [item 6]: music as drafted (minor key, A minor, 120 BPM, in play only, default volume 50).
+12. Is the 60 fps main screen floor strict for Standard, with High opt in only if it also holds 60? Not covered by Ryan's reply. Default stands: yes.
+13. Restart the dispatcher with `MAX_BUDGET_USD=8` for v2? Not covered by Ryan's reply. Default stands: yes (still sensible with the larger pool).
+14. Chorus as a tenth roster nickname (SPEC 7.3 lists nine)? Not covered by Ryan's reply. Default stands: yes, through the addendum.
+15. Curved surfaces: confirm they stay a flat hook only for this plan. Not covered by Ryan's reply. Default stands: yes.
 
 ## Known gaps in this plan
 
 - Gravity wells do not transfer momentum under space physics (Swarm optional item in B).
 - No sound cues for weapon pickups or the Blink warp; hazards add no music layer.
-- No brake assist, no bounce, no per level score tables for physics.
+- No bounce and no per level score tables for physics. (Brake assist is now in the model.)
+- Detonate versus Slime is not specified. Swarm gives it no effect on Slime unless Fable says otherwise.
+- Splime drop interval, per Splime and total Slime caps, HP, score, shares and threat weights are Scribe's starting values, not Ryan's.
+- Whether a half deflected stick should scale V_MAX as well as thrust is not specified; the plan scales thrust only.
 - No level based weapon loadout (rejected as default, D5).
 - Music has no menu track and no per seed key change.
 - The lattice impulse tint is optional in Glow D.
@@ -1148,5 +1243,7 @@ Bus events, additive to `src/core/events.ts`, stubbed at V2-W0 (`WeaponKind = 's
 | `fx:pickup` | `{ x: number; y: number; weapon: WeaponKind }` | Swarm (B) | Glow |
 | `hud:weapon` | `{ kind: WeaponKind; remaining: number; total: number }`, at most every 100 ms and on change | Swarm (B) | Ledger |
 
-New `Kind` values (appended): `WeaponPickup, Charger, Bulwark, Blink, Swirl, Sower, Mine`. New `EnemyKind` names: `charger`, `bulwark`, `blink`, `swirl`, `sower`.
+New `Kind` values (appended): `WeaponPickup, Charger, Bulwark, Blink, Swirl, Sower, Mine` (stubbed at 47b727f), then `Splime, Slime` (follow-up stubs). New `EnemyKind` names: `charger`, `bulwark`, `blink`, `swirl`, `sower`, and `splime` (follow-up stubs). Mine and Slime are hazard Kinds with no `EnemyKind`. New palette keys in `src/render/neon.ts`: the five enemies and three weapons (stubbed), then `splime` and `slime` (follow-up stubs).
+
+Ship state fields (Forge, wave A, not bus events): `slowUntil` (a `w.time` value, default 0) and `slowFactor` (default 1) on `ShipState`, set by Swarm's Slime in wave C.
 
