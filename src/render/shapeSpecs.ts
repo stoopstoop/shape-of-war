@@ -99,6 +99,59 @@ function placeholderSpec(): ShapeSpec {
   return { tint: 'magenta', radius: 12, layers: [layer([{ t: 'circle', r: 12 }], 2.5)] };
 }
 
+/** Kind.WeaponPickup as a plain number, for the renderer's per kind checks. */
+export const PICKUP_KIND: number = Kind.WeaponPickup;
+
+/** Pickup radius from the render contract (w.radius 14). */
+export const PICKUP_RADIUS = 14;
+
+/**
+ * Weapon pickup: a pentagon outline (no other glyph uses five sides) with a glowing core line,
+ * plus a per weapon inner mark. The whole glyph spins in the renderer.
+ */
+function pickupSpec(tint: PaletteKey, mark: readonly ShapeLayer[]): ShapeSpec {
+  return {
+    tint,
+    radius: PICKUP_RADIUS,
+    layers: [layer([{ t: 'regularPoly', r: PICKUP_RADIUS, sides: 5, rot: 0 }], 2), ...mark],
+  };
+}
+
+/** Pickup glyphs by w.a weapon index (1 rapid, 2 pierce, 3 orbit), index 0 unused. */
+export const PICKUP_SPECS: readonly ShapeSpec[] = [
+  pickupSpec('white', []),
+  // Rapid: two parallel bars, the twin stream.
+  pickupSpec('rapid', [
+    layer(
+      [
+        { t: 'line', pts: [-6, -3, 6, -3] },
+        { t: 'line', pts: [-6, 3, 6, 3] },
+      ],
+      1.8,
+      { glow: false },
+    ),
+  ]),
+  // Pierce: an arrow through the centre, the lance.
+  pickupSpec('pierce', [
+    layer(
+      [
+        { t: 'line', pts: [-7, 0, 7, 0] },
+        { t: 'line', pts: [2, -4, 7, 0, 2, 4] },
+      ],
+      1.8,
+      { glow: false },
+    ),
+  ]),
+  // Orbit: a ring around a dot, the blades around the ship.
+  pickupSpec('orbit', [
+    layer([{ t: 'circle', r: 5.5 }], 1.6, { glow: false }),
+    layer([{ t: 'circle', r: 2 }], 0, { fill: 1, glow: false }),
+  ]),
+];
+
+/** Number of pickup variants after the registry kinds (weapon indices 1 to 3). */
+export const PICKUP_VARIANTS = PICKUP_SPECS.length - 1;
+
 export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   [Kind.Ship]: {
     tint: 'ship',
@@ -180,8 +233,10 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
       ),
     ],
   },
-  // V2 contract stubs: magenta circle placeholders until Glow draws the real glyphs.
-  [Kind.WeaponPickup]: placeholderSpec(),
+  // Weapon pickup with no known weapon index: the outline and a centre dot. The renderer draws
+  // the per weapon variants (PICKUP_SPECS) through pickupSlot.
+  [Kind.WeaponPickup]: pickupSpec('white', [layer([{ t: 'circle', r: 2.5 }], 0, { fill: 1, glow: false })]),
+  // V2 contract stubs: magenta circle placeholders until Glow draws the real glyphs (wave C).
   [Kind.Charger]: placeholderSpec(),
   [Kind.Bulwark]: placeholderSpec(),
   [Kind.Blink]: placeholderSpec(),
@@ -208,3 +263,43 @@ export function specFor(kind: number): ShapeSpec {
 
 /** Highest Kind value with a registry entry, for the context cache size. */
 export const MAX_KIND: number = Math.max(...ALL_KINDS);
+
+// Visual slots: 0 is the unknown glyph, 1..MAX_KIND the registry kinds, then one slot per pickup
+// variant. The renderer caches contexts and glow textures per slot, not per Kind, so a pickup
+// can change its inner mark without a Kind of its own.
+
+/** Highest visual slot, for the context and texture cache sizes. */
+export const MAX_SLOT: number = MAX_KIND + PICKUP_VARIANTS;
+
+/** Pure: visual slot for a pickup weapon index. Unknown indices give the plain pickup slot. */
+export function pickupSlot(weapon: number): number {
+  return Number.isInteger(weapon) && weapon >= 1 && weapon <= PICKUP_VARIANTS ? MAX_KIND + weapon : Kind.WeaponPickup;
+}
+
+/** Pure: visual slot for an entity. a is w.a[id], read only for weapon pickups. */
+export function visualSlot(kind: number, a: number): number {
+  if (kind === Kind.WeaponPickup) return pickupSlot(a);
+  return kind >= 1 && kind <= MAX_KIND ? kind : 0;
+}
+
+/** Pure: spec for a visual slot, with the magenta fallback. */
+export function specForSlot(slot: number): ShapeSpec {
+  if (slot > MAX_KIND && slot <= MAX_SLOT) return PICKUP_SPECS[slot - MAX_KIND] ?? UNKNOWN_SPEC;
+  return specFor(slot);
+}
+
+/** Pickup spin, radians per second (render only). */
+export const PICKUP_SPIN = 1.6;
+/** The pickup blinks while it has less than this many seconds left (docs/10 render contract). */
+export const PICKUP_BLINK_SEC = 2;
+/** Blink toggles per second while blinking. */
+const PICKUP_BLINK_HZ = 10;
+/** Alpha of the blink off phase: dim, never invisible, so the pickup is still findable. */
+export const PICKUP_BLINK_LOW = 0.2;
+
+/** Pure: pickup alpha from its seconds of life left (w.t). Solid until the last 2 s, then blinks. */
+export function pickupAlpha(tLeft: number): number {
+  if (!(tLeft < PICKUP_BLINK_SEC)) return 1;
+  if (tLeft <= 0) return PICKUP_BLINK_LOW;
+  return Math.floor(tLeft * PICKUP_BLINK_HZ) % 2 === 0 ? PICKUP_BLINK_LOW : 1;
+}

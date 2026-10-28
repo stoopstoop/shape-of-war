@@ -37,9 +37,16 @@ export const BASE_PALETTE = {
   sower: [75, 0.75, 0.55],
   splime: [110, 0.75, 0.55],
   slime: [95, 0.75, 0.55],
-  rapid: [165, 0.8, 0.65],
-  pierce: [20, 0.8, 0.7],
-  orbit: [295, 0.8, 0.7],
+  // Weapon styles (wave B). Each sits in a hue gap between the enemy families of docs/01
+  // section 11 and the wave C stubs, at least 85 degrees from the yellow player bullet and 75
+  // from the pink homing shot, and is lighter than every enemy (L 0.72 to 0.8 against 0.5 to 0.6), so a
+  // weapon shot reads as a pale hot colour and never as an enemy. See tests/render/neon.test.ts.
+  /** Rapid: pale ice blue, in the gap between Snake cyan (185) and Grunt blue (215). */
+  rapid: [200, 1.0, 0.8],
+  /** Pierce: pale violet lance, in the gap between Bulwark (240) and Wanderer purple (275). */
+  pierce: [258, 1.0, 0.78],
+  /** Orbit: mint blades, in the gap between Weaver green (125) and Swirl (160). */
+  orbit: [143, 1.0, 0.72],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type PaletteKey = keyof typeof BASE_PALETTE;

@@ -6,7 +6,8 @@ import type { Kind } from '../game/world';
 import { currentRender, palette, type NeonRender, type PaletteKey } from './neon';
 import {
   MAX_KIND,
-  specFor,
+  MAX_SLOT,
+  specForSlot,
   type ShapeLayer,
   type ShapePrim,
   type ShapeSpec,
@@ -106,8 +107,9 @@ export function buildBloomSourceContext(spec: ShapeSpec, pal: Palette): Graphics
   return ctx;
 }
 
-// Index 0 holds the magenta unknown context; 1..MAX_KIND hold the registry kinds.
-let contexts: (GraphicsContext | null)[] = new Array<GraphicsContext | null>(MAX_KIND + 1).fill(null);
+// Index 0 holds the magenta unknown context; 1..MAX_KIND hold the registry kinds and
+// MAX_KIND+1..MAX_SLOT the weapon pickup variants (shapeSpecs.ts visual slots).
+let contexts: (GraphicsContext | null)[] = new Array<GraphicsContext | null>(MAX_SLOT + 1).fill(null);
 
 function slotOf(kind: number): number {
   return kind >= 1 && kind <= MAX_KIND ? kind : 0;
@@ -120,11 +122,16 @@ export function shapeContext(kind: Kind): GraphicsContext {
 
 /** Same as shapeContext for a raw number read from a Uint8Array. */
 export function contextForValue(kind: number): GraphicsContext {
-  const slot = slotOf(kind);
-  const existing = contexts[slot];
+  return contextForSlot(slotOf(kind));
+}
+
+/** The current shared context for a visual slot (shapeSpecs.ts visualSlot). */
+export function contextForSlot(slot: number): GraphicsContext {
+  const s = slot >= 0 && slot <= MAX_SLOT ? slot : 0;
+  const existing = contexts[s];
   if (existing) return existing;
-  const built = buildContext(specFor(slot), currentRender, palette);
-  contexts[slot] = built;
+  const built = buildContext(specForSlot(s), currentRender, palette);
+  contexts[s] = built;
   return built;
 }
 
@@ -134,6 +141,6 @@ export function contextForValue(kind: number): GraphicsContext {
  */
 export function rebuildShapeContexts(style: GlowStyle): GraphicsContext[] {
   const old = contexts.filter((c): c is GraphicsContext => c !== null);
-  contexts = contexts.map((_, slot) => buildContext(specFor(slot), style, palette));
+  contexts = contexts.map((_, slot) => buildContext(specForSlot(slot), style, palette));
   return old;
 }
