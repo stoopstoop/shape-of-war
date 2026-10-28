@@ -116,8 +116,15 @@ import {
   blinkArrived,
   blinkGhostAlpha,
   blinkRing,
+  CHARGER_CHEVRON_GAP,
+  CHARGER_CHEVRON_SIZE,
   CHARGER_DASH_TRAIL_RATE,
+  CHARGER_LANE_FILL,
+  CHARGER_LANE_HALF,
   CHARGER_LANE_LEN,
+  chargerChevrons,
+  splimeDropRing,
+  type SplimeRing,
   chargerDashing,
   chargerLaneAlpha,
   chargerStreak,
@@ -549,6 +556,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const enemyEmitters: Emitter[] = [];
   let enemyFxDirty = false;
   const ringScratch: BlinkRing = { r: 0, alpha: 0 };
+  const splimeRingScratch: SplimeRing = { r: 0, alpha: 0 };
   // Arrival and splat flashes: a fixed ring of expanding circles, no allocation per event.
   const pops: { x: number; y: number; age: number; life: number; r0: number; r1: number; colour: PaletteKey }[] = [];
   for (let i = 0; i < MAX_POPS; i++) pops.push({ x: 0, y: 0, age: 1, life: 0, r0: 0, r1: 0, colour: 'white' });
@@ -1012,6 +1020,52 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   /**
+   * Charger wind up lane (GC: make it unmistakable). A translucent band exactly as wide as the
+   * dash sweeps, two rails, a bright centre line, an end bar where the dash stops at a wall or
+   * at full length, and chevrons that crawl toward the dash direction. (x, y) is the Charger,
+   * (dx, dy) the unit heading, len the lane length, la the lane alpha, phase the w.t phase.
+   */
+  function drawChargerLane(x: number, y: number, dx: number, dy: number, len: number, la: number, phase: number): void {
+    const colour = palette.charger;
+    const nx = -dy * CHARGER_LANE_HALF;
+    const ny = dx * CHARGER_LANE_HALF;
+    const x0 = x + dx * 16;
+    const y0 = y + dy * 16;
+    const x1 = x + dx * len;
+    const y1 = y + dy * len;
+    if (len > 16) {
+      enemyFx
+        .moveTo(x0 + nx, y0 + ny)
+        .lineTo(x1 + nx, y1 + ny)
+        .lineTo(x1 - nx, y1 - ny)
+        .lineTo(x0 - nx, y0 - ny)
+        .closePath()
+        .fill({ color: colour, alpha: CHARGER_LANE_FILL * la });
+      fxLine(x0 + nx, y0 + ny, x1 + nx, y1 + ny, 1.4, colour, la * 0.75);
+      fxLine(x0 - nx, y0 - ny, x1 - nx, y1 - ny, 1.4, colour, la * 0.75);
+    }
+    fxLine(x0, y0, x1, y1, 2, colour, la);
+    fxLine(x1 + nx, y1 + ny, x1 - nx, y1 - ny, 2.4, colour, la);
+    const n = chargerChevrons(len);
+    const cs = CHARGER_CHEVRON_SIZE;
+    const crawl = (phase * 120) % CHARGER_CHEVRON_GAP;
+    for (let k = 0; k < n; k++) {
+      const d = 30 + crawl + k * CHARGER_CHEVRON_GAP;
+      if (d > len - 8) break;
+      const px = x + dx * d;
+      const py = y + dy * d;
+      const bx = px - dx * cs;
+      const by = py - dy * cs;
+      enemyFx
+        .moveTo(bx - dy * cs, by + dx * cs)
+        .lineTo(px, py)
+        .lineTo(bx + dy * cs, by - dx * cs)
+        .stroke({ width: 2, color: colour, alpha: la, cap: 'round', join: 'round' });
+    }
+    enemyFxDirty = true;
+  }
+
+  /**
    * Render contract for the v2 kinds (docs/10 wave C table): per kind alpha, scale and turn, plus
    * the tells (Charger lane, Blink ring and arrival, Slime splat) and the trails (Swirl, Charger
    * dash). Telegraphing entities draw no tells or trails. Reads the World, writes only render.
@@ -1032,7 +1086,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const dy = Math.sin(ev.rot);
       if (la > 0) {
         const len = rayWallDistance(features, ev.x, ev.y, dx, dy, CHARGER_LANE_LEN);
-        fxLine(ev.x + dx * 16, ev.y + dy * 16, ev.x + dx * len, ev.y + dy * len, 1.6, palette.charger, la);
+        drawChargerLane(ev.x, ev.y, dx, dy, len, la, t);
       } else if (chargerDashing(t) && trailsActive()) {
         const len = chargerStreakLen(t);
         if (len > 4) fxLine(ev.x - dx * 8, ev.y - dy * 8, ev.x - dx * len, ev.y - dy * len, 4, palette.charger, 0.7 * chargerStreak(t));
@@ -1053,6 +1107,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const sw = splimeSwell(t);
       ev.scaleX *= sw;
       ev.scaleY *= sw;
+      // Drop telegraph: a footprint ring growing to the puddle size where the Slime will land.
+      if (!tele) {
+        splimeDropRing(t, splimeRingScratch);
+        if (splimeRingScratch.alpha > 0) fxCircle(ev.x, ev.y, splimeRingScratch.r, 2, palette.splime, splimeRingScratch.alpha);
+      }
     } else if (kind === KIND_NUM.mine) {
       ev.alpha *= mineAlpha(t);
     } else if (kind === KIND_NUM.slime) {

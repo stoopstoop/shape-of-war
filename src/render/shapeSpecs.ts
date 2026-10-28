@@ -136,14 +136,48 @@ const CHARGER_SPEC: ShapeSpec = {
 export const BULWARK_SHIELD_R = 26;
 export const BULWARK_SHIELD_HALF = Math.PI / 3;
 
-/** Bulwark: a square body with a thick frontal shield arc and an inner rim. Hitbox 18. */
+/** Shield plate inner and outer radius around the arc line. */
+const SHIELD_IN = BULWARK_SHIELD_R - 5;
+const SHIELD_OUT = BULWARK_SHIELD_R + 3;
+
+/** Closed crescent between two radii over plus and minus half (radians), n steps per edge. */
+function crescentPlate(rIn: number, rOut: number, half: number, n: number): ShapePrim {
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = -half + (2 * half * i) / n;
+    pts.push(r2(Math.cos(a) * rOut), r2(Math.sin(a) * rOut));
+  }
+  for (let i = n; i >= 0; i--) {
+    const a = -half + (2 * half * i) / n;
+    pts.push(r2(Math.cos(a) * rIn), r2(Math.sin(a) * rIn));
+  }
+  return { t: 'poly', pts };
+}
+
+/** Radial tick at angle a from r0 to r1: marks where the shield ends and the flank begins. */
+function radialTick(a: number, r0: number, r1: number): ShapePrim {
+  return { t: 'line', pts: [r2(Math.cos(a) * r0), r2(Math.sin(a) * r0), r2(Math.cos(a) * r1), r2(Math.sin(a) * r1)] };
+}
+
+/**
+ * Bulwark: an indigo square body behind a white hot shield (GC: make the arc unmistakable). The
+ * shield is a filled crescent plate over the exact blocking arc (plus and minus 60 degrees around
+ * the heading), a thick bright arc line through it, and end ticks that mark where the flank opens.
+ * The shield is baked white, apart from the body colour, so the blocking side reads at a glance
+ * and the sides and rear (the counter) are visibly bare. Hitbox 18.
+ */
 const BULWARK_SPEC: ShapeSpec = {
-  tint: 'bulwark',
-  radius: BULWARK_SHIELD_R,
+  tint: null,
+  radius: SHIELD_OUT,
   layers: [
-    layer([{ t: 'rect', w: 24, h: 24 }], 2.5),
-    layer([arcLine(BULWARK_SHIELD_R, -BULWARK_SHIELD_HALF, BULWARK_SHIELD_HALF, 16)], 3.5),
-    layer([arcLine(BULWARK_SHIELD_R - 4, -BULWARK_SHIELD_HALF * 0.9, BULWARK_SHIELD_HALF * 0.9, 14)], 1.5, { glow: false }),
+    layer([{ t: 'rect', w: 24, h: 24 }], 2.5, { colour: 'bulwark' }),
+    layer([arcLine(BULWARK_SHIELD_R, -BULWARK_SHIELD_HALF, BULWARK_SHIELD_HALF, 20)], 4, { colour: 'white' }),
+    layer([crescentPlate(SHIELD_IN, SHIELD_OUT, BULWARK_SHIELD_HALF, 16)], 1.2, { colour: 'white', fill: 0.38, glow: false }),
+    layer(
+      [radialTick(-BULWARK_SHIELD_HALF, SHIELD_IN - 2, SHIELD_OUT + 3), radialTick(BULWARK_SHIELD_HALF, SHIELD_IN - 2, SHIELD_OUT + 3)],
+      2.5,
+      { colour: 'white' },
+    ),
   ],
 };
 

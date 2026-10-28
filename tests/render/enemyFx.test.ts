@@ -35,10 +35,25 @@ import {
   slimeScale,
   slimeVariant,
   SPLIME_DROP,
+  SPLIME_RING_R0,
   SPLIME_SWELL_MAX,
+  SPLIME_SWELL_SEC,
+  splimeDropRing,
   splimeSwell,
+  CHARGER_LANE_A0,
+  CHARGER_LANE_HALF,
+  chargerChevrons,
   type BlinkRing,
+  type SplimeRing,
 } from '../../src/render/enemyFx';
+import { DROP_SEC as SIM_SPLIME_DROP } from '../../src/game/enemies/splime';
+import {
+  CYCLE as SIM_CHARGER_CYCLE,
+  DASH_END as SIM_CHARGER_DASH_END,
+  def as chargerDef,
+  LANE_LENGTH as SIM_CHARGER_LANE,
+  WINDUP_SEC as SIM_CHARGER_WINDUP,
+} from '../../src/game/enemies/charger';
 
 function sweep(lo: number, hi: number, step: number): number[] {
   const out: number[] = [];
@@ -76,6 +91,19 @@ describe('charger phase to lane visibility', () => {
     }
     const warn = new Set(sweep(0.81, 1.0, 0.005).map((t) => chargerLaneAlpha(t)));
     expect(warn).toEqual(new Set([1, 0.6]));
+  });
+
+  it('is bright from the first frame of the wind up (GC)', () => {
+    expect(chargerLaneAlpha(0)).toBe(CHARGER_LANE_A0);
+    expect(CHARGER_LANE_A0).toBeGreaterThanOrEqual(0.4);
+  });
+
+  it('puts at least one chevron on any lane longer than the body, more on longer lanes', () => {
+    expect(chargerChevrons(0)).toBe(0);
+    expect(chargerChevrons(30)).toBe(0);
+    expect(chargerChevrons(60)).toBe(1);
+    expect(chargerChevrons(CHARGER_LANE_LEN)).toBeGreaterThan(chargerChevrons(200));
+    expect(chargerChevrons(Number.NaN)).toBe(0);
   });
 
   it('dash and streak only between 1.0 and 1.5, streak fades and its length grows to the cap', () => {
@@ -217,17 +245,55 @@ describe('slime age to radius scale and blink', () => {
 });
 
 describe('splime phase to swell', () => {
-  it('is 1 until 0.5 s before the drop, then swells monotonically to the cap', () => {
-    expect(SPLIME_DROP).toBe(3.5);
-    for (const t of [0, 1, 2.9, 3.0]) expect(splimeSwell(t)).toBe(1);
+  it('uses the sim drop interval, so the tell actually comes round (GC)', () => {
+    expect(SPLIME_DROP).toBe(SIM_SPLIME_DROP);
+    expect(SPLIME_SWELL_SEC).toBeLessThan(SPLIME_DROP / 2);
+  });
+
+  it('is 1 until the swell window before the drop, then swells monotonically to the cap', () => {
+    const start = SPLIME_DROP - SPLIME_SWELL_SEC;
+    for (const t of [0, 0.5, start - 0.01, start]) expect(splimeSwell(t)).toBe(1);
     let prev = 1;
-    for (const t of sweep(3.01, 3.5, 0.01)) {
+    for (const t of sweep(start + 0.01, SPLIME_DROP, 0.01)) {
       const s = splimeSwell(t);
       expect(s).toBeGreaterThan(prev);
       expect(s).toBeLessThanOrEqual(1 + SPLIME_SWELL_MAX);
       prev = s;
     }
-    expect(splimeSwell(3.5)).toBeCloseTo(1 + SPLIME_SWELL_MAX, 9);
+    expect(splimeSwell(SPLIME_DROP)).toBeCloseTo(1 + SPLIME_SWELL_MAX, 9);
     expect(splimeSwell(Number.NaN)).toBe(1);
+  });
+
+  it('shows a drop ring only in the tell window, growing to the puddle radius and brightening', () => {
+    const out: SplimeRing = { r: 0, alpha: 0 };
+    const start = SPLIME_DROP - SPLIME_SWELL_SEC;
+    for (const t of [0, 1, start, Number.NaN]) expect(splimeDropRing(t, out).alpha).toBe(0);
+    let prevR = 0;
+    let prevA = 0;
+    for (const t of sweep(start + 0.01, SPLIME_DROP, 0.01)) {
+      splimeDropRing(t, out);
+      expect(out.r).toBeGreaterThan(prevR);
+      expect(out.alpha).toBeGreaterThan(prevA);
+      expect(out.r).toBeGreaterThanOrEqual(SPLIME_RING_R0);
+      expect(out.r).toBeLessThanOrEqual(SLIME_RADIUS);
+      prevR = out.r;
+      prevA = out.alpha;
+    }
+    splimeDropRing(SPLIME_DROP, out);
+    expect(out.r).toBeCloseTo(SLIME_RADIUS, 6);
+    expect(out.alpha).toBeCloseTo(1, 6);
+  });
+});
+
+describe('render constants match the sim (read only imports)', () => {
+  it('charger timings and lane length', () => {
+    expect(CHARGER_WINDUP).toBe(SIM_CHARGER_WINDUP);
+    expect(CHARGER_DASH_END).toBe(SIM_CHARGER_DASH_END);
+    expect(CHARGER_CYCLE).toBeCloseTo(SIM_CHARGER_CYCLE, 9);
+    expect(CHARGER_LANE_LEN).toBe(SIM_CHARGER_LANE);
+  });
+
+  it('the charger lane band is exactly the hitbox wide', () => {
+    expect(CHARGER_LANE_HALF).toBe(chargerDef.radius);
   });
 });

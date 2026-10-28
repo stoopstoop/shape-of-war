@@ -16,15 +16,38 @@ const CHARGER_LANE_FLICKER_HZ = 15;
 /** Dash streak length at the start of the dash, arena units. */
 export const CHARGER_STREAK_LEN = 140;
 
+/** Lane alpha at the start of the wind up and just before the warning flicker (GC: brighter). */
+export const CHARGER_LANE_A0 = 0.4;
+export const CHARGER_LANE_A1 = 0.9;
 /**
- * Pure: lane line alpha for a Charger phase. 0 outside the wind up. Rises from 0.2 to 0.8
+ * Lane half width: the Charger hitbox radius, so the band shows exactly the strip the dash
+ * sweeps. Two rails at plus and minus this, a centre line and a translucent fill between.
+ */
+export const CHARGER_LANE_HALF = 15;
+/** Band fill alpha at lane alpha 1. */
+export const CHARGER_LANE_FILL = 0.16;
+/** Chevrons along the lane pointing the dash direction, every this many arena units. */
+export const CHARGER_CHEVRON_GAP = 90;
+export const CHARGER_CHEVRON_SIZE = 9;
+
+/**
+ * Pure: lane line alpha for a Charger phase. 0 outside the wind up. Rises from 0.4 to 0.9
  * across the wind up, then flickers between 1 and 0.6 in the last 0.2 s before the dash.
  */
 export function chargerLaneAlpha(phase: number): number {
   if (!(phase >= 0) || !(phase < CHARGER_WINDUP)) return 0;
   const left = CHARGER_WINDUP - phase;
   if (left <= CHARGER_LANE_WARN) return Math.floor(left * CHARGER_LANE_FLICKER_HZ * 2) % 2 === 0 ? 1 : 0.6;
-  return 0.2 + 0.6 * (phase / (CHARGER_WINDUP - CHARGER_LANE_WARN));
+  return CHARGER_LANE_A0 + (CHARGER_LANE_A1 - CHARGER_LANE_A0) * (phase / (CHARGER_WINDUP - CHARGER_LANE_WARN));
+}
+
+/**
+ * Pure: chevron count along a lane of length len. They start past the Charger body and stop
+ * short of the end, so a short lane (Charger near a wall) still shows at least one.
+ */
+export function chargerChevrons(len: number): number {
+  if (!(len > 40)) return 0;
+  return Math.max(1, Math.floor((len - 30) / CHARGER_CHEVRON_GAP));
 }
 
 /** Pure: whether the lane line shows (the wind up). */
@@ -169,17 +192,52 @@ export function slimeVariant(h: number): number {
   return clampNum(v, 0, SLIME_VARIANTS - 1);
 }
 
-// Splime: w.t seconds since its last drop in [0, 3.5). Swells over the last 0.5 s.
-export const SPLIME_DROP = 3.5;
-export const SPLIME_SWELL_SEC = 0.5;
-export const SPLIME_SWELL_MAX = 0.2;
+// Splime: w.t seconds since its last drop in [0, SPLIME_DROP). Must equal the sim's DROP_SEC
+// (src/game/enemies/splime.ts, 2 s since Ryan's GC call; tests/render/enemyFx.test.ts checks).
+// Wave C used 3.5, so the swell window (3.0 to 3.5) never came round: the GC "drop telegraph not
+// visible" finding. The tell is the swell plus a footprint ring that grows to the puddle size.
+export const SPLIME_DROP = 2;
+export const SPLIME_SWELL_SEC = 0.6;
+export const SPLIME_SWELL_MAX = 0.25;
+/** Footprint ring: grows from the body edge to the full Slime radius over the swell window. */
+export const SPLIME_RING_R0 = 18;
 
-/** Pure: Splime body scale. 1 until 0.5 s before the drop, then smoothstep up to 1.2. */
-export function splimeSwell(t: number): number {
+/** Pure: 0 before the tell window, 1 at the drop. */
+function splimeTell(t: number): number {
   const start = SPLIME_DROP - SPLIME_SWELL_SEC;
-  if (!(t > start)) return 1;
-  const u = clampNum((t - start) / SPLIME_SWELL_SEC, 0, 1);
+  if (!(t > start)) return 0;
+  return clampNum((t - start) / SPLIME_SWELL_SEC, 0, 1);
+}
+
+/** Pure: Splime body scale. 1 until 0.6 s before the drop, then smoothstep up to 1.25. */
+export function splimeSwell(t: number): number {
+  const u = splimeTell(t);
+  if (u <= 0) return 1;
   return 1 + SPLIME_SWELL_MAX * u * u * (3 - 2 * u);
+}
+
+export interface SplimeRing {
+  /** Arena units. */
+  r: number;
+  alpha: number;
+}
+
+/**
+ * Pure: the drop telegraph ring around a Splime, written into out. Alpha 0 outside the tell
+ * window; inside it the ring grows from the body to the puddle radius (where the Slime lands)
+ * and brightens from 0.3 to 1, so the player sees where and when the puddle will be.
+ */
+export function splimeDropRing(t: number, out: SplimeRing): SplimeRing {
+  const u = splimeTell(t);
+  if (u <= 0) {
+    out.r = SPLIME_RING_R0;
+    out.alpha = 0;
+    return out;
+  }
+  const e = 1 - (1 - u) * (1 - u);
+  out.r = SPLIME_RING_R0 + (SLIME_RADIUS - SPLIME_RING_R0) * e;
+  out.alpha = 0.3 + 0.7 * u;
+  return out;
 }
 
 // Trail rates for the enemy trails (particles per second per entity), through the shared pool.
