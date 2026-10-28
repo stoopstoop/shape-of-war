@@ -279,13 +279,10 @@ async function boot(): Promise<void> {
 
   const emitHud = (): void => {
     const s = scoreOf(world);
-    bus.emit('hud:score', {
-      score: s.score,
-      multiplier: s.multiplier,
-      lives: simNumber(world, 'lives') ?? level.lives,
-      bombs: simNumber(world, 'bombs') ?? level.bombs,
-      superCharge: simNumber(world, 'superCharge') ?? 0,
-    });
+    // B8: the sim already emits hud:score every HUD_INTERVAL with the super charge as a 0..1
+    // fraction; this second emit sent the raw geom count, so the ring and hint flickered
+    // between two values and read "ready" after one geom. Only the sim emits hud:score now.
+    void s;
     if (flow.mode === 'endless') {
       hud.setLine(endlessLine(endlessSeed, world.time));
       hud.setObjective({ label: 'Endless', fraction: 0 });
