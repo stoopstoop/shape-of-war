@@ -154,7 +154,7 @@ Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to
 3. Standard holds 59, not 60, on the main screen. The addendum (SPEC 5 wording) says 60 is a strict floor for Standard. Ryan accepted 59 at D8 (DECISIONS 35:50). The decision is recorded; the addendum text still says strict (V2-08).
 4. Ryan's GD music notes include kill voicing and a selection rule for which kills sound. SPEC 3.9 and docs/11 do not list either. Chorus is working from STATUS wave E text. A builder that follows CLAUDE.md "no feature outside docs/01" must refuse them until Fable adds a docs/11 line (V2-04).
 5. Trails (2 of 5) and map effects (2 of 5) are the weakest visual ratings, and trails are second in Ryan's own reference priority (grid, trails, particles). Glow is on it (run 0180).
-6. Eight of the open items below are paste or document hygiene, not code. The v1 bug list in STATUS is stale (V2-09).
+6. Half of the open items below are paste or document hygiene, not code (V2-06 to V2-10). The v1 bug list in STATUS is stale (V2-09).
 
 ## Summary (v2)
 
@@ -179,7 +179,7 @@ Owner: Proctor. Written in V2-E against main 6f11afb (waves A to D merged, GA to
 - Rule it breaks: docs/10 GD pass says "no `bad` glitch", so `some` passed the gate. It is still the cut 1 path: docs/10 and docs/11 cut 1 fire if glitches persist after one Chorus fix run, and cut 2 after a second.
 - Repro: Settings, Music 50, Effects Standard. Open `?seed=42&level=20` unfolded (a crowded, six kind level), Show FPS on, play two minutes. Listen for clicks, dropouts or stutter, and note whether they line up with an fps dip (the CPU suspects are the 16 voice cap, the 25 ms timer under load and the sfx cap of 24 sharing the main thread). Then repeat with `?seed=42&level=3` for a quiet comparison.
 - What the code lets me say without a device: the voice cap, the gain sum and the quantisation are unit tested in `tests/audio/music/`, so a glitch is more likely main thread jank or scheduler lateness than a budget overrun. This is an inference, not a measurement.
-- Owner: Chorus, run 0181. Retest: checklist V-D4 to V-D8.
+- Owner: Chorus, run 0181. Retest: checklist V-D4 to V-D9 and V-D12.
 
 ### V2-02 (P2): trails and map effects read dull
 
