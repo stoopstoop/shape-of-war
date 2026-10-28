@@ -3,7 +3,11 @@
 
 const STYLE_ID = 'sow-ui-style';
 
-const CSS = `
+/** Smallest touch target height in CSS px for any button row (docs/01 section 10, v2 addendum). */
+export const MIN_HIT_PX = 44;
+
+/** The shared stylesheet text, exported so tests can check the touch target rules without a DOM. */
+export const UI_CSS = `
 .sow-ui { position: fixed; inset: 0; z-index: 20; pointer-events: none;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: hsl(190, 60%, 90%); user-select: none; -webkit-user-select: none; touch-action: none; }
@@ -23,13 +27,19 @@ const CSS = `
 .sow-btn:active { background: rgba(20, 60, 90, 0.95); }
 .sow-stars { font-size: 34px; letter-spacing: 6px; color: hsl(55, 95%, 62%); text-shadow: 0 0 10px hsl(55, 95%, 50%); }
 .sow-screen.sow-see { background: transparent; align-items: flex-start; justify-content: center; }
-.sow-panel { display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;
-  width: min(440px, 48vw); max-height: 100%; overflow: hidden; padding: 10px 14px;
-  margin-left: 8px; background: rgba(2, 4, 12, 0.66); border: 1px solid hsla(185, 90%, 55%, 0.45);
+.sow-panel { display: flex; flex-direction: column; gap: 6px; box-sizing: border-box;
+  width: min(440px, 48vw); max-height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  padding: 10px 14px; margin-left: 8px; background: rgba(2, 4, 12, 0.66); border: 1px solid hsla(185, 90%, 55%, 0.45);
   border-radius: 12px; }
 .sow-panel .sow-title { font-size: clamp(20px, 5vmin, 34px); margin: 0; }
-.sow-panel .sow-btn { min-width: 0; min-height: 44px; font-size: 16px; padding: 6px 12px; flex: 1 1 0; }
+.sow-panel .sow-btn { min-width: 0; min-height: ${MIN_HIT_PX}px; font-size: 16px; padding: 6px 12px; flex: 1 1 0; }
 .sow-panel .sow-row { flex-wrap: nowrap; gap: 8px; }
+.sow-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.sow-choice-label { flex: 0 0 auto; font-size: 15px; white-space: nowrap; }
+.sow-choice-btns { display: flex; flex: 1 1 240px; gap: 6px; }
+.sow-choice .sow-btn { min-width: 0; min-height: ${MIN_HIT_PX}px; font-size: 14px; padding: 6px 4px; flex: 1 1 0; }
+.sow-btn.sow-on { background: hsl(185, 90%, 28%); border-color: hsl(185, 100%, 78%); color: #fff; font-weight: 700;
+  box-shadow: 0 0 16px hsl(185, 90%, 60%); }
 .sow-slider { display: flex; align-items: center; gap: 12px; min-height: 44px; touch-action: none; }
 .sow-slider-label { min-width: 92px; font-size: 16px; }
 .sow-slider-track { position: relative; flex: 1; height: 8px; border-radius: 4px; background: hsla(190, 60%, 90%, 0.2); }
@@ -59,7 +69,7 @@ export function injectStyles(doc: Document = document): void {
   if (doc.getElementById(STYLE_ID) !== null) return;
   const s = doc.createElement('style');
   s.id = STYLE_ID;
-  s.textContent = CSS;
+  s.textContent = UI_CSS;
   doc.head.append(s);
 }
 

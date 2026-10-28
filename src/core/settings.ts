@@ -124,6 +124,29 @@ export function saveGlowPath(p: GlowPathSetting, storage: StorageLike | null = d
   writeRaw(storage, GLOW_PATH_KEY, parseGlowPath(p));
 }
 
+// Space physics (v2 addendum, docs/10 wave A): "off", "low", "medium" or "high", default "off".
+// SpaceLevelSetting is the same literal union as SpaceLevel in src/core/physics.ts (Forge). It is
+// declared here on purpose so the two branches never import each other; Fable glue matches them.
+
+export type SpaceLevelSetting = 'off' | 'low' | 'medium' | 'high';
+/** Button order on the settings row. */
+export const SPACE_LEVELS: readonly SpaceLevelSetting[] = ['off', 'low', 'medium', 'high'];
+export const SPACE_PHYSICS_KEY = `${SETTINGS_PREFIX}spacePhysics`;
+export const DEFAULT_SPACE_PHYSICS: SpaceLevelSetting = 'off';
+
+/** Pure: anything other than the three non default strings (exact case) falls back to "off". */
+export function parseSpacePhysics(raw: string | null): SpaceLevelSetting {
+  return raw === 'low' || raw === 'medium' || raw === 'high' ? raw : DEFAULT_SPACE_PHYSICS;
+}
+
+export function loadSpacePhysics(storage: StorageLike | null = defaultStorage()): SpaceLevelSetting {
+  return parseSpacePhysics(readRaw(storage, SPACE_PHYSICS_KEY));
+}
+
+export function saveSpacePhysics(level: SpaceLevelSetting, storage: StorageLike | null = defaultStorage()): void {
+  writeRaw(storage, SPACE_PHYSICS_KEY, parseSpacePhysics(level));
+}
+
 // Progress and scores (docs/03 section 8). Level indices are 1 based.
 
 export const RUN_SEED_KEY = 'sow.progress.runSeed';
