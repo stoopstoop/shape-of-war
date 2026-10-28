@@ -21,6 +21,8 @@ export interface BulletPool {
   vy: Float32Array;
   life: Float32Array;
   homing: Uint8Array;
+  /** V2 stub: weapon style per bullet. 0 spread, 1 rapid, 2 pierce, 3 orbit. Nothing writes it yet. */
+  style: Uint8Array;
   free: Int32Array;
   freeTop: number;
   // Additive to 03 section 5.
@@ -44,6 +46,7 @@ export function createBulletPool(cap: number = BULLET_CAP): BulletPool {
     vy: new Float32Array(cap),
     life: new Float32Array(cap),
     homing: new Uint8Array(cap),
+    style: new Uint8Array(cap),
     free,
     freeTop: cap,
     prevX: new Float32Array(cap),

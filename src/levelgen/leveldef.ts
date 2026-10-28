@@ -7,7 +7,19 @@ export const GENERATOR_VERSION = 1;
 
 export type Band = 1 | 2 | 3 | 4;
 export type ArenaShape = 'rect' | 'roundRect' | 'circle' | 'hexagon' | 'rectObstacles';
-export type EnemyKind = 'grunt' | 'wanderer' | 'weaver' | 'pinwheel' | 'dart' | 'snake';
+export type EnemyKind =
+  | 'grunt'
+  | 'wanderer'
+  | 'weaver'
+  | 'pinwheel'
+  | 'dart'
+  | 'snake'
+  // V2 contract stubs (docs/10-v2-plan.md). Zero weight in every band until Foundry wires them.
+  | 'charger'
+  | 'bulwark'
+  | 'blink'
+  | 'swirl'
+  | 'sower';
 export type DroneKind = 'attack' | 'collect' | 'ram';
 export type SuperKind = 'homing' | 'detonate' | 'turbo';
 export type SpawnPattern = 'edges' | 'corners' | 'ring' | 'cluster';
@@ -176,6 +188,8 @@ export interface ValidationResult {
 }
 
 export const ENEMY_KINDS: readonly EnemyKind[] = ['grunt', 'wanderer', 'weaver', 'pinwheel', 'dart', 'snake'];
+/** V2 enemy names. Deliberately not part of ENEMY_KINDS, so v1 generator loops never see them. */
+export const V2_ENEMY_KINDS: readonly EnemyKind[] = ['charger', 'bulwark', 'blink', 'swirl', 'sower'];
 export const ARENA_SHAPES: readonly ArenaShape[] = ['rect', 'roundRect', 'circle', 'hexagon', 'rectObstacles'];
 export const DRONE_KINDS: readonly DroneKind[] = ['attack', 'collect', 'ram'];
 export const SUPER_KINDS: readonly SuperKind[] = ['homing', 'detonate', 'turbo'];
@@ -188,6 +202,12 @@ export const ENEMY_BASE: Record<EnemyKind, number> = {
   pinwheel: 25,
   dart: 30,
   snake: 200,
+  // V2 stubs: zero until Swarm and Foundry set real values.
+  charger: 0,
+  bulwark: 0,
+  blink: 0,
+  swirl: 0,
+  sower: 0,
 };
 
 export const ENEMY_GEOMS: Record<EnemyKind, number> = {
@@ -197,6 +217,12 @@ export const ENEMY_GEOMS: Record<EnemyKind, number> = {
   pinwheel: 1,
   dart: 1,
   snake: 4,
+  // V2 stubs: zero until Swarm and Foundry set real values.
+  charger: 0,
+  bulwark: 0,
+  blink: 0,
+  swirl: 0,
+  sower: 0,
 };
 
 /** Shared by par calculation and sim loop handling. Expands loops up to tEnd. Sorted by t. */
@@ -302,6 +328,9 @@ const NO_SPAWNERS = {
   spawnerDartsPerEmit: 0,
 } as const;
 
+/** V2 stub: every band gives the V2 enemies weight 0, so v1 generator output is byte identical. */
+const NO_V2_ENEMIES = { charger: 0, bulwark: 0, blink: 0, swirl: 0, sower: 0 } as const;
+
 export const BANDS: Readonly<Record<Band, BandParams>> = {
   1: {
     arenaHeight: { min: 700, max: 760 },
@@ -309,7 +338,7 @@ export const BANDS: Readonly<Record<Band, BandParams>> = {
     shapeWeights: { rect: 40, roundRect: 30, circle: 15, hexagon: 15, rectObstacles: 0 },
     obstacleCount: { min: 0, max: 0 },
     rosterSize: { min: 3, max: 3 },
-    rosterWeights: { grunt: 40, wanderer: 35, weaver: 0, pinwheel: 25, dart: 0, snake: 0 },
+    rosterWeights: { grunt: 40, wanderer: 35, weaver: 0, pinwheel: 25, dart: 0, snake: 0, ...NO_V2_ENEMIES },
     droneWeights: { attack: 100, collect: 0, ram: 0 },
     superWeights: { homing: 34, detonate: 0, turbo: 66 },
     objectiveWeights: { scoreInTime: 20, survive: 40, destroy: 40 },
@@ -335,7 +364,7 @@ export const BANDS: Readonly<Record<Band, BandParams>> = {
     shapeWeights: { rect: 25, roundRect: 25, circle: 15, hexagon: 15, rectObstacles: 20 },
     obstacleCount: { min: 1, max: 1 },
     rosterSize: { min: 3, max: 4 },
-    rosterWeights: { grunt: 30, wanderer: 20, weaver: 20, pinwheel: 15, dart: 15, snake: 0 },
+    rosterWeights: { grunt: 30, wanderer: 20, weaver: 20, pinwheel: 15, dart: 15, snake: 0, ...NO_V2_ENEMIES },
     droneWeights: { attack: 50, collect: 30, ram: 20 },
     superWeights: { homing: 34, detonate: 33, turbo: 33 },
     objectiveWeights: { scoreInTime: 34, survive: 33, destroy: 33 },
@@ -361,7 +390,7 @@ export const BANDS: Readonly<Record<Band, BandParams>> = {
     shapeWeights: { rect: 15, roundRect: 15, circle: 15, hexagon: 20, rectObstacles: 35 },
     obstacleCount: { min: 1, max: 2 },
     rosterSize: { min: 4, max: 5 },
-    rosterWeights: { grunt: 25, wanderer: 12, weaver: 20, pinwheel: 10, dart: 18, snake: 15 },
+    rosterWeights: { grunt: 25, wanderer: 12, weaver: 20, pinwheel: 10, dart: 18, snake: 15, ...NO_V2_ENEMIES },
     droneWeights: { attack: 34, collect: 33, ram: 33 },
     superWeights: { homing: 34, detonate: 33, turbo: 33 },
     objectiveWeights: { scoreInTime: 34, survive: 33, destroy: 33 },
@@ -390,7 +419,7 @@ export const BANDS: Readonly<Record<Band, BandParams>> = {
     shapeWeights: { rect: 10, roundRect: 10, circle: 15, hexagon: 20, rectObstacles: 45 },
     obstacleCount: { min: 1, max: 3 },
     rosterSize: { min: 5, max: 6 },
-    rosterWeights: { grunt: 20, wanderer: 8, weaver: 18, pinwheel: 8, dart: 20, snake: 16 },
+    rosterWeights: { grunt: 20, wanderer: 8, weaver: 18, pinwheel: 8, dart: 20, snake: 16, ...NO_V2_ENEMIES },
     droneWeights: { attack: 34, collect: 33, ram: 33 },
     superWeights: { homing: 34, detonate: 33, turbo: 33 },
     objectiveWeights: { scoreInTime: 34, survive: 33, destroy: 33 },

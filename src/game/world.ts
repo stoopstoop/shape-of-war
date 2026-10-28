@@ -22,6 +22,14 @@ export const enum Kind {
   Spawner,
   Geom,
   Drone,
+  // V2 contract stubs (docs/10-v2-plan.md). Appended so every value above keeps its number.
+  WeaponPickup,
+  Charger,
+  Bulwark,
+  Blink,
+  Swirl,
+  Sower,
+  Mine,
 }
 
 export const ENTITY_CAP = 512;

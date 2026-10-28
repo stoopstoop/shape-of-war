@@ -29,6 +29,15 @@ export const BASE_PALETTE = {
   bomb: [200, 0.75, 0.8],
   /** Homing bullets (super). Hot pink, apart from the yellow standard shot. */
   homing: [335, 0.8, 0.65],
+  // V2 contract stubs (docs/10-v2-plan.md). Placeholder HSL; Glow tunes them in waves B and C.
+  charger: [10, 0.75, 0.55],
+  bulwark: [240, 0.75, 0.6],
+  blink: [335, 0.75, 0.6],
+  swirl: [160, 0.75, 0.55],
+  sower: [75, 0.75, 0.55],
+  rapid: [165, 0.8, 0.65],
+  pierce: [20, 0.8, 0.7],
+  orbit: [295, 0.8, 0.7],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type PaletteKey = keyof typeof BASE_PALETTE;

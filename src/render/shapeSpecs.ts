@@ -47,6 +47,14 @@ export const ALL_KINDS: readonly DrawnKind[] = [
   Kind.Spawner,
   Kind.Geom,
   Kind.Drone,
+  // V2 contract stubs (docs/10-v2-plan.md), enum order.
+  Kind.WeaponPickup,
+  Kind.Charger,
+  Kind.Bulwark,
+  Kind.Blink,
+  Kind.Swirl,
+  Kind.Sower,
+  Kind.Mine,
 ];
 
 interface LayerExtra {
@@ -80,6 +88,14 @@ function pinwheelBlades(r: number): ShapePrim[] {
 }
 
 const DIAMOND_14: ShapePrim = { t: 'poly', pts: [0, -14, 14, 0, 0, 14, -14, 0] };
+
+/**
+ * V2 stub: the magenta circle of UNKNOWN_SPEC, as a fresh object per Kind so the registry test can
+ * tell a registered entry from the fallback. Glow replaces each with a real glyph in waves B and C.
+ */
+function placeholderSpec(): ShapeSpec {
+  return { tint: 'magenta', radius: 12, layers: [layer([{ t: 'circle', r: 12 }], 2.5)] };
+}
 
 export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   [Kind.Ship]: {
@@ -162,6 +178,14 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
       ),
     ],
   },
+  // V2 contract stubs: magenta circle placeholders until Glow draws the real glyphs.
+  [Kind.WeaponPickup]: placeholderSpec(),
+  [Kind.Charger]: placeholderSpec(),
+  [Kind.Bulwark]: placeholderSpec(),
+  [Kind.Blink]: placeholderSpec(),
+  [Kind.Swirl]: placeholderSpec(),
+  [Kind.Sower]: placeholderSpec(),
+  [Kind.Mine]: placeholderSpec(),
 };
 
 /** Drawn for any kind value outside the registry: a magenta circle. */

@@ -55,6 +55,17 @@ export function kindOf(k: EnemyKind): Kind {
       return Kind.Dart;
     case 'snake':
       return Kind.SnakeHead;
+    // V2 stubs. The generator emits none of these yet; defOf returns null for them until Swarm adds defs.
+    case 'charger':
+      return Kind.Charger;
+    case 'bulwark':
+      return Kind.Bulwark;
+    case 'blink':
+      return Kind.Blink;
+    case 'swirl':
+      return Kind.Swirl;
+    case 'sower':
+      return Kind.Sower;
   }
 }
 
