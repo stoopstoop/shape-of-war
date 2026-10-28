@@ -2,10 +2,12 @@
 // fixed columns or bands at the screen edges (plus safe area insets), the arena play rect is
 // what is left, and the arena is fitted inside that play rect exactly as the renderer does it.
 // When a letterbox band is thinner than the HUD needs, the play rect shrinks instead.
-// Cover (21:9): left column for score, multiplier, objective and par; right column for pause,
-// lives, bombs, super ring with its label, and the bomb button.
-// Main (10:9): top band for the text rows, then either a right column or a bottom band for the
-// bomb and super buttons, whichever leaves the larger arena.
+// Cover (21:9): left column for score, multiplier, the weapon indicator (V2-B, right of the
+// multiplier), objective and par; right column for pause, lives, bombs, super ring with its label,
+// and the bomb button.
+// Main (10:9): top band for the text rows (the weapon indicator sits right of the multiplier in
+// the same rows, so the band height is unchanged), then either a right column or a bottom band
+// for the bomb and super buttons, whichever leaves the larger arena.
 // B9: the main screen bands are measured from the real HUD elements (text row heights, and the
 // button hit rects that Thumbs lays out) instead of fixed generous bands, so the main screen
 // arena is as large as the HUD allows. The arena on main is usually width limited, so the right
@@ -33,7 +35,18 @@ export interface HudBox extends Rect {
   wrap: boolean;
 }
 
-export type BoxId = 'score' | 'mult' | 'bar' | 'objLabel' | 'par' | 'lives' | 'bombs' | 'superLabel' | 'superHint';
+export type BoxId =
+  | 'score'
+  | 'mult'
+  | 'weapon'
+  | 'weaponBar'
+  | 'bar'
+  | 'objLabel'
+  | 'par'
+  | 'lives'
+  | 'bombs'
+  | 'superLabel'
+  | 'superHint';
 
 export type HudBoxes = Record<BoxId, HudBox>;
 
@@ -73,6 +86,16 @@ export const MAIN_ROWS = 60;
 export const MAIN_COLUMN_PAD = 2;
 /** Main right column width: the widest button hit rect plus a small gap each side. */
 export const MAIN_RIGHT = Math.max(BOMB_HIT, SUPER_HIT, PAUSE_HIT) + 2 * MAIN_COLUMN_PAD;
+/**
+ * Multiplier box widths. The multiplier tops out at 999 ("x999"), so the box is only as wide as
+ * that text needs and the weapon indicator (V2-B) takes the row to its right.
+ */
+export const COVER_MULT_W = 52;
+export const MAIN_MULT_W = 64;
+/** Gap between the multiplier box and the weapon indicator box. */
+export const WEAPON_GAP = 8;
+/** Height of the weapon countdown bar, border included (the element is border-box). */
+export const WEAPON_BAR_H = 5;
 
 /** Pure: main top band height below the top inset: text rows or the pause hit rect, whichever is lower. */
 export function mainTop(buttons: ButtonRects, ins: Insets): number {
@@ -167,7 +190,11 @@ function sides(b: Base): Partial0 {
     pauseIcon: 20,
     boxes: {
       score: box(lx, t + 8, lw, 24, 20),
-      mult: box(lx, t + 32, lw, 18, 14),
+      mult: box(lx, t + 32, COVER_MULT_W, 18, 14),
+      // Label on top, countdown bar under it, both between the multiplier and the column edge and
+      // above the objective bar at t + 58.
+      weapon: box(lx + COVER_MULT_W + WEAPON_GAP, t + 32, lw - COVER_MULT_W - WEAPON_GAP, 13, 10),
+      weaponBar: box(lx + COVER_MULT_W + WEAPON_GAP, t + 47, lw - COVER_MULT_W - WEAPON_GAP, WEAPON_BAR_H, 0),
       bar: box(lx, t + 58, lw, 12, 11),
       objLabel: box(lx, t + 72, lw, 30, 11, 'left', true),
       par: box(lx, t + 106, lw, 28, 11, 'left', true),
@@ -187,10 +214,17 @@ function topRows(b: Base): Omit<HudBoxes, 'superLabel' | 'superHint'> {
   const objW = Math.max(120, Math.min(320, innerW - 2 * 200));
   const sideW = Math.max(60, Math.min(200, (innerW - objW) / 2 - 32));
   const livesRight = W - ins.right - 80;
-  // Rows measured to end at MAIN_ROWS: the score line is the tallest pair (32 + 22 from 6).
+  // Rows measured to end at MAIN_ROWS: the score line is the tallest pair (32 + 22 from 6). The
+  // weapon indicator sits right of the multiplier: label at t + 38, bar ending at t + 58.
+  const mx = ins.left + 24;
+  const multW = Math.min(sideW, MAIN_MULT_W);
+  const wx = mx + multW + WEAPON_GAP;
+  const ww = sideW - multW - WEAPON_GAP;
   return {
-    score: box(ins.left + 24, t + 6, sideW, 32, 28),
-    mult: box(ins.left + 24, t + 38, sideW, MAIN_ROWS - 38, 18),
+    score: box(mx, t + 6, sideW, 32, 28),
+    mult: box(mx, t + 38, multW, MAIN_ROWS - 38, 18),
+    weapon: box(wx, t + 38, ww, 14, 12),
+    weaponBar: box(wx, t + 54, ww, WEAPON_BAR_H, 0),
     bar: box(cx - objW / 2, t + 8, objW, 20, 14),
     objLabel: box(cx - objW / 2, t + 8, objW, 20, 14, 'center'),
     par: box(cx - objW / 2, t + 32, objW, 20, 14, 'center'),

@@ -4,10 +4,12 @@ import {
   loadGlowPath,
   loadSettings,
   loadSpacePhysics,
+  loadWeaponPickups,
   parseGlowPath,
   resetProgress,
   SPACE_LEVELS,
   SPACE_PHYSICS_KEY,
+  WEAPON_PICKUPS_KEY,
   type StorageLike,
 } from '../../src/core/settings';
 import { MIN_HIT_PX, UI_CSS } from '../../src/ui/dom';
@@ -26,6 +28,9 @@ import {
   spaceButtonStates,
   spaceLabel,
   STRESS_LABEL,
+  WEAPON_ROW_LABEL,
+  weaponButtonStates,
+  weaponPickupsLabel,
   type SettingsActions,
   type SettingsEffects,
 } from '../../src/ui/settings';
@@ -59,18 +64,19 @@ function fakeFx(): SettingsEffects & { calls: string[]; neon: number[]; frames: 
     applyNeon: (n) => neon.push(n),
     setVolume: (v) => calls.push(`vol:${v}`),
     setSpacePhysics: (level) => calls.push(`space:${level}`),
+    setWeaponPickups: (on) => calls.push(`pickups:${on}`),
     requestFrame: (cb) => frames.push(cb),
   };
 }
 
 describe('settings screen model', () => {
-  it('defaults to neon 70, volume 70, fps off, bloom and space physics off, and applies them at boot', () => {
+  it('defaults to neon 70, volume 70, fps off, bloom, space physics off and weapon pickups on, and applies them at boot', () => {
     const fx = fakeFx();
     const m = createSettingsModel(fx, memory());
-    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off' });
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off', weaponPickups: true });
     m.applyBoot();
     expect(fx.neon).toEqual([70]);
-    expect(fx.calls).toEqual(['vol:70', 'fps:false', 'glow:bloom', 'space:off']);
+    expect(fx.calls).toEqual(['vol:70', 'fps:false', 'glow:bloom', 'space:off', 'pickups:true']);
   });
 
   it('neon drag applies at most once per frame, latest value wins, nothing saved until commit', () => {
@@ -185,7 +191,7 @@ describe('settings screen model', () => {
       },
     };
     const m = createSettingsModel(fakeFx(), throwing);
-    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off' });
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off', weaponPickups: true });
     expect(() => m.neonCommit(30)).not.toThrow();
     expect(() => m.toggleGlowPath()).not.toThrow();
     expect(m.state.glowPath).toBe('fallback');
@@ -326,7 +332,7 @@ describe('space physics: model', () => {
     const fx = fakeFx();
     const m = createSettingsModel(fx, store);
     m.setSpacePhysics('medium');
-    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'medium' });
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'medium', weaponPickups: true });
     expect([...store.data.keys()]).toEqual([SPACE_PHYSICS_KEY]);
     expect(fx.neon).toEqual([]);
   });
@@ -539,5 +545,221 @@ describe('space physics: reachable from the menu and the pause screen', () => {
     createSettingsScreen(asParent(second), createSettingsModel(fakeFx(), store), actions());
     const lit = groupButtons(second, SPACE_ROW_LABEL).map((b) => b.classList.contains('sow-on'));
     expect(lit).toEqual([false, false, true, false]);
+  });
+});
+
+// Weapon pickups row (v2 wave B).
+
+describe('weapon pickups: model', () => {
+  it('starts on when nothing is stored, and the boot push carries it', () => {
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, memory());
+    expect(m.state.weaponPickups).toBe(true);
+    m.applyBoot();
+    expect(fx.calls.filter((c) => c.startsWith('pickups:'))).toEqual(['pickups:true']);
+  });
+
+  it('a stored 0 is shown and pushed through the port at boot', () => {
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, memory({ [WEAPON_PICKUPS_KEY]: '0' }));
+    expect(m.state.weaponPickups).toBe(false);
+    m.applyBoot();
+    expect(fx.calls.filter((c) => c.startsWith('pickups:'))).toEqual(['pickups:false']);
+  });
+
+  it('the boot push comes after the space physics push and nothing else follows it', () => {
+    const fx = fakeFx();
+    createSettingsModel(fx, memory()).applyBoot();
+    expect(fx.calls.slice(-2)).toEqual(['space:off', 'pickups:true']);
+  });
+
+  it('a tap saves the value and calls the effect exactly once', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setWeaponPickups(false);
+    expect(fx.calls).toEqual(['pickups:false']);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('0');
+    expect(m.state.weaponPickups).toBe(false);
+    expect(createSettingsModel(fakeFx(), store).state.weaponPickups).toBe(false);
+    m.setWeaponPickups(true);
+    expect(fx.calls).toEqual(['pickups:false', 'pickups:true']);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('1');
+    expect(loadWeaponPickups(store)).toBe(true);
+  });
+
+  it('tapping the value already chosen saves again but does not call the effect again', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setWeaponPickups(false);
+    store.data.delete(WEAPON_PICKUPS_KEY); // pretend the first write was lost
+    m.setWeaponPickups(false);
+    expect(fx.calls).toEqual(['pickups:false']);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('0');
+  });
+
+  it('tapping On while already on writes 1 and makes no effect call', () => {
+    const store = memory();
+    const fx = fakeFx();
+    createSettingsModel(fx, store).setWeaponPickups(true);
+    expect(fx.calls).toEqual([]);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('1');
+  });
+
+  it('an invalid stored value falls back to on', () => {
+    for (const bad of ['', 'true', 'false', 'off', 'On', ' 1', '0 ', '01', '2', '-1']) {
+      const m = createSettingsModel(fakeFx(), memory({ [WEAPON_PICKUPS_KEY]: bad }));
+      expect(m.state.weaponPickups, JSON.stringify(bad)).toBe(true);
+    }
+  });
+
+  it('a storage that throws still changes the state and still calls the effect', () => {
+    const broken: StorageLike = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    };
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, broken);
+    expect(m.state.weaponPickups).toBe(true);
+    expect(() => m.setWeaponPickups(false)).not.toThrow();
+    expect(m.state.weaponPickups).toBe(false);
+    expect(fx.calls).toEqual(['pickups:false']);
+  });
+
+  it('does not move or write any other setting, and space physics does not touch it', () => {
+    const store = memory();
+    const fx = fakeFx();
+    const m = createSettingsModel(fx, store);
+    m.setWeaponPickups(false);
+    expect(m.state).toEqual({ neon: 70, volume: 70, showFps: false, glowPath: 'bloom', spacePhysics: 'off', weaponPickups: false });
+    expect([...store.data.keys()]).toEqual([WEAPON_PICKUPS_KEY]);
+    expect(fx.neon).toEqual([]);
+    m.setSpacePhysics('high');
+    expect(m.state.weaponPickups).toBe(false);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('0');
+  });
+
+  it('reset progress does not reset it', () => {
+    const store = memory();
+    createSettingsModel(fakeFx(), store).setWeaponPickups(false);
+    resetProgress(store);
+    expect(createSettingsModel(fakeFx(), store).state.weaponPickups).toBe(false);
+  });
+});
+
+describe('weapon pickups: row helpers', () => {
+  it('labels are On and Off under the row title Weapon pickups', () => {
+    expect([true, false].map(weaponPickupsLabel)).toEqual(['On', 'Off']);
+    expect(WEAPON_ROW_LABEL).toBe('Weapon pickups');
+  });
+
+  it('exactly one of the two buttons is selected, the current value', () => {
+    for (const current of [true, false]) {
+      const states = weaponButtonStates(current);
+      expect(states.map((s) => s.on)).toEqual([true, false]);
+      expect(states.map((s) => s.label)).toEqual(['On', 'Off']);
+      expect(states.filter((s) => s.selected).map((s) => s.on)).toEqual([current]);
+    }
+  });
+});
+
+describe('weapon pickups: settings screen', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const actions = (): SettingsActions => ({
+    back: () => undefined,
+    playSeed: () => undefined,
+    seedHash: () => null,
+    resetProgress: () => undefined,
+    stress: () => undefined,
+    currentNeon: () => 70,
+    buildId: 'test',
+  });
+
+  function open(store = memory()) {
+    const root = installFakeDocument();
+    const fx = fakeFx();
+    const model = createSettingsModel(fx, store);
+    const screen = createSettingsScreen(asParent(root), model, actions());
+    screen.show();
+    return { root, fx, model, store, buttons: groupButtons(root, WEAPON_ROW_LABEL) };
+  }
+
+  const lit = (buttons: readonly { classList: { contains(c: string): boolean } }[]): boolean[] =>
+    buttons.map((b) => b.classList.contains('sow-on'));
+
+  it('shows On then Off with On highlighted by default', () => {
+    const { buttons } = open();
+    expect(buttons.map((b) => b.textContent)).toEqual(['On', 'Off']);
+    expect(lit(buttons)).toEqual([true, false]);
+    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+  });
+
+  it('highlights Off the first time the screen opens when 0 is stored', () => {
+    const { buttons } = open(memory({ [WEAPON_PICKUPS_KEY]: '0' }));
+    expect(lit(buttons)).toEqual([false, true]);
+  });
+
+  it('a tap on Off persists it, calls the effect once and moves the highlight', () => {
+    const { buttons, fx, store, model } = open();
+    buttons[1]?.tap();
+    expect(fx.calls).toEqual(['pickups:false']);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('0');
+    expect(model.state.weaponPickups).toBe(false);
+    expect(lit(buttons)).toEqual([false, true]);
+    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+  });
+
+  it('Off then On again persists 1 and the highlight follows each tap', () => {
+    const { buttons, fx, store } = open();
+    buttons[1]?.tap();
+    buttons[0]?.tap();
+    expect(fx.calls).toEqual(['pickups:false', 'pickups:true']);
+    expect(store.data.get(WEAPON_PICKUPS_KEY)).toBe('1');
+    expect(lit(buttons)).toEqual([true, false]);
+  });
+
+  it('a screen built after the change, as on the next launch, shows it lit', () => {
+    const store = memory();
+    const first = installFakeDocument();
+    createSettingsScreen(asParent(first), createSettingsModel(fakeFx(), store), actions());
+    groupButtons(first, WEAPON_ROW_LABEL)[1]?.tap();
+
+    const second = installFakeDocument();
+    createSettingsScreen(asParent(second), createSettingsModel(fakeFx(), store), actions());
+    expect(lit(groupButtons(second, WEAPON_ROW_LABEL))).toEqual([false, true]);
+  });
+
+  it('a release with no press, or by a different finger, does nothing', () => {
+    const { buttons, fx, store } = open();
+    buttons[1]?.fire('pointerup', 1);
+    buttons[1]?.fire('pointerdown', 1);
+    buttons[1]?.fire('pointerup', 2);
+    expect(fx.calls).toEqual([]);
+    expect(store.data.has(WEAPON_PICKUPS_KEY)).toBe(false);
+    expect(lit(buttons)).toEqual([true, false]);
+  });
+
+  it('the row uses the choice style whose buttons carry the 44px minimum', () => {
+    const { root } = open();
+    const group = root.all().find((e) => e.getAttribute('aria-label') === WEAPON_ROW_LABEL);
+    expect(group?.classList.contains('sow-choice')).toBe(true);
+    expect(UI_CSS).toMatch(/\.sow-choice \.sow-btn \{[^}]*min-height: 44px/);
+    expect(buttonsLabelled(root, 'On')).toHaveLength(1);
+    // The Space physics row has an Off button too, so the screen holds two of that label.
+    expect(buttonsLabelled(root, 'Off')).toHaveLength(2);
+  });
+
+  it('sits on the one settings screen the menu and the pause screen open, after the space row', () => {
+    const { root } = open();
+    const groups = root.all().filter((e) => e.getAttribute('role') === 'group');
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual([SPACE_ROW_LABEL, WEAPON_ROW_LABEL]);
   });
 });
