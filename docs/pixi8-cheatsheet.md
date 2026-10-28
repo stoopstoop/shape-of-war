@@ -383,6 +383,41 @@ import { Loader } from 'pixi.js';
 Loader.shared.add('x', 'x.png').load(() => {});
 ```
 
+## 15. Mesh with line-list topology and a per frame position update (Glow, wave V2-D)
+
+Verdict: works in 8.22.0. Source read (`scene/mesh/shared/Mesh.mjs`, `MeshGeometry.mjs`, `MeshPipe.mjs`, `scene/mesh/gl/GlMeshAdaptor.mjs`, `rendering/renderers/gl/geometry/GlGeometrySystem.mjs`, `rendering/renderers/gl/buffer/GlBufferSystem.mjs`), type checked below, not run on a GPU in the build run. Desktop Chrome confirmation is in the Glow lattice hand-off.
+
+1. `Topology` is `'point-list' | 'line-list' | 'line-strip' | 'triangle-list' | 'triangle-strip'`. `GlGeometrySystem.draw` maps `'line-list'` to `gl.LINES` and draws `indexCount || indexBuffer.data.length` indices.
+2. Batching ignores topology. `Mesh.batched` is true for a `MeshGeometry` with `batchMode: 'auto'` and 100 vertices or fewer, and the batcher draws triangles. Use a plain `Geometry` (never batched) or set `batchMode = 'no-batch'`.
+3. Per frame update: write into the same `Float32Array` the `Buffer` was built with and call `buffer.update()`. That bumps `_updateID`; on the next bind `GlBufferSystem.updateBuffer` uploads with `bufferSubData` (no reallocation while the size is unchanged). No `Graphics.clear`, no new arrays.
+4. One `Buffer` may feed several `Geometry` objects (one upload, one VAO each). The lattice uses one position buffer and two index buffers (major and minor lines).
+5. WebGL line width is fixed at one device pixel; pixi exposes no `lineWidth`. Thicker lines: draw the same geometry again offset by one device pixel, or build quads.
+6. The default mesh shader samples `aUV` from the texture and multiplies by the mesh tint and alpha. With all UVs 0 and `Texture.WHITE`, `tint` is the line colour and `alpha` its brightness.
+7. `Mesh.destroy()` does not destroy its geometry or buffers. Destroy them yourself. Never pass `true`: that also destroys the shared `Texture.WHITE`.
+8. Set `boundsArea` on a large dynamic mesh so pixi never measures the bounds from every vertex.
+
+```ts
+import { Buffer, BufferUsage, Geometry, Mesh, Texture } from 'pixi.js';
+
+const positions = new Float32Array([0, 0, 100, 0, 100, 100]);
+const posBuf = new Buffer({ data: positions, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+const uvBuf = new Buffer({ data: new Float32Array(positions.length), usage: BufferUsage.VERTEX });
+const geometry = new Geometry({
+  attributes: {
+    aPosition: { buffer: posBuf, format: 'float32x2', stride: 8, offset: 0 },
+    aUV: { buffer: uvBuf, format: 'float32x2', stride: 8, offset: 0 },
+  },
+  indexBuffer: new Uint32Array([0, 1, 1, 2]),
+  topology: 'line-list',
+});
+const lines = new Mesh<Geometry>({ geometry, texture: Texture.WHITE });
+lines.tint = 0x3344aa;
+
+// Each frame: write in place, then flag the buffer for upload.
+positions[2] = 110;
+posBuf.update();
+```
+
 ## Resolved "verify" lines
 
 | Where | Question | Answer |
@@ -392,6 +427,7 @@ Loader.shared.add('x', 'x.png').load(() => {});
 | 03 section 10, line 562 | Option names in `vite-plugin-pwa` and is `test` accepted? | `registerType`, `injectRegister`, `manifest`, `includeAssets`, `devOptions` and `workbox.{globPatterns, navigateFallback, cleanupOutdatedCaches, clientsClaim, skipWaiting, runtimeCaching}` all type check in `vite.config.ts` under vite-plugin-pwa 2.0.0. `test` is accepted once `/// <reference types="vitest/config" />` is the first line of `vite.config.ts`; `tsc --noEmit` is clean. |
 | 03 section 10, line 568 | Does Vite replace `%BASE_URL%` in `index.html`? | Yes, in Vite 8.3.5. No hardcoding needed. |
 | 04 section 6 | Does `lib.dom.d.ts` already type `ScreenOrientation.lock`? | No (TypeScript 5.9.3). Keep the cast. |
+| 10 wave V2-D, Glow item 1 | Does a Mesh with line-list topology and a per frame position buffer update work? | Yes, with a plain `Geometry` (or `batchMode = 'no-batch'`) and `buffer.update()`. Lines are one device pixel. See section 15. Source read, 8.22.0. |
 
 ## Verification record
 
