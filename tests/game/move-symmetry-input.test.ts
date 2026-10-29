@@ -98,12 +98,12 @@ describe('GE turn around on the main screen: overshoot room is one sided', () =>
   });
 
   for (const level of ['off', 'low', 'medium', 'high'] as const) {
-    it(`${level}: flipping out of a right hold stays at full right longer and drifts further`, () => {
+    it(`${level}: flipping out of a right hold matches a left hold (stick follow, v2.1)`, () => {
       const fromRight = thumbFlip(ox, 1, want, speed, level);
       const fromLeft = thumbFlip(ox, -1, want, speed, level);
-      expect(fromRight.fullSteps).toBeGreaterThan(fromLeft.fullSteps);
-      expect(fromRight.reverseSteps).toBeGreaterThan(fromLeft.reverseSteps);
-      expect(fromRight.drift).toBeGreaterThan(fromLeft.drift);
+      expect(fromRight.fullSteps).toBe(fromLeft.fullSteps);
+      expect(fromRight.reverseSteps).toBe(fromLeft.reverseSteps);
+      expect(fromRight.drift).toBe(fromLeft.drift);
     });
 
     it(`${level}: with room both ways (no edge clamp) the same thumb flip is symmetric`, () => {
@@ -116,12 +116,9 @@ describe('GE turn around on the main screen: overshoot room is one sided', () =>
     });
   }
 
-  it('reports the size of the effect for the hand-off (medium)', () => {
+  it('the GE effect (about 8 extra full steps to the right before stick follow) is gone (medium)', () => {
     const r = thumbFlip(ox, 1, want, speed, 'medium');
     const l = thumbFlip(ox, -1, want, speed, 'medium');
-    // Right hold banks want - R = 140 px of overshoot, left only ox - R = 20 px: 120 px more
-    // finger travel at 1800 px/s is about 67 ms, 8 sim steps, of extra full right thrust.
-    expect(r.fullSteps - l.fullSteps).toBeGreaterThanOrEqual(7);
-    expect(r.fullSteps - l.fullSteps).toBeLessThanOrEqual(9);
+    expect(r.fullSteps - l.fullSteps).toBe(0);
   });
 });
