@@ -3,6 +3,8 @@
 import { bus } from '../core/events';
 import type { InputState } from '../input/types';
 import type { EndlessDef, LevelDef } from '../levelgen/leveldef';
+import { bossContacts, stepBossSchedule } from './bosses/core';
+import { initLevelBoss } from './bosses/index';
 import { bulletHits, orbitHits, separate, shipHits, shipPickups } from './combat';
 import { clearPickup } from './pickup';
 import { setWeaponPickups, stepWeapons } from './weapons';
@@ -48,6 +50,7 @@ export function createGame(level: LevelDef, opts: GameOptions = {}): World {
   if (opts.weaponPickups !== undefined) setWeaponPickups(w, opts.weaponPickups);
   syncMultiplier(w);
   spawnWells(w);
+  initLevelBoss(w); // V3: arms LevelDef.boss when present; nothing otherwise
   return w;
 }
 
@@ -117,12 +120,14 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   bulletHits(w);
   orbitHits(w, dt);
   shipHits(w);
+  bossContacts(w, dt); // V3: boss body, lethal hazards and pulls (no op without a boss)
   shipPickups(w);
   stepPlayer(w, dt, input);
   stepDrone(w, dt);
   if (input.superPressed) triggerSuper(w);
   stepSupers(w, dt);
   stepSpawner(w, dt);
+  stepBossSchedule(w, dt); // V3: boss entrance at boss.atSec, view mode, hud:boss
   stepEndlessAwards(w);
   stepObjective(w);
   if (g.outcome !== 'running') clearPickup(w); // level end clears the weapon pickup

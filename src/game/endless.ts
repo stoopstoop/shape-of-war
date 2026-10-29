@@ -5,6 +5,7 @@
 // Segment s + 1 is requested when segment s starts. The ramp has no upper bound: the generator
 // grows the per wave budget every segment from segment 15 on.
 import type { EndlessDef, EndlessSegmentDef, LevelDef } from '../levelgen/leveldef';
+import { armBossFromSpec } from './bosses/index';
 import { gs, type SegmentSource } from './state';
 import type { World } from './world';
 
@@ -65,6 +66,9 @@ export function loadSegment(w: World, seg: EndlessSegmentDef): void {
   g.loopK = 0;
   g.waveShift = seg.segment * run.def.segmentSec;
   run.next = run.source(seg.segment + 1);
+  // V3 Endless cadence: a boss segment arms its boss atSec (10 s) after the segment start. While it
+  // lives the spawner holds the wave clock (bosses/core.ts waveClockHeld).
+  if (seg.boss !== undefined) armBossFromSpec(w, seg.boss, seg.segment * run.def.segmentSec + seg.boss.atSec);
 }
 
 /** Switch segments once the wave clock passes each 30 s boundary. Returns segments advanced. */

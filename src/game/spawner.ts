@@ -8,6 +8,7 @@
 import { bus } from '../core/events';
 import type { EnemyKind, SpawnEntry } from '../levelgen/leveldef';
 import { isInside } from './arena';
+import { keepScheduledEntry, waveClockHeld } from './bosses/core';
 import { advanceSegments } from './endless';
 import { defOf, kindOf } from './defs';
 import { init as initPinwheel } from './enemies/pinwheel';
@@ -69,7 +70,8 @@ export function enqueueDueWaves(w: World, clock: number): void {
     const seq = ++g.waveSeq;
     for (let i = 0; i < wave.entries.length; i++) {
       const e = wave.entries[i];
-      if (e !== undefined && inRoster(w, e.kind)) pushEntry(w, e, at + e.tOffsetSec, seq);
+      // keepScheduledEntry thins the schedule to 0.6 while an Adventure boss lives (always true otherwise).
+      if (e !== undefined && inRoster(w, e.kind) && keepScheduledEntry(w)) pushEntry(w, e, at + e.tOffsetSec, seq);
     }
     g.nextWave++;
     if (g.nextWave >= s.waves.length) {
@@ -96,7 +98,8 @@ export function activateSpawners(w: World, clock: number): void {
   }
 }
 
-function countWaveEnemies(w: World): number {
+/** Live wave enemies, telegraphs included (the maxLiveEnemies count). */
+export function countWaveEnemies(w: World): number {
   let n = 0;
   for (let i = 1; i < w.cap; i++) if (w.alive[i] === 1 && isWaveEnemy(w.kind[i] ?? 0)) n++;
   return n;
@@ -194,6 +197,8 @@ export function releaseQueue(w: World, clock: number): void {
 export function stepSpawner(w: World, dt: number): void {
   const g = gs(w);
   if (!w.ship.active || g.outcome !== 'running') return;
+  // V3: the objective hold and a live Endless boss stop the wave clock and every wave spawn.
+  if (waveClockHeld(w)) return;
   g.waveClock += dt;
   if (g.endless !== null) advanceSegments(w, g.waveClock);
   enqueueDueWaves(w, g.waveClock);

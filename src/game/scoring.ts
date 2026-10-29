@@ -66,7 +66,25 @@ export function baseValue(kind: Kind): number {
  * not (the hazards score 0, so the value test covers them).
  */
 export function countsAsKill(kind: Kind): boolean {
+  if (kind === Kind.Boss) return true; // v3 SPEC 3.6 rule 4: the boss counts 1, parts and hazards 0
   return kind !== Kind.GravityWell && kind !== Kind.Mine && kind !== Kind.Slime && baseValue(kind) > 0;
+}
+
+/** Share of par paid as the boss kill bonus (v3 SPEC 3.6 rule 1). */
+export const BOSS_BONUS_SHARE = 0.25;
+/** The bonus rounds half up to a multiple of this. */
+export const BOSS_BONUS_STEP = 500;
+/** Endless boss reward per tier (par is 0 there; Fable ruling 1 on docs/13 flag 1). */
+export const ENDLESS_BOSS_BONUS_PER_TIER = 5000;
+
+/**
+ * Pure: the boss kill bonus. Adventure: 25 percent of par rounded half up to the nearest 500.
+ * Endless: 5000 x tier. Added to the score directly and never multiplied.
+ */
+export function bossBonus(par: number, mode: 'adventure' | 'endless', tier: number): number {
+  if (mode === 'endless') return ENDLESS_BOSS_BONUS_PER_TIER * Math.max(0, Math.floor(tier));
+  if (!(par > 0) || !Number.isFinite(par)) return 0;
+  return Math.floor((par * BOSS_BONUS_SHARE) / BOSS_BONUS_STEP + 0.5) * BOSS_BONUS_STEP;
 }
 
 export function createScore(): ScoreState {

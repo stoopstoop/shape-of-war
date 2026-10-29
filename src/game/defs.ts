@@ -1,6 +1,7 @@
 // Enemy def lookup by Kind and behaviour registration with Forge's world (registerBehaviour).
 // Every registered step is wrapped so telegraphing entities only count down their telegraph.
 import type { EnemyKind } from '../levelgen/leveldef';
+import { registerBossBehaviours } from './bosses/index';
 import * as blink from './enemies/blink';
 import * as bulwark from './enemies/bulwark';
 import * as charger from './enemies/charger';
@@ -140,6 +141,8 @@ export function registerSwarmBehaviours(): void {
   registerBehaviour(Kind.WeaponPickup, pickup.step);
   // The drone is moved by stepDrone after stepWorld; a no op keeps the default drift off it.
   registerBehaviour(Kind.Drone, noop);
+  // V3 bosses: the boss, its parts and its hazards (none of them telegraph through withTelegraph).
+  registerBossBehaviours();
 }
 
 function noop(): void {
