@@ -2,6 +2,10 @@
 // only. The wave clock pauses while the ship is dead. Due entries go through a FIFO queue that
 // waits while maxLiveEnemies is reached. No randomness is used; any future need draws from
 // w.simRng only.
+// Audio: bus 'sfx' 'spawn' (SFX_TO_CUE maps it to the telegraph cue) is emitted once per wave, on
+// the step its first telegraph appears, and once when a hazard spawner's telegraph appears. Never
+// per enemy. The emits change no sim state.
+import { bus } from '../core/events';
 import type { EnemyKind, SpawnEntry } from '../levelgen/leveldef';
 import { isInside } from './arena';
 import { advanceSegments } from './endless';
@@ -31,7 +35,7 @@ function hasSnakeSlot(w: World): boolean {
   return false;
 }
 
-function pushEntry(w: World, e: SpawnEntry, due: number): void {
+function pushEntry(w: World, e: SpawnEntry, due: number, seq: number): void {
   const g = gs(w);
   if (g.queueLen >= QUEUE_CAP) {
     // Only reached in Endless while the live cap holds spawns back for a long time.
@@ -41,6 +45,7 @@ function pushEntry(w: World, e: SpawnEntry, due: number): void {
   const i = (g.queueHead + g.queueLen) % QUEUE_CAP;
   g.queueEntry[i] = e;
   g.queueDue[i] = due;
+  g.queueWave[i] = seq;
   g.queueLen++;
 }
 
@@ -61,9 +66,10 @@ export function enqueueDueWaves(w: World, clock: number): void {
     const shift = g.waveShift + g.loopK * s.loopPeriodSec;
     const at = wave.atSec + shift;
     if (clock < at) return;
+    const seq = ++g.waveSeq;
     for (let i = 0; i < wave.entries.length; i++) {
       const e = wave.entries[i];
-      if (e !== undefined && inRoster(w, e.kind)) pushEntry(w, e, at + e.tOffsetSec);
+      if (e !== undefined && inRoster(w, e.kind)) pushEntry(w, e, at + e.tOffsetSec, seq);
     }
     g.nextWave++;
     if (g.nextWave >= s.waves.length) {
@@ -84,7 +90,9 @@ export function activateSpawners(w: World, clock: number): void {
     if (h === undefined || g.spawnerStarted[i] === 1 || clock < h.spawnAtSec) continue;
     g.spawnerStarted[i] = 1;
     const id = spawnFromDef(w, spawnerDef, h.x, h.y, TELEGRAPH_SEC);
-    if (id >= 0) w.a[id] = i;
+    if (id < 0) continue;
+    w.a[id] = i;
+    bus.emit('sfx', 'spawn');
   }
 }
 
@@ -169,8 +177,15 @@ export function releaseQueue(w: World, clock: number): void {
       }
       return;
     }
+    const seq = g.queueWave[g.queueHead] ?? 0;
     popEntry(w);
     live++;
+    // The queue is FIFO and wave sequence numbers only grow, so the first entry of a wave to
+    // spawn is the first with a number above sfxWave. One 'spawn' per wave, not per enemy.
+    if (seq > g.sfxWave) {
+      g.sfxWave = seq;
+      bus.emit('sfx', 'spawn');
+    }
     if (g.spawnLog !== null) g.spawnLog.push({ t: clock, kind: k, x: pos.x, y: pos.y });
   }
 }

@@ -124,8 +124,14 @@ export interface GameState {
   loopK: number; // loop repeat count, 0 is the first pass
   queueEntry: (SpawnEntry | null)[];
   queueDue: Float64Array;
+  /** Wave sequence number (1 based) each queued entry belongs to, parallel to queueEntry. */
+  queueWave: Int32Array;
   queueHead: number;
   queueLen: number;
+  /** Waves enqueued so far, across loop passes. Gives each queued wave its sequence number. */
+  waveSeq: number;
+  /** Highest wave sequence number whose first telegraph has played the 'spawn' sfx. 0 for none. */
+  sfxWave: number;
   spawnerStarted: Uint8Array; // per hazard spawner
   spawnLog: SpawnLogEntry[] | null;
 
@@ -270,8 +276,11 @@ function createState(w: World): GameState {
     loopK: 0,
     queueEntry: new Array<SpawnEntry | null>(QUEUE_CAP).fill(null),
     queueDue: new Float64Array(QUEUE_CAP),
+    queueWave: new Int32Array(QUEUE_CAP),
     queueHead: 0,
     queueLen: 0,
+    waveSeq: 0,
+    sfxWave: 0,
     spawnerStarted: new Uint8Array(4),
     spawnLog: null,
     dropped: 0,
