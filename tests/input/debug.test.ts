@@ -79,6 +79,25 @@ describe('formatMoveDebug', () => {
   });
 });
 
+describe('landing readout', () => {
+  it('stores the move thumb landing on begin and prints it on its own line', () => {
+    const d = createMoveDebug();
+    noteMoveBegin(d, 0, 140.4, 449.6);
+    expect([d.landX, d.landY]).toEqual([140.4, 449.6]);
+    noteMoveSample(d, 120, 0, 1, 0, 10);
+    const s = formatMoveDebug(d, 2.625, 832, 750);
+    expect(s.split('\n')).toHaveLength(3);
+    expect(s.split('\n')[2]).toBe('land 140,450');
+  });
+
+  it('a new landing replaces the old one', () => {
+    const d = createMoveDebug();
+    noteMoveBegin(d, 0, 100, 200);
+    noteMoveBegin(d, 50, 300, 400);
+    expect(formatMoveDebug(d, 1, 900, 400)).toContain('land 300,400');
+  });
+});
+
 describe('targetLabel', () => {
   it('uses the first class when present', () => {
     expect(targetLabel('DIV', 'sow-screen sow-intro')).toBe('div.sow-screen');

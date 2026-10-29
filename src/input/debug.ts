@@ -10,7 +10,7 @@ export const RATE_WINDOW_MS = 500;
 export const PAINT_INTERVAL_MS = 100;
 
 export interface MoveDebug {
-  /** Finger distance from the move origin, unclamped, CSS px. */
+  /** Finger distance from the move stick centre, CSS px. The centre follows, so this tops out at the radius. */
   reachPx: number;
   /** Largest reach since the move stick began, CSS px. */
   peakPx: number;
@@ -24,10 +24,13 @@ export interface MoveDebug {
   offCanvasDowns: number;
   /** Class or tag of the element that took the latest off canvas down. */
   lastOffCanvas: string;
+  /** Where the move thumb landed, canvas local CSS px. */
+  landX: number;
+  landY: number;
 }
 
 export function createMoveDebug(): MoveDebug {
-  return { reachPx: 0, peakPx: 0, mag: 0, hz: 0, windowStartMs: 0, windowCount: 0, offCanvasDowns: 0, lastOffCanvas: '' };
+  return { reachPx: 0, peakPx: 0, mag: 0, hz: 0, windowStartMs: 0, windowCount: 0, offCanvasDowns: 0, lastOffCanvas: '', landX: 0, landY: 0 };
 }
 
 /** Pure: true when the page query string carries debug=1. */
@@ -35,8 +38,10 @@ export function parseDebugFlag(search: string): boolean {
   return new URLSearchParams(search).get('debug') === '1';
 }
 
-/** A move stick began: reset reach and peak. */
-export function noteMoveBegin(d: MoveDebug, nowMs: number): void {
+/** A move stick began at (landX, landY): reset reach and peak, keep the landing. */
+export function noteMoveBegin(d: MoveDebug, nowMs: number, landX = 0, landY = 0): void {
+  d.landX = landX;
+  d.landY = landY;
   d.reachPx = 0;
   d.peakPx = 0;
   d.mag = 0;
@@ -68,13 +73,14 @@ function f(n: number, digits: number): string {
   return n.toFixed(digits);
 }
 
-/** Pure: the readout text, two lines. */
+/** Pure: the readout text, three lines (the last is the move thumb landing). */
 export function formatMoveDebug(d: Readonly<MoveDebug>, dpr: number, cssW: number, cssH: number, radius = STICK_RADIUS): string {
   const pct = Math.round((Math.min(d.peakPx, radius) / radius) * 100);
   const line1 = `move ${f(d.mag, 2)}  reach ${f(d.reachPx, 0)}/${radius}px  peak ${pct}%  ${f(d.hz, 0)}Hz`;
   const off = d.offCanvasDowns > 0 ? `  offcanvas ${d.offCanvasDowns} (${d.lastOffCanvas})` : '';
   const line2 = `dpr ${f(dpr, 3)}  css ${f(cssW, 0)}x${f(cssH, 0)}  radius ${f(radius * dpr, 0)} device px${off}`;
-  return `${line1}\n${line2}`;
+  const line3 = `land ${f(d.landX, 0)},${f(d.landY, 0)}`;
+  return `${line1}\n${line2}\n${line3}`;
 }
 
 /** Pure: a short label for an event target, for the off canvas line. */

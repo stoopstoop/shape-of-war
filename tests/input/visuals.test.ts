@@ -9,13 +9,22 @@ describe('stickVisuals', () => {
     expect(stickVisuals(createModel(900, 400))).toEqual({ move: null, aim: null });
   });
 
-  it('puts the ring at the origin and the knob at the clamped finger', () => {
+  it('puts the ring at the origin and the knob at the finger while inside the ring', () => {
+    const m = createModel(900, 400);
+    pointerDown(m, 1, 200, 200);
+    pointerMove(m, 1, 290, 200);
+    const v = stickVisuals(m);
+    expect(v.move?.ring).toEqual({ x: 200, y: 200, r: STICK_RADIUS });
+    expect(v.move?.knob).toEqual({ x: 290, y: 200, r: KNOB_RADIUS });
+  });
+
+  it('ring and knob follow the centre when the finger goes past the ring', () => {
     const m = createModel(900, 400);
     pointerDown(m, 1, 200, 200);
     pointerMove(m, 1, 500, 200);
     const v = stickVisuals(m);
-    expect(v.move?.ring).toEqual({ x: 200, y: 200, r: STICK_RADIUS });
-    expect(v.move?.knob).toEqual({ x: 320, y: 200, r: KNOB_RADIUS });
+    expect(v.move?.ring).toEqual({ x: 380, y: 200, r: STICK_RADIUS });
+    expect(v.move?.knob).toEqual({ x: 500, y: 200, r: KNOB_RADIUS });
     expect(v.aim).toBeNull();
     pointerUp(m, 1);
     expect(stickVisuals(m).move).toBeNull();

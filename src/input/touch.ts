@@ -73,7 +73,7 @@ function release(canvas: HTMLCanvasElement, id: number): void {
 }
 
 interface DebugView {
-  begin(): void;
+  begin(landX: number, landY: number): void;
   sample(dx: number, dy: number): void;
   paint(cssW: number, cssH: number): void;
   detach(): void;
@@ -101,7 +101,7 @@ function createDebugView(canvas: HTMLCanvasElement, state: InputState): DebugVie
   // Capture phase on the document so a DOM layer that takes the touch is still counted.
   doc.addEventListener('pointerdown', offCanvas, { capture: true, passive: true });
   return {
-    begin: () => noteMoveBegin(d, now()),
+    begin: (landX, landY) => noteMoveBegin(d, now(), landX, landY),
     sample: (dx, dy) => noteMoveSample(d, dx, dy, state.move.x, state.move.y, now()),
     paint(cssW, cssH): void {
       const t = now();
@@ -132,7 +132,7 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
     const r = pointerDown(model, e.pointerId, e.clientX - frame.left, e.clientY - frame.top);
     if (r !== 'ignored') capture(canvas, e.pointerId);
     syncSticks(model, state);
-    if (dbg !== null && r === 'move') dbg.begin();
+    if (dbg !== null && r === 'move') dbg.begin(model.move.lx, model.move.ly);
     dbg?.paint(frame.w, frame.h);
   };
   const move = (e: PointerEvent): void => {
