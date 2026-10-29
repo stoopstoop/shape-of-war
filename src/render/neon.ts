@@ -1,7 +1,7 @@
 // Neon brightness mapping (SPEC 4, docs/03-architecture.md section 7).
 // applyNeon(n) is the single entry point for bloom strength, threshold, saturation,
 // glow alpha and grid alpha. Everything else reads `current` and `palette`, or listens.
-import { bus } from '../core/events';
+import { bus, type WeaponKind } from '../core/events';
 import { clampNum, hslToRgbInt, lerpNum } from './color';
 
 export interface NeonParams {
@@ -64,6 +64,27 @@ export const BASE_PALETTE = {
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type PaletteKey = keyof typeof BASE_PALETTE;
+
+/**
+ * The one weapon colour table. Bullets, bullet trails, the pickup glyphs, the collect burst and
+ * the HUD weapon label all read a weapon's colour from here (spread is the yellow player shot).
+ */
+export const WEAPON_PALETTE: Readonly<Record<WeaponKind, PaletteKey>> = {
+  spread: 'yellow',
+  rapid: 'rapid',
+  pierce: 'pierce',
+  orbit: 'orbit',
+};
+
+/** Pure: palette key for a weapon. */
+export function weaponPaletteKey(kind: WeaponKind): PaletteKey {
+  return WEAPON_PALETTE[kind];
+}
+
+/** Pure: HSL hue in degrees for a weapon, from the palette table (for the HUD label and bar). */
+export function weaponHue(kind: WeaponKind): number {
+  return BASE_PALETTE[WEAPON_PALETTE[kind]][0];
+}
 
 export const PALETTE_KEYS: readonly PaletteKey[] = Object.keys(BASE_PALETTE) as PaletteKey[];
 

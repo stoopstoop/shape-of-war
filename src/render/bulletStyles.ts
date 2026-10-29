@@ -2,7 +2,7 @@
 // 2 pierce, 3 orbit). Pure, no pixi.js import. The renderer draws every frame into one atlas
 // texture, so all bullet heads stay in one ParticleContainer (one draw call) and the attached
 // trails in a second one: two draw calls for bullets in total, inside the budget of four.
-import type { PaletteKey } from './neon';
+import { weaponPaletteKey, type PaletteKey } from './neon';
 
 export type BulletFrame = 'dot' | 'rapid' | 'pierce' | 'orbit';
 
@@ -34,7 +34,7 @@ export const SPREAD_TRAIL_THICK = 1.35;
 
 const SPREAD: BulletStyleVisual = {
   frame: 'dot',
-  tint: 'yellow',
+  tint: weaponPaletteKey('spread'),
   scale: 0.75,
   anchorX: 0.5,
   orient: 'velocity',
@@ -46,7 +46,7 @@ const SPREAD: BulletStyleVisual = {
 /** Rapid: a thin short streak, no attached trail (its particle trail fades behind it). */
 const RAPID: BulletStyleVisual = {
   frame: 'rapid',
-  tint: 'rapid',
+  tint: weaponPaletteKey('rapid'),
   scale: 1,
   anchorX: 0.8,
   orient: 'velocity',
@@ -58,7 +58,7 @@ const RAPID: BulletStyleVisual = {
 /** Pierce: a long bright lance with a baked halo and a long thin attached trail. */
 const PIERCE: BulletStyleVisual = {
   frame: 'pierce',
-  tint: 'pierce',
+  tint: weaponPaletteKey('pierce'),
   scale: 1,
   anchorX: 0.72,
   orient: 'velocity',
@@ -70,7 +70,7 @@ const PIERCE: BulletStyleVisual = {
 /** Orbit: a crescent blade whose bulge faces away from the ship. No trail. */
 const ORBIT: BulletStyleVisual = {
   frame: 'orbit',
-  tint: 'orbit',
+  tint: weaponPaletteKey('orbit'),
   scale: 1,
   anchorX: 0.5,
   orient: 'radial',
@@ -114,16 +114,9 @@ export function visualForCode(code: number): BulletStyleVisual {
 /** Weapon names as in src/core/events.ts WeaponKind, matched structurally. */
 export type WeaponName = 'spread' | 'rapid' | 'pierce' | 'orbit';
 
-const WEAPON_TINT: Readonly<Record<WeaponName, PaletteKey>> = {
-  spread: 'yellow',
-  rapid: 'rapid',
-  pierce: 'pierce',
-  orbit: 'orbit',
-};
-
 /** Pure: palette key for a weapon (pickup collect burst, same colour as its bullets). */
 export function weaponTint(w: WeaponName): PaletteKey {
-  return WEAPON_TINT[w];
+  return weaponPaletteKey(w);
 }
 
 /** Particles in the collect burst when a weapon pickup is taken (fx:pickup). */

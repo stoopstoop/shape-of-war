@@ -47,6 +47,7 @@ import { bus } from '../core/events';
 import { gameState, isTelegraphing, telegraphLeft } from '../game/game';
 import type { World } from '../game/world';
 import type { ArenaDef, LevelDef } from '../levelgen/leveldef';
+import { geomAlpha, invulnAlpha } from './blink';
 import { hash01 } from './color';
 import { arenaGridSegments, drawGrid, drawWalls, gridLineWidth, WALL_GLOW_PX, WALL_LINE_PX, wallPasses } from './grid';
 import {
@@ -348,6 +349,7 @@ const SLIME_SPIN = 0.08;
 const TAU = Math.PI * 2;
 
 // Kind values used for per kind visual scale; numeric literals avoid importing the const enum.
+const KIND_SHIP = 1;
 const KIND_GRUNT = 2;
 const KIND_DART = 6;
 const KIND_GRAVITY_WELL = 9;
@@ -1804,6 +1806,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       ev.scaleY = scale;
       ev.rot = rot;
       ev.glowMul = 1;
+      // Ship blinks while invulnerable (B10) and geoms blink in their last second (B11). Both are
+      // alpha multipliers, so the glow sprite below follows on the bloom and fallback paths.
+      if (i === 0 && kind === KIND_SHIP) ev.alpha *= invulnAlpha(w.ship.invuln);
+      else if (kind === KIND_GEOM) ev.alpha *= geomAlpha(w.t[i] ?? 0);
       if (isV2) applyEnemyContract(w, i, kind, teleNow, timeSec, dt);
       else if (kind === KIND_DART || kind === KIND_GEOM) applyV1Sparkle(w, i, kind, teleNow, timeSec, dt);
       // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
