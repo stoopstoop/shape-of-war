@@ -10,6 +10,7 @@ import { removeEntity } from '../../src/game/remove';
 import { gs, type ScoringPort } from '../../src/game/state';
 import { ENTITY_CAP, inlineRectLevel, Kind, spawn, type World } from '../../src/game/world';
 import { generateEndless, generateEndlessSegment } from '../../src/levelgen/generator';
+import { V2_GEN_CONFIG } from '../../src/levelgen/leveldef';
 import type { EndlessSegmentDef } from '../../src/levelgen/leveldef';
 import { DT, idle } from './helpers';
 
@@ -17,11 +18,12 @@ afterEach(() => bus.clear());
 
 const SEEDS = [1, 2, 3, 0xdeadbeef];
 
+// V2_GEN_CONFIG: these v2 tests run with bosses off (a boss holds the Endless wave clock, docs/13).
 function endless(seed: number, capacity?: number, requested: number[] = []): World {
-  const def = generateEndless(seed);
+  const def = generateEndless(seed, V2_GEN_CONFIG);
   const source = (s: number): EndlessSegmentDef => {
     requested.push(s);
-    return generateEndlessSegment(seed, s);
+    return generateEndlessSegment(seed, s, V2_GEN_CONFIG);
   };
   const w = createEndlessGame(def, source, { logSpawns: true, vibrate: () => undefined, capacity });
   w.ship.invuln = 1e9;

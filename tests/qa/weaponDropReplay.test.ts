@@ -21,7 +21,7 @@ import { livePickup, onScoringKill } from '../../src/game/pickup';
 import { setWeaponPickups, weaponState, WEAPON_KINDS } from '../../src/game/weapons';
 import type { InputState } from '../../src/input/types';
 import { generateEndless, generateEndlessSegment, generateLevel } from '../../src/levelgen/generator';
-import { DEFAULT_GEN_CONFIG, V1_GEN_CONFIG } from '../../src/levelgen/leveldef';
+import { DEFAULT_GEN_CONFIG, V1_GEN_CONFIG, V2_GEN_CONFIG } from '../../src/levelgen/leveldef';
 import type { LevelDef } from '../../src/levelgen/leveldef';
 
 /** Hooks around the pickup module's scoring kill entry point, set only while a session records. */
@@ -425,7 +425,7 @@ describe('weapon drop log replay from a synthetic kill log', { timeout: 120_000 
 
   it('the weapon schedule does not depend on the generator flag (no LevelDef field carries it)', () => {
     for (const [runSeed, levelIndex] of LEVELS_ALL_BANDS) {
-      const on = playSynthetic(generateLevel(runSeed, levelIndex, DEFAULT_GEN_CONFIG), log);
+      const on = playSynthetic(generateLevel(runSeed, levelIndex, V2_GEN_CONFIG), log); // level 60 is a boss level under v3
       const off = playSynthetic(generateLevel(runSeed, levelIndex, V1_GEN_CONFIG), log);
       expect(on.drops, `seed ${runSeed} level ${levelIndex}`).toEqual(off.drops);
     }

@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveSeed } from '../../src/core/rng';
 import { generateLevel } from '../../src/levelgen/generator';
-import type { LevelDef } from '../../src/levelgen/leveldef';
+import { V2_GEN_CONFIG, type LevelDef } from '../../src/levelgen/leveldef';
 
 /** Everything the player experiences, without the identity fields that name the run and the index. */
 function content(d: LevelDef): Omit<LevelDef, 'runSeed' | 'levelIndex'> {
@@ -31,7 +31,8 @@ describe('adjacent run seeds', () => {
   });
 
   it('holds for levels 1 to 4 of the same pair, so 4 of the first 5 levels repeat', () => {
-    for (let n = 1; n <= 4; n++) expect(content(generateLevel(1234, n + 1))).toEqual(content(generateLevel(1235, n)));
+    // V2_GEN_CONFIG: level 5 of seed 1234 is a boss level under v3 (docs/13), which breaks the shift.
+    for (let n = 1; n <= 4; n++) expect(content(generateLevel(1234, n + 1, V2_GEN_CONFIG))).toEqual(content(generateLevel(1235, n, V2_GEN_CONFIG)));
   });
 
   it('runs d apart share max(0, 40 - d) of their first 40 level seeds (the cost of "plus n")', () => {
