@@ -196,11 +196,20 @@ export function pushArc(
   let written = 0;
   let px = cx + Math.cos(a0) * r;
   let py = cy + Math.sin(a0) * r;
+  // Square ended chords leave a wedge on the outside of each joint: stretch every chord by the
+  // wedge half width at each end (inner ends overlap slightly instead, which reads as solid).
+  const step = span / n;
+  const ext = thick * 0.5 * Math.tan(step / 2) + 0.2;
   for (let k = 1; k <= n; k++) {
-    const a = a0 + (span * k) / n;
+    const a = a0 + step * k;
     const qx = cx + Math.cos(a) * r;
     const qy = cy + Math.sin(a) * r;
-    written += pushLine(b, px, py, qx, qy, thick, alpha, tint, halo);
+    const dx = qx - px;
+    const dy = qy - py;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const ux = len > 1e-6 ? (dx / len) * ext : 0;
+    const uy = len > 1e-6 ? (dy / len) * ext : 0;
+    written += pushLine(b, px - ux, py - uy, qx + ux, qy + uy, thick, alpha, tint, halo);
     px = qx;
     py = qy;
   }
