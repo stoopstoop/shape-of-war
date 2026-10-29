@@ -19,6 +19,7 @@ import {
   ENEMY_KINDS,
   GENERATOR_VERSION,
   GENERATOR_VERSION_V2,
+  GENERATOR_VERSION_V3,
   LEVELDEF_VERSION,
   MAX_RETRIES,
   SUPER_KINDS,
@@ -88,6 +89,7 @@ import {
   obstaclePointDistance,
   validateLevel,
 } from './validate';
+import { bossForLevel, bossForSegment, bossHazards } from './boss';
 import { ALL_ENEMY_KINDS, V2_ENEMY_SALT, V2_SPAWN_UNIT, planV2Roster, swapGroupKind, v2GroupCount } from './v2enemies';
 
 /** Stage salts, docs/02 section 2. */
@@ -718,7 +720,7 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
   const hazards = generateHazards(stream(s, SALT.hazards), arena, b, cfg, objective);
   const { par, target } = computePar(waves, objective);
   if (objective.kind === 'scoreInTime') objective = { ...objective, target };
-  return {
+  const def: LevelDef = {
     version: LEVELDEF_VERSION,
     generatorVersion: v2 ? GENERATOR_VERSION_V2 : GENERATOR_VERSION,
     runSeed,
@@ -740,6 +742,18 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
     surface: 'flat',
     retries: attempt,
   };
+  return withLevelBoss(def, cfg);
+}
+
+/**
+ * V3 boss post step (docs/13 SPEC 3.3 rules 4 and 5). Flag off or not a boss level: the def as
+ * is, so its v2.1 bytes and hash hold. Boss level with the flag on: the boss field (appended last,
+ * so every other key keeps its place), GENERATOR_VERSION_V3, and rule 12 on the hazards. No draw.
+ */
+export function withLevelBoss(def: LevelDef, cfg: GenConfig): LevelDef {
+  const boss = cfg.enableBosses ? bossForLevel(def.levelIndex) : null;
+  if (boss === null) return def;
+  return { ...def, generatorVersion: GENERATOR_VERSION_V3, hazards: bossHazards(def.hazards), boss };
 }
 
 /**
@@ -748,7 +762,7 @@ function buildLevel(runSeed: number, levelIndex: number, seed: number, attempt: 
  * retries. If every attempt fails, the last one is returned (a slightly off level beats a crash).
  */
 export function generateLevel(runSeed: number, levelIndex: number, cfg: GenConfig = DEFAULT_GEN_CONFIG): LevelDef {
-  return generateLevelChecked(runSeed, levelIndex, cfg, (d) => validateLevel(d).ok);
+  return generateLevelChecked(runSeed, levelIndex, cfg, (d) => validateLevel(d, cfg).ok);
 }
 
 /** generateLevel with the acceptance test injected, so tests can drive the retry path. */
@@ -788,7 +802,7 @@ export function generateEndlessSegment(endlessSeed: number, segment: number, cfg
   });
   const v2 = runsV2(cfg, band);
   const { roster, waves: list } = v2 ? applyV2Enemies(stream(seed, V2_ENEMY_SALT), band, ENDLESS_ARENA, v1Roster, v1List) : { roster: v1Roster, waves: v1List.waves };
-  return deepFreeze({
+  const def: EndlessSegmentDef = {
     version: LEVELDEF_VERSION,
     generatorVersion: v2 ? GENERATOR_VERSION_V2 : GENERATOR_VERSION,
     endlessSeed: es,
@@ -799,7 +813,11 @@ export function generateEndlessSegment(endlessSeed: number, segment: number, cfg
     roster,
     speedScale: speedScaleFor(effectiveIndex),
     waves: scheduleOf(b, list, -1, 0, bonus),
-  });
+  };
+  // V3: a boss segment (a positive multiple of 6) carries the boss last and version 3. Endless has
+  // no hazards, so rule 12 has nothing to remove. Flag off or any other segment: v2.1 bytes.
+  const boss = cfg.enableBosses ? bossForSegment(segment) : null;
+  return deepFreeze(boss === null ? def : { ...def, generatorVersion: GENERATOR_VERSION_V3, boss });
 }
 
 /**

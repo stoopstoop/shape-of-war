@@ -13,8 +13,7 @@ export const GENERATOR_VERSION = 1;
 export const GENERATOR_VERSION_V2 = 2;
 /**
  * V3 contract stub (docs/12 V3-W0). Generator version that marks only boss levels (a def that
- * carries a BossSpec). Every other def keeps GENERATOR_VERSION or GENERATOR_VERSION_V2. Read by
- * nothing yet.
+ * carries a BossSpec). Every other def keeps GENERATOR_VERSION or GENERATOR_VERSION_V2.
  */
 export const GENERATOR_VERSION_V3 = 3;
 
@@ -213,7 +212,8 @@ export interface GenConfig {
   enableV2Enemies: boolean;
   /**
    * V3 bosses (docs/13). On: boss levels carry a BossSpec and report GENERATOR_VERSION_V3. Off:
-   * output is byte identical to v2.1. Default on. Read by nothing yet (V3-W0 stub).
+   * output is byte identical to v2.1. Default on. Read by generateLevel and generateEndlessSegment
+   * through the schedule in boss.ts (V3-A).
    */
   enableBosses: boolean;
 }

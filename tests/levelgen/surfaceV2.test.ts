@@ -3,7 +3,7 @@
 // the v1 checks and stays unmodified.
 import { describe, expect, it } from 'vitest';
 import { generateEndless, generateLevel } from '../../src/levelgen/generator';
-import { DEFAULT_GEN_CONFIG, GENERATOR_VERSION_V2 } from '../../src/levelgen/leveldef';
+import { DEFAULT_GEN_CONFIG, GENERATOR_VERSION_V2, V2_GEN_CONFIG } from '../../src/levelgen/leveldef';
 import type { LevelDef } from '../../src/levelgen/leveldef';
 import { validateEndless, validateLevel } from '../../src/levelgen/validate';
 
@@ -23,7 +23,8 @@ describe('flat hook with the v2 enemies on', () => {
   }, 60000);
 
   it('any other surface value fails V1 on a version 2 level, and nothing else does', () => {
-    const base = generateLevel(42, 20);
+    // V3: level 20 is a boss level, so pin bosses off to keep this a version 2 level.
+    const base = generateLevel(42, 20, V2_GEN_CONFIG);
     expect(base.generatorVersion).toBe(GENERATOR_VERSION_V2);
     expect(validateLevel(base).errors).toEqual([]);
     for (const v of NOT_FLAT) {
