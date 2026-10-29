@@ -1,5 +1,6 @@
 // Pure boss hazard look (docs/13 "Hazard primitives", docs/12 wave V3-A Glow item 3). No pixi.js
-// import. Kind.BossHazard reads w.a (primitive), w.t (age), w.rot, w.radius, w.vx and w.vy. Every
+// import. Kind.BossHazard reads w.a (primitive), w.t (age), w.rot, w.radius, w.vx and w.vy (a ring
+// with w.vy 2 has a second gap on w.rot + pi, the Warden phase 2 ring). Every
 // lethal hazard first shows its tier telegraph as a thin dim form of the same geometry, then turns
 // bright and full width at lethal with a short flash. The planner writes sprite instances into a
 // SpriteBuf (fxSprites.ts): one pooled geometry, no allocation, no Graphics.clear per frame.
@@ -94,6 +95,40 @@ export function ringGapArc(rot: number, halfGap: number, out: GapArc): GapArc {
   return out;
 }
 
+/** Pure: gap count of a ring from w.vy (1 or 2; the sim writes 2 for the Warden phase 2 ring). */
+export function ringGapCount(vy: number): number {
+  return Number.isFinite(vy) && Math.round(vy) >= 2 ? 2 : 1;
+}
+
+/**
+ * Pure: the drawn arcs of a ring with gaps gaps of half angle halfGap, the first centred on rot and
+ * the second (gaps 2) on rot + pi, written into out[0] and out[1]. Returns the number of arcs. Two
+ * gaps leave two arcs of pi - 2 halfGap each; gaps that meet or overlap leave nothing to draw.
+ */
+export function ringGapArcs(rot: number, halfGap: number, gaps: number, out: readonly GapArc[]): number {
+  const a = out[0];
+  if (!a) return 0;
+  if (ringGapCount(gaps) === 1) {
+    ringGapArc(rot, halfGap, a);
+    return a.span > 0 ? 1 : 0;
+  }
+  const b = out[1];
+  if (!b) return 0;
+  const r = Number.isFinite(rot) ? rot : 0;
+  const g = clampNum(Number.isFinite(halfGap) ? halfGap : 0, 0, Math.PI / 2);
+  const span = Math.PI - 2 * g;
+  if (!(span > 0)) return 0;
+  a.a0 = r + g;
+  a.span = span;
+  a.gap0 = r - g;
+  a.gap1 = r + g;
+  b.a0 = r + Math.PI + g;
+  b.span = span;
+  b.gap0 = r + Math.PI - g;
+  b.gap1 = r + Math.PI + g;
+  return 2;
+}
+
 /** Ring segment length target in arena units, and the segment count bounds. */
 export const RING_SEG_U = 28;
 export const RING_SEG_MIN = 12;
@@ -167,7 +202,10 @@ export interface HazardInput {
 }
 
 const form: HazardForm = { lethal: false, alpha: 0, thick: 0, flash: 0 };
-const arc: GapArc = { a0: 0, span: 0, gap0: 0, gap1: 0 };
+const ringArcs: readonly GapArc[] = [
+  { a0: 0, span: 0, gap0: 0, gap1: 0 },
+  { a0: 0, span: 0, gap0: 0, gap1: 0 },
+];
 
 /** White mixed into a hazard at its lethal flash, as an alpha boost and a thicker core. */
 function flashBoost(f: HazardForm): number {
@@ -195,21 +233,29 @@ function planLane(h: HazardInput, b: SpriteBuf, halo: Readonly<FxHalo>, f: Hazar
 function planRing(h: HazardInput, b: SpriteBuf, halo: Readonly<FxHalo>, f: HazardForm): number {
   const r = h.radius;
   if (!(r > 1)) return 0;
-  ringGapArc(h.rot, h.vx, arc);
-  const segs = ringSegments(r, arc.span);
+  const arcs = ringGapArcs(h.rot, h.vx, h.vy, ringArcs);
   const w = (f.lethal ? RING_BAND * 0.45 : HAZARD_LINE * tierWeight(h.tier) * TELE_THICK * 2) * flashBoost(f);
-  let n = pushArc(b, h.x, h.y, r, arc.a0, arc.span, segs, w, f.alpha, h.tint, halo);
-  // Gap notch: a radial tick at each gap edge, brighter than the telegraph so the way out reads.
-  if (arc.span < Math.PI * 2 - 1e-3) {
-    const na = Math.max(0.6, f.alpha);
-    const tw = HAZARD_LINE * tierWeight(h.tier);
-    for (const g of [arc.gap0, arc.gap1]) {
-      const c = Math.cos(g);
-      const s = Math.sin(g);
-      n += pushLine(b, h.x + c * (r - NOTCH_HALF), h.y + s * (r - NOTCH_HALF), h.x + c * (r + NOTCH_HALF), h.y + s * (r + NOTCH_HALF), tw, na, h.tint, halo);
+  const na = Math.max(0.6, f.alpha);
+  const tw = HAZARD_LINE * tierWeight(h.tier);
+  let n = 0;
+  for (let k = 0; k < arcs; k++) {
+    const arc = ringArcs[k];
+    if (!arc) continue;
+    // Segments follow each arc length, so a two gap ring stays inside HAZARD_MAX_INSTANCES.
+    n += pushArc(b, h.x, h.y, r, arc.a0, arc.span, ringSegments(r, arc.span), w, f.alpha, h.tint, halo);
+    // Gap notch: a radial tick at each gap edge, brighter than the telegraph so the way out reads.
+    if (arc.span < Math.PI * 2 - 1e-3) {
+      n += pushNotch(b, h, r, arc.gap0, tw, na, halo);
+      n += pushNotch(b, h, r, arc.gap1, tw, na, halo);
     }
   }
   return n;
+}
+
+function pushNotch(b: SpriteBuf, h: HazardInput, r: number, g: number, tw: number, na: number, halo: Readonly<FxHalo>): number {
+  const c = Math.cos(g);
+  const s = Math.sin(g);
+  return pushLine(b, h.x + c * (r - NOTCH_HALF), h.y + s * (r - NOTCH_HALF), h.x + c * (r + NOTCH_HALF), h.y + s * (r + NOTCH_HALF), tw, na, h.tint, halo);
 }
 
 function planSweep(h: HazardInput, b: SpriteBuf, halo: Readonly<FxHalo>, f: HazardForm): number {
