@@ -66,7 +66,9 @@ export function bossHolds(obj: ObjectiveDef, s: ObjectiveSnapshot, bossAlive: bo
  */
 export function fallbackStatus(obj: ObjectiveDef, s: ObjectiveSnapshot, bossLevel: boolean): ObjectiveStatus {
   const status = objectiveStatus(obj, s);
-  return bossLevel && status === 'success' ? 'running' : status;
+  // Boss level: only the sim ends it (boss death wins, all lives lost fails); the objective is score only.
+  if (bossLevel) return s.lives !== null && s.lives <= 0 ? 'failure' : 'running';
+  return status;
 }
 
 /** The sim's verdict (GameState.outcome), copied here so this module stays free of src/game. */

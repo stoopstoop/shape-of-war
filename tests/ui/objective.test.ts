@@ -117,9 +117,9 @@ describe('boss level end check and verdict', () => {
     expect(fallbackStatus(destroy, snap({ kills: 40 }), true)).toBe('running');
   });
 
-  it('fallbackStatus on a boss level still ends on a failure', () => {
+  it('fallbackStatus on a boss level ends only when every life is lost (a missed score target is score only)', () => {
     expect(fallbackStatus(surv, snap({ elapsedSec: 10, lives: 0 }), true)).toBe('failure');
-    expect(fallbackStatus(sit, snap({ score: 10, elapsedSec: 90 }), true)).toBe('failure');
+    expect(fallbackStatus(sit, snap({ score: 10, elapsedSec: 90 }), true)).toBe('running');
     expect(fallbackStatus(destroy, snap({ kills: 3, lives: 0 }), true)).toBe('failure');
   });
 
