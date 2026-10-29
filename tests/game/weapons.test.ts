@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { bus, type WeaponKind } from '../../src/core/events';
+import { bus, type BaseWeaponKind, type WeaponKind } from '../../src/core/events';
 import { hash01 } from '../../src/core/rng';
 import { BULLET_CAP, type BulletPool, STYLE_ORBIT, STYLE_PIERCE, STYLE_RAPID, stepBulletPool } from '../../src/game/bullets';
 import { bulletHits, killEnemy, orbitHits } from '../../src/game/combat';
@@ -269,7 +269,7 @@ describe('weapon timer and death', () => {
 });
 
 describe('turbo', () => {
-  function bulletsPerSecond(kind: WeaponKind, scale: number): number {
+  function bulletsPerSecond(kind: BaseWeaponKind, scale: number): number {
     const { w } = makeGame();
     equipWeapon(w, kind);
     w.ship.fireRateScale = scale;

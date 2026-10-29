@@ -4,7 +4,7 @@
 // imports World as a type only (world.ts imports ship.ts, which imports this file).
 // Determinism: the drop choice is hash01(level.seed, dropIndex). No PRNG, no LevelDef field.
 // Nothing here allocates per step.
-import { bus, type WeaponKind } from '../core/events';
+import { bus, type BaseWeaponKind } from '../core/events';
 import { hash01 } from '../core/rng';
 import {
   armPierce,
@@ -21,7 +21,7 @@ import {
 import type { World } from './world';
 
 export interface WeaponSpec {
-  kind: WeaponKind;
+  kind: BaseWeaponKind;
   /** BulletPool.style written for this weapon's bullets (orbit: the blades). */
   style: number;
   /** Volleys per second before Turbo. */
@@ -35,7 +35,7 @@ export interface WeaponSpec {
 }
 
 /** Starting values from the docs/10 weapons table. */
-export const WEAPONS: Readonly<Record<WeaponKind, WeaponSpec>> = {
+export const WEAPONS: Readonly<Record<BaseWeaponKind, WeaponSpec>> = {
   spread: { kind: 'spread', style: 0, rate: 12, speed: BULLET_SPEED, radius: 4, life: BULLET_LIFE },
   rapid: { kind: 'rapid', style: 1, rate: 26, speed: 1500, radius: 3, life: 1.0 },
   pierce: { kind: 'pierce', style: 2, rate: 8, speed: 1600, radius: 6, life: 1.0 },
@@ -43,7 +43,7 @@ export const WEAPONS: Readonly<Record<WeaponKind, WeaponSpec>> = {
 };
 
 /** Index order matches BulletPool.style and the pickup's w.a value (1 rapid, 2 pierce, 3 orbit). */
-export const WEAPON_KINDS: readonly WeaponKind[] = ['spread', 'rapid', 'pierce', 'orbit'];
+export const WEAPON_KINDS: readonly BaseWeaponKind[] = ['spread', 'rapid', 'pierce', 'orbit'];
 
 export const WEAPON_DURATION = 20;
 export const FIRST_DROP_KILL = 15;
@@ -55,12 +55,12 @@ export const ORBIT_REV_PER_SEC = 2.4;
 export const BLADE_COOLDOWN = 0.12;
 export const HUD_WEAPON_INTERVAL = 0.1;
 
-const POOL_BAND1: readonly WeaponKind[] = ['rapid'];
-const POOL_BAND2: readonly WeaponKind[] = ['rapid', 'pierce'];
-const POOL_FULL: readonly WeaponKind[] = ['rapid', 'pierce', 'orbit'];
+const POOL_BAND1: readonly BaseWeaponKind[] = ['rapid'];
+const POOL_BAND2: readonly BaseWeaponKind[] = ['rapid', 'pierce'];
+const POOL_FULL: readonly BaseWeaponKind[] = ['rapid', 'pierce', 'orbit'];
 
 /** Pure: drop pool for a band. Bands 3, 4 and Endless share the full pool. */
-export function weaponPool(band: number, endless: boolean): readonly WeaponKind[] {
+export function weaponPool(band: number, endless: boolean): readonly BaseWeaponKind[] {
   if (endless || band >= 3) return POOL_FULL;
   return band === 2 ? POOL_BAND2 : POOL_BAND1;
 }
@@ -69,7 +69,7 @@ export function weaponPool(band: number, endless: boolean): readonly WeaponKind[
  * Pure: the weapon for drop dropIndex. pool[floor(hash01(seed, dropIndex) x len)], stepping one
  * place on when it equals the previous drop (impossible to avoid in a pool of one).
  */
-export function chooseDrop(seed: number, dropIndex: number, pool: readonly WeaponKind[], previous: WeaponKind | null): WeaponKind {
+export function chooseDrop(seed: number, dropIndex: number, pool: readonly BaseWeaponKind[], previous: BaseWeaponKind | null): BaseWeaponKind {
   const n = pool.length;
   if (n === 0) return 'spread';
   let i = Math.min(n - 1, Math.floor(hash01(seed, dropIndex) * n));
@@ -78,12 +78,12 @@ export function chooseDrop(seed: number, dropIndex: number, pool: readonly Weapo
 }
 
 /** Index of a weapon kind (BulletPool.style, pickup w.a). */
-export function weaponIndex(kind: WeaponKind): number {
+export function weaponIndex(kind: BaseWeaponKind): number {
   return WEAPONS[kind].style;
 }
 
 /** Weapon kind for an index, spread when out of range. */
-export function weaponAt(index: number): WeaponKind {
+export function weaponAt(index: number): BaseWeaponKind {
   return WEAPON_KINDS[index] ?? 'spread';
 }
 
@@ -106,7 +106,7 @@ export function countKill(c: DropCounter): void {
 }
 
 export interface WeaponState extends DropCounter {
-  kind: WeaponKind;
+  kind: BaseWeaponKind;
   /** Seconds left on a non spread weapon. */
   timer: number;
   /** Settings "Weapon pickups". Off: no pickups spawn and the counter does not run. */
@@ -114,7 +114,7 @@ export interface WeaponState extends DropCounter {
   /** Drops spawned so far (the hash01 index). */
   dropIndex: number;
   /** Weapon of the previous drop, null before the first. */
-  lastDrop: WeaponKind | null;
+  lastDrop: BaseWeaponKind | null;
   /** Live pickup entity id, -1 for none (validate against w.kind before use). */
   pickupId: number;
   /** Pool bullet id per orbit blade, -1 for none. */
@@ -123,8 +123,8 @@ export interface WeaponState extends DropCounter {
   bladeCool: Float32Array;
   orbitPhase: number;
   hudTimer: number;
-  hud: { kind: WeaponKind; remaining: number; total: number };
-  pickupFx: { x: number; y: number; weapon: WeaponKind };
+  hud: { kind: BaseWeaponKind; remaining: number; total: number };
+  pickupFx: { x: number; y: number; weapon: BaseWeaponKind };
 }
 
 function createWeaponState(): WeaponState {
@@ -166,7 +166,7 @@ export function setWeaponPickups(w: World, on: boolean): void {
   if (!on) s.pending = false;
 }
 
-export function currentWeapon(w: World): WeaponKind {
+export function currentWeapon(w: World): BaseWeaponKind {
   return weaponState(w).kind;
 }
 
@@ -203,7 +203,7 @@ function removeBlades(w: World): void {
 }
 
 /** Collect a weapon: the same weapon refreshes the timer, a different one replaces it. */
-export function equipWeapon(w: World, kind: WeaponKind): void {
+export function equipWeapon(w: World, kind: BaseWeaponKind): void {
   const s = weaponState(w);
   if (kind === 'spread') {
     resetWeapon(w);

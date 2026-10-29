@@ -1,14 +1,15 @@
 // B14: one weapon colour table in render/neon.ts feeds bullets, trails, pickups, the collect
 // burst and the HUD hue helper.
 import { describe, expect, it } from 'vitest';
-import type { WeaponKind } from '../../src/core/events';
+import type { BaseWeaponKind } from '../../src/core/events';
 import { bulletStyleVisual, weaponTint } from '../../src/render/bulletStyles';
 import { BASE_PALETTE, WEAPON_PALETTE, weaponHue, weaponPaletteKey } from '../../src/render/neon';
 import { PICKUP_SPECS } from '../../src/render/shapeSpecs';
 
-const KINDS: readonly WeaponKind[] = ['spread', 'rapid', 'pierce', 'orbit'];
+// Base weapons only: the six V3 pairs borrow ingredient colours until Glow tunes them (wave D).
+const KINDS: readonly BaseWeaponKind[] = ['spread', 'rapid', 'pierce', 'orbit'];
 /** BulletPool.style and pickup w.a index per weapon (docs/10 wave B render contract). */
-const STYLE: Readonly<Record<WeaponKind, number>> = { spread: 0, rapid: 1, pierce: 2, orbit: 3 };
+const STYLE: Readonly<Record<BaseWeaponKind, number>> = { spread: 0, rapid: 1, pierce: 2, orbit: 3 };
 
 describe('weapon hue single source', () => {
   it('weaponHue reads the palette hue of the weapon palette key', () => {

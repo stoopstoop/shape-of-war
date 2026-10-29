@@ -33,6 +33,14 @@ export const enum Kind {
   // V2 contract stubs part 2: the sixth V2 enemy (Splime) and its spawn (Slime). Appended after Mine.
   Splime,
   Slime,
+  // V3 contract stubs (docs/12-v3-plan.md V3-W0). Appended after Slime so every value above keeps
+  // its number. There is no Kind.EnemyBullet: enemy bullets live in their own pool
+  // (enemyBullets.ts), outside ENTITY_CAP, the grid and every enemy rule.
+  Boss,
+  BossPart,
+  BossHazard,
+  DronePickup,
+  DroneTwin,
 }
 
 export const ENTITY_CAP = 512;

@@ -22,7 +22,7 @@ import {
 } from '../../src/render/shapeSpecs';
 
 // Every Kind value after None, by numeric range so a gap in ALL_KINDS is caught.
-const LAST_KIND = Kind.Slime;
+const LAST_KIND = Kind.DroneTwin;
 
 describe('shape registry', () => {
   it('has an entry for every Kind except None', () => {

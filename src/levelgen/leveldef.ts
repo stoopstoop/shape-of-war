@@ -11,6 +11,27 @@ export const GENERATOR_VERSION = 1;
  * field, so LEVELDEF_VERSION and the field shape are unchanged.
  */
 export const GENERATOR_VERSION_V2 = 2;
+/**
+ * V3 contract stub (docs/12 V3-W0). Generator version that marks only boss levels (a def that
+ * carries a BossSpec). Every other def keeps GENERATOR_VERSION or GENERATOR_VERSION_V2. Read by
+ * nothing yet.
+ */
+export const GENERATOR_VERSION_V3 = 3;
+
+/** V3 boss ids, in schedule order (docs/13). A BossView id is the index in this list. */
+export const BOSS_IDS = ['warden', 'brood', 'spindle', 'ember', 'mirage', 'gravitas', 'bastion', 'tempest', 'twins', 'prism'] as const;
+export type BossId = (typeof BOSS_IDS)[number];
+/** Boss tier, 1 (weakest) to 4 (Prism). */
+export type BossTier = 1 | 2 | 3 | 4;
+/** The boss of a level or an Endless segment. A pure table lookup: the generator draws nothing new. */
+export interface BossSpec {
+  id: BossId;
+  tier: BossTier;
+  /** Seconds on the wave clock at which the entrance starts (20 for a level, 10 into a segment). */
+  atSec: number;
+  /** Hit point multiplier: 1 plus 0.25 per completed pass of the list. */
+  hpMul: number;
+}
 
 export type Band = 1 | 2 | 3 | 4;
 export type ArenaShape = 'rect' | 'roundRect' | 'circle' | 'hexagon' | 'rectObstacles';
@@ -154,6 +175,8 @@ export interface LevelDef {
    * passed validateLevel. Optional in the type for the same reason as surface; checked by J5.
    */
   retries?: number;
+  /** V3 stub (docs/13): present only on a boss level. Absent on every other level and when GenConfig.enableBosses is off. */
+  boss?: BossSpec;
 }
 
 /** W2: most deterministic re-derives generateLevel makes after the first attempt. */
@@ -173,6 +196,8 @@ export interface EndlessSegmentDef {
   speedScale: number;
   /** Waves with atSec relative to segment start, all atSec < 30. loopFromIndex = -1, loopPeriodSec = 0. */
   waves: WaveSchedule;
+  /** V3 stub (docs/13): present only on a boss segment (a positive multiple of 6). Absent otherwise. */
+  boss?: BossSpec;
 }
 
 export interface GenConfig {
@@ -186,6 +211,11 @@ export interface GenConfig {
    * GENERATOR_VERSION_V2. Off: output is byte identical to v1. Default on.
    */
   enableV2Enemies: boolean;
+  /**
+   * V3 bosses (docs/13). On: boss levels carry a BossSpec and report GENERATOR_VERSION_V3. Off:
+   * output is byte identical to v2.1. Default on. Read by nothing yet (V3-W0 stub).
+   */
+  enableBosses: boolean;
 }
 
 export const DEFAULT_GEN_CONFIG: Readonly<GenConfig> = Object.freeze<GenConfig>({
@@ -194,10 +224,14 @@ export const DEFAULT_GEN_CONFIG: Readonly<GenConfig> = Object.freeze<GenConfig>(
   drones: ['attack', 'collect', 'ram'],
   supers: ['homing', 'detonate', 'turbo'],
   enableV2Enemies: true,
+  enableBosses: true,
 });
 
-/** DEFAULT_GEN_CONFIG with the v2 enemies off: the v1 generator, byte for byte. */
-export const V1_GEN_CONFIG: Readonly<GenConfig> = Object.freeze<GenConfig>({ ...DEFAULT_GEN_CONFIG, enableV2Enemies: false });
+/** DEFAULT_GEN_CONFIG with the v2 enemies and the bosses off: the v1 generator, byte for byte. */
+export const V1_GEN_CONFIG: Readonly<GenConfig> = Object.freeze<GenConfig>({ ...DEFAULT_GEN_CONFIG, enableV2Enemies: false, enableBosses: false });
+
+/** DEFAULT_GEN_CONFIG with the bosses off: the v2.1 generator (v2 enemies on), byte for byte. */
+export const V2_GEN_CONFIG: Readonly<GenConfig> = Object.freeze<GenConfig>({ ...DEFAULT_GEN_CONFIG, enableBosses: false });
 
 export interface ValidationResult {
   ok: boolean;

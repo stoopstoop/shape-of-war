@@ -2,6 +2,7 @@
 // 2 pierce, 3 orbit). Pure, no pixi.js import. The renderer draws every frame into one atlas
 // texture, so all bullet heads stay in one ParticleContainer (one draw call) and the attached
 // trails in a second one: two draw calls for bullets in total, inside the budget of four.
+import type { WeaponKind } from '../core/events';
 import { weaponPaletteKey, type PaletteKey } from './neon';
 
 export type BulletFrame = 'dot' | 'rapid' | 'pierce' | 'orbit';
@@ -111,8 +112,8 @@ export function visualForCode(code: number): BulletStyleVisual {
   return code >= n ? bulletStyleVisual(code - n, true) : bulletStyleVisual(code, false);
 }
 
-/** Weapon names as in src/core/events.ts WeaponKind, matched structurally. */
-export type WeaponName = 'spread' | 'rapid' | 'pierce' | 'orbit';
+/** Weapon names: src/core/events.ts WeaponKind (V3-W0: now includes the six ComboKind pairs). */
+export type WeaponName = WeaponKind;
 
 /** Pure: palette key for a weapon (pickup collect burst, same colour as its bullets). */
 export function weaponTint(w: WeaponName): PaletteKey {
