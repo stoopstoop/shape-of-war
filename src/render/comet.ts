@@ -115,9 +115,10 @@ function py(c: Comet, k: number, hy: number): number {
 /**
  * Write the ribbon vertices into out (COMET_VERTS x, y pairs) with the head at (hx, hy). Point k
  * gives vertex 2k on the left and 2k + 1 on the right of the path, half width COMET_HALF_W times
- * cometTaper(k / (COMET_POINTS - 1)). Returns the path length in arena units.
+ * cometTaper(k / (COMET_POINTS - 1)) times widthMul (Turbo widens it). Returns the path length.
  */
-export function writeCometStrip(c: Comet, hx: number, hy: number, out: Float32Array): number {
+export function writeCometStrip(c: Comet, hx: number, hy: number, out: Float32Array, widthMul = 1): number {
+  const wm = Number.isFinite(widthMul) && widthMul > 0 ? widthMul : 1;
   const last = COMET_POINTS - 1;
   let length = 0;
   let nx = c.nx;
@@ -146,7 +147,7 @@ export function writeCometStrip(c: Comet, hx: number, hy: number, out: Float32Ar
       const dy = y - py(c, k - 1, hy);
       length += Math.sqrt(dx * dx + dy * dy);
     }
-    const w = COMET_HALF_W * cometTaper(k / last);
+    const w = COMET_HALF_W * wm * cometTaper(k / last);
     out[4 * k] = x + nx * w;
     out[4 * k + 1] = y + ny * w;
     out[4 * k + 2] = x - nx * w;

@@ -254,7 +254,9 @@ import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTra
 import { bossSlot, isFloorSlot, KIND_NUM, partSlot, specFor } from './shapeSpecs';
 // V3 wave A: boss, parts, hazards and enemy bullets (bossLook.ts, bossShapes.ts, hazardFx.ts,
 // enemyBulletFx.ts). The boss is read through readBoss only; enemy bullets through enemyBulletsOf.
-import { readBoss, type BossView } from '../game/bosses/view';
+import { createBossView, readBoss, type BossView } from '../game/bosses/view';
+import { bossOpen as simBossOpen } from '../game/bosses/core';
+import { bossOf } from '../game/bosses/state';
 import { enemyBulletsOf } from '../game/enemyBullets';
 import { BOSS_IDS } from '../levelgen/leveldef';
 import {
@@ -270,7 +272,6 @@ import {
   bossGlowMul,
   bossHitAllow,
   bossIndex,
-  bossOpenness,
   bossPhaseFlash,
   bossTierOf,
   createBossHitThrottle,
@@ -282,7 +283,39 @@ import {
   TIER_BULLET_KEY,
   type EntranceRing,
 } from './bossLook';
-import { bossBodyR, PART_POD, partR, partType } from './bossShapes';
+import { bossBodyR, bossCoreFrac, PART_POD, partR, partType } from './bossShapes';
+import {
+  ADD_HUE_MIX,
+  addGlow,
+  addPulse as addAngryPulse,
+  addScale,
+  advancePhase,
+  EXPOSE_GLYPH_WHITE,
+  EXPOSE_HOT_WHITE,
+  EXPOSE_SPRITE_CAP,
+  EXPOSE_UNKNOWN,
+  exposedOpenTarget,
+  exposePulse,
+  exposePulseHz,
+  exposeState,
+  onBossExposed,
+  planBossExpose,
+  resolveExposed,
+  type ExposeInput,
+} from './bossExpose';
+import {
+  TURBO_BURST,
+  TURBO_RING_LIFE,
+  TURBO_RING_R0,
+  TURBO_RING_R1,
+  TURBO_WHITE,
+  turboActivated,
+  turboCometAlpha,
+  turboGlow,
+  turboIntensity,
+  turboRate,
+  turboWidth,
+} from './turboFx';
 import { createSpriteBuf, fxHalo, resetSpriteBuf, type FxHalo } from './fxSprites';
 import { createFxSpriteLayer, makeBossFxAtlas } from './fxSpriteLayer';
 import { createEnemyBulletLayer } from './enemyBullets';
@@ -811,9 +844,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const hazardLayer = createFxSpriteLayer('bossHazards', bossAtlas.texture, bossAtlas.frames, HAZARD_SPRITE_CAP);
   const hazardBuf = createSpriteBuf(HAZARD_SPRITE_CAP);
   const enemyBulletLayer = createEnemyBulletLayer(bossAtlas.texture, bossAtlas.frames);
+  // G3A: the boss weak point cue (hot core, ring, HIT glyph) sits over the entities, so the cue
+  // reads on top of the boss body. Same atlas, one small pooled layer, hidden when empty.
+  const cueLayer = createFxSpriteLayer('bossCue', bossAtlas.texture, bossAtlas.frames, EXPOSE_SPRITE_CAP);
+  const cueBuf = createSpriteBuf(EXPOSE_SPRITE_CAP);
 
   bloomLayer.addChild(lattice.glow, wallGlow, wallPulse, wallFlash, comets, glowSprites, particles, trails, pulseLayer, enemyFxGlow, ringGlow);
-  lines.addChild(walls, floor, hazardLayer.container, enemyFx, entities, bullets, enemyBulletLayer.layer.container, rings);
+  lines.addChild(walls, floor, hazardLayer.container, enemyFx, entities, cueLayer.container, bullets, enemyBulletLayer.layer.container, rings);
   gridLayer.addChild(lattice.dust, grid, lattice.lines);
   world.addChild(gridLayer, bloomLayer, lines);
   app.stage.addChild(world, sticks);
@@ -852,7 +889,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   };
 
   // V3 boss render state. The view is filled once per frame by the boss reader (no allocation).
-  const bossView: BossView = { active: false, id: 0, mode: 0, phase: 0, hp: 0, maxHp: 0, modeT: 0, x: 0, y: 0, rot: 0, radius: 0 };
+  const bossView: BossView = createBossView();
   let bossReader: BossReader = readBoss;
   let explicitEnemyBullets: EnemyBulletsLike | null = null;
   /** Displayed shell or core openness (eased), boss index and tier of the live or last boss. */
@@ -868,6 +905,20 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let bossEdgeAge = Number.POSITIVE_INFINITY;
   let bossEdgeKey: PaletteKey = 'bossBlue';
   const bossHitThrottle = createBossHitThrottle();
+  /** G3A weak point cue: 'sim:bossExposed' state (EXPOSE_UNKNOWN until the event arrives). */
+  let exposeEvent = EXPOSE_UNKNOWN;
+  /** Resolved exposure this frame, seconds since it began, and the pulse phase in cycles. */
+  let exposed = false;
+  let exposeAge = 0;
+  let exposePhase = 0;
+  const exposeIn: ExposeInput = { x: 0, y: 0, coreR: 0, bodyR: 0, pulse: 0, age: 0, alpha: 0, hot: 0xffffff, glyph: 0xffffff };
+  /** Boss add ids this frame (spawnAdd), copied from the boss state so the entity pass can mark them. */
+  const addIds = new Int32Array(16).fill(-1);
+  let addCount = 0;
+  /** G3A Turbo: intensity this frame (0 off) and the last super seen, for the activation burst. */
+  let turboK = 0;
+  let turboPrevActive: string | null = null;
+  let turboPrevTimer = 0;
   const entrance: EntranceRing = { r: 0, alpha: 0 };
   const halo: FxHalo = { alpha: 0, width: 0 };
   const hazardIn: HazardInput = { type: 0, x: 0, y: 0, rot: 0, radius: 0, vx: 0, vy: 0, age: 0, tier: 1, tint: 0xffffff, timeSec: 0 };
@@ -1415,6 +1466,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossTier = bossTierOf(b);
     bossEdgeKey = bossColourOf(b);
     if (mapEffectsOn(getEffectsTier())) bossEdgeAge = 0;
+    exposeEvent = EXPOSE_UNKNOWN;
   }
 
   /**
@@ -1441,6 +1493,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
    * style ring in the boss colour, and the lattice shock (or the v1 ripple on Low).
    */
   function onBossDown(id: string, x: number, y: number): void {
+    exposeEvent = EXPOSE_UNKNOWN;
     const b = payloadBoss(id);
     const t = getEffectsTier();
     const key = bossColourOf(b);
@@ -1472,13 +1525,60 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossHitAge += dt;
     bossPhaseAge += dt;
     bossEdgeAge += dt;
+    addCount = 0;
     if (!bossView.active) {
       bossOpen = 0;
+      exposed = false;
+      exposeAge = 0;
       return;
     }
     bossIdx = bossIndex(bossView.id);
     bossTier = bossTierOf(bossIdx);
-    bossOpen = approach(bossOpen, bossOpenness(bossIdx, bossView.mode, bossView.modeT), dt, OPEN_RATE);
+    // Exposure: the bus event, else the sim open flag (real boss only, never a stress proxy).
+    const bs = bossReader === readBoss ? bossOf(w) : null;
+    const simState = bs !== null && bs.status === 'alive' ? exposeState(simBossOpen(bs)) : EXPOSE_UNKNOWN;
+    const now = resolveExposed(exposeEvent, simState, bossIdx, bossView.mode);
+    if (now !== exposed) {
+      exposed = now;
+      exposeAge = 0;
+      exposePhase = 0;
+    } else exposeAge += dt;
+    if (exposed) exposePhase = advancePhase(exposePhase, exposePulseHz(bossIdx, bossView.mode, bossView.modeT), dt);
+    const known = exposeEvent !== EXPOSE_UNKNOWN || simState !== EXPOSE_UNKNOWN;
+    bossOpen = approach(bossOpen, exposedOpenTarget(known, exposed, bossIdx, bossView.mode, bossView.modeT), dt, OPEN_RATE);
+    // Boss adds for the hostile look (the boss state owns the list; read only).
+    if (bs !== null) {
+      for (let k = 0; k < bs.addIds.length && addCount < addIds.length; k++) {
+        const id = bs.addIds[k] ?? -1;
+        if (id > 0 && w.alive[id] === 1 && w.kind[id] === bs.addKind[k]) addIds[addCount++] = id;
+      }
+    }
+  }
+
+  /** True when entity i is a live boss add this frame. At most 16 compares, no allocation. */
+  function isBossAdd(i: number): boolean {
+    for (let k = 0; k < addCount; k++) if (addIds[k] === i) return true;
+    return false;
+  }
+
+  /** The weak point cue over the boss core while exposed, then sync the cue layer. */
+  function drawBossCue(): void {
+    resetSpriteBuf(cueBuf);
+    if (bossView.active && exposed) {
+      const r = bossView.radius > 0 ? bossView.radius : bossBodyR(bossIdx);
+      const e = exposeIn;
+      e.x = bossDrawX;
+      e.y = bossDrawY;
+      e.bodyR = r;
+      e.coreR = bossCoreFrac(bossIdx, 1) * r;
+      e.pulse = exposePulse(exposePhase);
+      e.age = exposeAge;
+      e.alpha = bossBodyAlpha(bossView.mode, bossView.modeT);
+      e.hot = mixRgb(palette.yellow, 0xffffff, EXPOSE_HOT_WHITE);
+      e.glyph = mixRgb(palette.yellow, 0xffffff, EXPOSE_GLYPH_WHITE);
+      planBossExpose(e, cueBuf, halo);
+    }
+    if (cueBuf.count > 0 || cueLayer.shown > 0) cueLayer.sync(cueBuf);
   }
 
   /** One Kind.BossHazard into the hazard sprite buffer, in the boss tier colour. */
@@ -1591,18 +1691,22 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       return;
     }
     pushComet(comet, x, y, dt);
-    const a = cometAlpha(Math.hypot(vx, vy)) * currentRender.trailAlpha;
+    const speed = Math.hypot(vx, vy);
+    const a = turboCometAlpha(cometAlpha(speed), speed, turboK) * currentRender.trailAlpha;
     const show = a > 0.01;
     // Keep the ribbon geometry current even while hidden, so it reappears without a jump.
-    writeCometStrip(comet, x, y, cometPositions);
+    writeCometStrip(comet, x, y, cometPositions, turboWidth(turboK));
     if (show) cometGeom.getBuffer('aPosition').update();
     cometHalo.visible = show;
     cometCore.visible = show;
     if (!show) return;
     cometCore.alpha = a;
     cometHalo.alpha = a * COMET_HALO_ALPHA;
-    cometCore.tint = palette.ship;
-    cometHalo.tint = mixRgb(palette.orange, palette.yellow, COMET_HALO_YELLOW);
+    // Turbo runs the ribbon hot: the core toward white yellow, the halo toward yellow.
+    const hot = mixRgb(palette.yellow, 0xffffff, TURBO_WHITE);
+    cometCore.tint = turboK > 0 ? mixRgb(palette.ship, hot, 0.65 * turboK) : palette.ship;
+    const halo0 = mixRgb(palette.orange, palette.yellow, COMET_HALO_YELLOW);
+    cometHalo.tint = turboK > 0 ? mixRgb(halo0, hot, 0.5 * turboK) : halo0;
   }
 
   function hideComet(): void {
@@ -1616,17 +1720,36 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   /** Fire superFx at the ship when the game state shows a super activation. */
-  function watchSuper(w: World): void {
+  function watchSuper(w: World, nowSec: number): void {
     const g = gameState(w);
     superOn = g.superActive !== null && g.superTimer > 0;
     superCur.active = g.superActive;
     superCur.timer = g.superTimer;
     superCur.droneAbsent = g.droneAbsent;
-    if (w === superWorld && superFired(superPrev, superCur)) superFx(w.x[0] ?? 0, w.y[0] ?? 0);
+    const sameWorld = w === superWorld;
+    if (sameWorld && superFired(superPrev, superCur)) superFx(w.x[0] ?? 0, w.y[0] ?? 0);
     superWorld = w;
     superPrev.active = superCur.active;
     superPrev.timer = superCur.timer;
     superPrev.droneAbsent = superCur.droneAbsent;
+    watchTurbo(w, sameWorld, g.superActive, g.superTimer, nowSec);
+  }
+
+  /**
+   * G3A Turbo: intensity for the comet, sparks and ship glow, and a short burst (hot sparks and a
+   * shock ring) on activation, on top of the generic super fx.
+   */
+  function watchTurbo(w: World, sameWorld: boolean, active: string | null, timer: number, nowSec: number): void {
+    turboK = turboIntensity(active, timer, nowSec);
+    if (sameWorld && turboActivated(turboPrevActive, turboPrevTimer, active, timer)) {
+      const x = w.x[0] ?? 0;
+      const y = w.y[0] ?? 0;
+      const hot = mixRgb(palette.yellow, 0xffffff, TURBO_WHITE);
+      burst(x, y, hot, TURBO_BURST);
+      if (mapEffectsOn(getEffectsTier())) addPulse(pulsePool, PULSE_RING, x, y, 0, TURBO_RING_R0, TURBO_RING_R1, TURBO_RING_LIFE, hot, 1);
+    }
+    turboPrevActive = active;
+    turboPrevTimer = timer;
   }
   /** Wall flash for a kill within FLASH_RANGE of a wall (map effect, off on the low tier). */
   function wallFlashAt(x: number, y: number): void {
@@ -1680,6 +1803,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bus.on('sim:bossEnter', (p) => onBossEnter(p.id)),
     bus.on('sim:bossPhase', (p) => onBossPhase(p.id)),
     bus.on('sim:bossDown', (p) => onBossDown(p.id, p.x, p.y)),
+    // G3A: weak point exposure (Swarm, parallel run). Coded against the event name.
+    onBossExposed(bus, (on) => {
+      exposeEvent = exposeState(on);
+    }),
   ];
   offFx.push(
     onEffectsTierChanged((t) => {
@@ -2037,7 +2164,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       if (!v.visible) v.visible = true;
       const spec = specForSlot(slot);
       // Parts are drawn white and take the boss colour; bosses bake theirs (tint stays white).
-      const tint = isPart ? palette[bossColourOf(bossIdx)] : spec.tint === null ? 0xffffff : palette[spec.tint];
+      // G3A: boss adds take a hostile hue (their own colour mixed toward red) and an angry pulse.
+      const isAdd = addCount > 0 && !isBoss && !isPart && isBossAdd(i);
+      const baseTint = isPart ? palette[bossColourOf(bossIdx)] : spec.tint === null ? 0xffffff : palette[spec.tint];
+      const tint = isAdd ? mixRgb(baseTint, palette.red, ADD_HUE_MIX) : baseTint;
       if (viewTint[i] !== tint) {
         v.tint = tint;
         viewTint[i] = tint;
@@ -2100,6 +2230,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const phaseEvent = bossPhaseAge < PHASE_FLASH_SEC ? 1 - bossPhaseAge / PHASE_FLASH_SEC : 0;
         const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
         ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
+      }
+      if (isAdd) {
+        const p = addAngryPulse(timeSec, hash01(i));
+        ev.scaleX *= addScale(p);
+        ev.scaleY *= addScale(p);
+        ev.glowMul *= addGlow(p);
+      } else if (i === 0 && kind === KIND_SHIP && turboK > 0) {
+        ev.glowMul *= turboGlow(turboK, timeSec);
       }
       // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
       if (kind === KIND_GRAVITY_WELL && !teleNow && wellsSeen < MAX_WELLS && lattice.sim) {
@@ -2220,7 +2358,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     lastDraw = now;
     const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
     const fxDt = dt > MAX_FX_DT ? MAX_FX_DT : dt;
-    watchSuper(w);
+    watchSuper(w, now / 1000);
     hitClockMs = now;
     hitWorld = w;
     const nowSec = now / 1000;
@@ -2234,13 +2372,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     resetSpriteBuf(hazardBuf);
     drawEntities(w, a, nowSec, fxDt);
     drawHazards();
+    drawBossCue();
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
     // Ship trail: reads the sim velocity, writes only render particles and the comet ribbon.
     if (w.alive[0] === 1 && shipActive(w)) {
       const svx = w.vx[0] ?? 0;
       const svy = w.vy[0] ?? 0;
-      emitShipTrail(shipX, shipY, svx, svy, fxDt);
+      emitShipTrail(shipX, shipY, svx, svy, fxDt, turboRate(turboK), turboK > 0 ? mixRgb(palette.ship, palette.yellow, 0.5 * turboK) : -1);
       drawComet(shipX, shipY, svx, svy, fxDt);
       // Ship wake through the lattice above 120 u/s.
       const wake = sim ? wakeAccel(Math.hypot(svx, svy)) : 0;
@@ -2326,6 +2465,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossPhaseAge = Number.POSITIVE_INFINITY;
     bossEdgeAge = Number.POSITIVE_INFINITY;
     bossHitThrottle.lastMs = Number.NEGATIVE_INFINITY;
+    resetSpriteBuf(cueBuf);
+    cueLayer.clear();
+    exposeEvent = EXPOSE_UNKNOWN;
+    exposed = false;
+    exposeAge = 0;
+    exposePhase = 0;
+    addCount = 0;
+    turboK = 0;
+    turboPrevActive = null;
+    turboPrevTimer = 0;
   }
 
   /** New arena: wall features, calm threat, no flashes, pops or per slot fx state. */
@@ -2360,6 +2509,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     disposeParticles();
     lattice.destroy();
     hazardLayer.destroy();
+    cueLayer.destroy();
     enemyBulletLayer.destroy();
     for (const t of bossAtlas.frames) t.destroy(false);
     bossAtlas.texture.destroy(true);

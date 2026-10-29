@@ -144,12 +144,14 @@ export function trailsActive(): boolean {
 
 /**
  * Ship trail for one frame: (x, y) is the drawn ship position and (vx, vy) its velocity in u/s.
- * Emits at shipTrailRate(speed), so nothing below 60 u/s. Off on low; refused above 80 percent.
+ * Emits at shipTrailRate(speed) times rateMul (Turbo), so nothing below 60 u/s, in palette.ship or
+ * colourOverride when 0 or above. Off on low; refused above 80 percent.
  */
-export function emitShipTrail(x: number, y: number, vx: number, vy: number, dt: number): void {
+export function emitShipTrail(x: number, y: number, vx: number, vy: number, dt: number, rateMul = 1, colourOverride = -1): void {
   if (!trailsEnabled) return;
-  const n = stepEmitter(shipEmitter, shipTrailRate(Math.sqrt(vx * vx + vy * vy)), dt);
-  const colour = palette.ship;
+  const mul = Number.isFinite(rateMul) && rateMul > 0 ? rateMul : 1;
+  const n = stepEmitter(shipEmitter, shipTrailRate(Math.sqrt(vx * vx + vy * vy)) * mul, dt);
+  const colour = colourOverride >= 0 ? colourOverride : palette.ship;
   for (let k = 0; k < n; k++) {
     trailSeq = (trailSeq + 1) | 0;
     shipTrailParticle(trailScratch, x, y, vx, vy, dt, trailSeq, k, n, colour);

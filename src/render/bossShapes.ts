@@ -37,6 +37,21 @@ export function bossBodyR(id: number): number {
   return BOSS_BODY_R[bossIndex(id)] ?? 60;
 }
 
+/** White core radius as a share of the body radius, closed and fully open, per wave A boss. */
+const CORE_FRAC: readonly (readonly [number, number])[] = [
+  [0.16, 0.24],
+  [0.2, 0.28],
+  [0.12, 0.17],
+];
+const CORE_FRAC_GENERIC: readonly [number, number] = [0.16, 0.24];
+
+/** Pure: white core radius share of the body radius for a boss index at openness o (0 to 1). */
+export function bossCoreFrac(id: number, o: number): number {
+  const f = CORE_FRAC[bossIndex(id)] ?? CORE_FRAC_GENERIC;
+  const u = Math.max(0, Math.min(1, Number.isFinite(o) ? o : 0));
+  return f[0] + (f[1] - f[0]) * u;
+}
+
 interface LayerOpts {
   fill?: number;
   colour?: PaletteKey | null;
@@ -128,7 +143,7 @@ function wardenSpec(o: number): ShapeSpec {
     layers: [
       layer(plates, w, { colour: c, fill: lerp(0.18, 0.06, o), haloMul: hm }),
       layer([{ t: 'regularPoly', r: r2(0.44 * R), sides: 6, rot: 0 }], w * 0.8, { colour: c, fill: lerp(0.05, 0.3, o), haloMul: hm }),
-      whiteCore(lerp(0.16, 0.24, o) * R, w, o),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],
   };
@@ -156,7 +171,7 @@ function broodSpec(o: number): ShapeSpec {
     layers: [
       layer([radialPoly(48, (a) => broodEdge(a, R))], w, { colour: c, fill: 0.1, haloMul: hm }),
       layer([{ t: 'circle', r: r2(0.52 * R) }], w * 0.7, { colour: c, alpha: lerp(0.95, 0.25, o), glow: o < 0.5, haloMul: hm }),
-      whiteCore(lerp(0.2, 0.28, o) * R, w, o),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],
   };
@@ -188,7 +203,7 @@ function spindleSpec(o: number): ShapeSpec {
     layers: [
       layer([spindleStar(R)], w, { colour: c, fill: 0.08, haloMul: hm }),
       layer([{ t: 'circle', r: r2(0.3 * R) }], w * 0.6, { colour: c, haloMul: hm }),
-      whiteCore(lerp(0.12, 0.17, o) * R, w, o),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],
   };
@@ -214,7 +229,7 @@ function genericSpec(id: number, o: number): ShapeSpec {
     layers: [
       layer([{ t: 'regularPoly', r: R, sides, rot: 0 }], w, { colour: c, fill: 0.08, haloMul: hm }),
       layer([{ t: 'regularPoly', r: r2(0.55 * R), sides, rot: Math.PI / sides }], w * 0.7, { colour: c, haloMul: hm }),
-      whiteCore(lerp(0.16, 0.24, o) * R, w, o),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],
   };
