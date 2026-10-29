@@ -31,6 +31,7 @@ import {
   pullSpeed,
   wrapPi,
 } from './kit';
+import { cancelVolley, stepVolleyLaunch } from './shots';
 import { armState, bossOf, type BossState } from './state';
 import {
   BOSS_DAMAGE,
@@ -259,6 +260,7 @@ export function stepBossSchedule(w: World, dt: number): void {
     bs.modeT += dt;
   }
   stepExposed(bs, dt);
+  stepVolleyLaunch(w, bs); // fx:bossShot at launch (shooters only; no op with no volley charging)
   emitBossHud(w, bs, dt, false);
 }
 
@@ -374,7 +376,8 @@ export function bossContacts(w: World, dt: number): boolean {
   const blend = 1 - pullRetain(dt);
   for (let h = 1; h < w.cap; h++) {
     if (w.alive[h] !== 1 || w.kind[h] !== Kind.BossHazard || w.a[h] !== HazardType.Pull) continue;
-    const v = pullSpeed(distBetween(w, h, 0), w.radius[h] ?? 0, HAZARD.pullMax);
+    // A pull stores its strength (u/s at the centre) in hzRate (Gravitas weakens it per anchor).
+    const v = pullSpeed(distBetween(w, h, 0), w.radius[h] ?? 0, bs.hzRate[h] ?? HAZARD.pullMax);
     if (v <= 0) continue;
     const a = angleBetween(w, 0, h);
     g.shipPullX += Math.cos(a) * v * blend;
@@ -471,7 +474,9 @@ export function damageBoss(w: World, amount: number, hx: number, hy: number, ign
   const id = bossHittable(w);
   if (bs === null || id < 0) return false;
   const g = gs(w);
-  if (!(amount > 0) || (!ignoreShield && !bossOpen(bs))) {
+  const gate = bs.def.gate;
+  const through = ignoreShield || (bossOpen(bs) && (gate === undefined || gate(w, id, bs, hx, hy)));
+  if (!(amount > 0) || !through) {
     emitHit(g, hx, hy, Kind.Boss, id, true);
     return false;
   }
@@ -531,6 +536,7 @@ export function bossOnBomb(w: World): void {
   const bs = bossOf(w);
   if (bs === null) return;
   clearHazards(w);
+  cancelVolley(bs); // the bomb clears the bullets too (player.ts)
   if (bossHittable(w) > 0) bs.stagger = STAGGER_SEC;
 }
 
@@ -542,6 +548,7 @@ export function bossOnShipDeath(w: World): void {
   const bs = bossOf(w);
   if (bs === null || bs.status !== 'alive') return;
   clearHazards(w);
+  cancelVolley(bs); // killShip clears the bullets too
   bs.stagger = 0;
   bs.phaseT = 0;
   bs.retry = 0;
@@ -554,6 +561,7 @@ function defeatBoss(w: World, bs: BossState, id: number): void {
   const y = w.y[id] ?? 0;
   clearHazards(w);
   clearParts(w, bs);
+  cancelVolley(bs);
   bs.viewMode = BossMode.Dying;
   emitBossHud(w, bs, 0, true);
   removeEntity(w, id);
@@ -684,9 +692,53 @@ export function spawnTether(w: World, bs: BossState, x: number, y: number, x2: n
   return spawnHazard(w, bs, HazardType.Tether, x, y, 0, HAZARD.tetherHalfWidth, x2, y2, 0, life, false);
 }
 
-/** Pull of radius around (x, y) for life seconds (negative: until removed). Never lethal. */
-export function spawnPull(w: World, bs: BossState, x: number, y: number, radius: number, life: number, follow: boolean): number {
-  return spawnHazard(w, bs, HazardType.Pull, x, y, 0, radius, 0, 0, 0, life, follow);
+/**
+ * Pull of radius around (x, y) for life seconds (negative: until removed). Never lethal. strength
+ * is the pull speed at the centre in u/s (at most HAZARD.pullMax), kept in hzRate and mirrored in
+ * w.vx for render.
+ */
+export function spawnPull(w: World, bs: BossState, x: number, y: number, radius: number, life: number, follow: boolean, strength: number = HAZARD.pullMax): number {
+  const s = pullStrength(strength);
+  return spawnHazard(w, bs, HazardType.Pull, x, y, 0, radius, s, 0, s, life, follow);
+}
+
+/** Pure: a pull strength clamped to [0, HAZARD.pullMax]. */
+export function pullStrength(v: number): number {
+  if (!(v > 0)) return 0;
+  return v > HAZARD.pullMax ? HAZARD.pullMax : v;
+}
+
+/** Set the strength of a live pull (u/s at the centre, clamped). */
+export function setPullStrength(w: World, bs: BossState, id: number, strength: number): void {
+  const s = pullStrength(strength);
+  bs.hzRate[id] = s;
+  w.vx[id] = s;
+}
+
+/**
+ * A ring marker at (x, y): the thin dim telegraph of a ring of radius r that never grows, removed
+ * after life seconds (kept short of the telegraph, so it is never lethal and may cover the ship).
+ * Mirage marks its landing point with one. Returns the id, or -1 at the cap or a full world.
+ */
+export function spawnRingMarker(w: World, bs: BossState, x: number, y: number, r: number, life: number): number {
+  if (countHazards(w) >= MAX_HAZARDS) return -1;
+  const id = spawn(w, Kind.BossHazard, x, y);
+  if (id < 0) return -1;
+  zeroExtras(w, id);
+  const tele = hazardTelegraph(bs.row.tier);
+  const cap = markerLife(tele);
+  w.a[id] = HazardType.Ring;
+  w.rot[id] = 0;
+  w.radius[id] = r;
+  w.vx[id] = clampRingGapHalf(bs.row.tier, 0);
+  w.vy[id] = 1;
+  w.hp[id] = 0;
+  bs.hzTele[id] = tele;
+  bs.hzRate[id] = 0;
+  bs.hzLife[id] = life > 0 && life < cap ? life : cap;
+  bs.hzFollow[id] = 0;
+  bs.hzMarker[id] = 1;
+  return id;
 }
 
 // ---------------------------------------------------------------------------------------------

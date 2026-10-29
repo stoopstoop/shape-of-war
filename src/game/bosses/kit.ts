@@ -185,6 +185,30 @@ export function hazardHits(
   }
 }
 
+/**
+ * Heading after a bounce off a wall whose unit normal (nx, ny) points back into the floor. A
+ * heading already leaving the wall (or a zero normal) is returned unchanged.
+ */
+export function reflectHeading(heading: number, nx: number, ny: number): number {
+  const vx = Math.cos(heading);
+  const vy = Math.sin(heading);
+  const d = vx * nx + vy * ny;
+  if (!(d < 0)) return heading;
+  return Math.atan2(vy - 2 * d * ny, vx - 2 * d * nx);
+}
+
+/** Distance between two points (plain numbers; entity pairs go through steer.ts). */
+export function pointDist(ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Pure: the speed factor of a boss that runs base^(phase - 1) faster each phase. */
+export function phaseSpeedUp(base: number, phase: number): number {
+  return phase > 1 ? Math.pow(base, phase - 1) : 1;
+}
+
 /** True once a hazard of age t is past its telegraph (and so lethal, pull aside). */
 export function isLethalAge(t: number, telegraph: number): boolean {
   return t >= telegraph;

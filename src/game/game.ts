@@ -6,6 +6,7 @@ import type { EndlessDef, LevelDef } from '../levelgen/leveldef';
 import { bossContacts, stepBossSchedule } from './bosses/core';
 import { initLevelBoss } from './bosses/index';
 import { bulletHits, orbitHits, separate, shipHits, shipPickups } from './combat';
+import { clearEnemyBullets, stepEnemyBullets } from './enemyBullets';
 import { clearPickup } from './pickup';
 import { setWeaponPickups, stepWeapons } from './weapons';
 import { registerSwarmBehaviours } from './defs';
@@ -131,6 +132,7 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   orbitHits(w, dt);
   shipHits(w);
   bossContacts(w, dt); // V3: boss body, lethal hazards and pulls (no op without a boss)
+  stepEnemyBullets(w, dt); // V3: boss bullets, charge, flight and ship contact (no op without a pool)
   shipPickups(w);
   stepPlayer(w, dt, input);
   stepDrone(w, dt);
@@ -140,7 +142,10 @@ export function stepGame(w: World, dt: number, input: InputState): void {
   stepBossSchedule(w, dt); // V3: boss entrance at boss.atSec, view mode, hud:boss
   stepEndlessAwards(w);
   stepObjective(w);
-  if (g.outcome !== 'running') clearPickup(w); // level end clears the weapon pickup
+  if (g.outcome !== 'running') {
+    clearPickup(w); // level end clears the weapon pickup
+    clearEnemyBullets(w); // and every boss bullet (docs/13 boss projectiles rule 9)
+  }
   stepPresence(w, dt); // bus only: enter, exit and threat (docs/10 wave C)
   emitHud(w, dt);
 }

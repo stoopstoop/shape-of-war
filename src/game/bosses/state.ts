@@ -65,6 +65,15 @@ export interface BossState {
   /** Fairness recheck countdown: a hazard that would overlap the ship waits 0.3 s. */
   retry: number;
 
+  // Boss shots (docs/13 "Boss projectiles"), shooters only. Set by armState and the def's reset.
+  /** Attack clock toward the next volley (Spindle's pellet). */
+  shotT: number;
+  /** Recheck countdown of a due volley that is waiting (ship within 300 u, or a telegraph showing). */
+  shotWait: number;
+  /** Pool id of the charging volley's first bullet, -1 for none. fx:bossShot fires when it launches. */
+  shotId: number;
+  shotEv: { x: number; y: number; id: BossId };
+
   /** Part entity ids, -1 for an empty slot (validate against w.kind before use). */
   parts: Int32Array;
   /** Add entity ids and their kinds, -1 for an empty slot. */
@@ -146,6 +155,10 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     angle: 0,
     dir: 1,
     retry: 0,
+    shotT: 0,
+    shotWait: 0,
+    shotId: -1,
+    shotEv: { x: 0, y: 0, id: spec.id },
     parts: new Int32Array(MAX_PARTS).fill(-1),
     addIds: new Int32Array(MAX_ADDS).fill(-1),
     addKind: new Uint8Array(MAX_ADDS),
@@ -210,6 +223,10 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.angle = 0;
   s.dir = 1;
   s.retry = 0;
+  s.shotT = 0;
+  s.shotWait = 0;
+  s.shotId = -1;
+  s.shotEv.id = spec.id;
   s.parts.fill(-1);
   s.addIds.fill(-1);
   s.addKind.fill(0);
