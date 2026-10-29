@@ -1,6 +1,9 @@
 // Objective evaluation for the HUD and the results screen (docs/01 section 8). Pure.
 // Swarm owns objective tracking in the sim and emits game:over; main.ts uses objectiveStatus as
 // a fallback end check and goalMet to decide success, since game:over carries no success flag.
+// V3-A: on a boss level the sim holds the level until the boss dies (docs/13 boss rule 9), so the
+// fallback check skips success there (fallbackStatus), the sim's verdict decides the win
+// (levelSuccess) and the label reads "Defeat the boss" while the hold lasts (objectiveProgress).
 import type { ObjectiveDef } from '../levelgen/leveldef';
 import { formatClock, formatInt } from './format';
 
@@ -44,6 +47,41 @@ export function objectiveStatus(obj: ObjectiveDef, s: ObjectiveSnapshot): Object
   return 'running';
 }
 
+/** What the objective label reads while the level holds for a living boss (docs/13 boss rule 9, section 8). */
+export const HOLD_LABEL = 'Defeat the boss';
+
+/**
+ * Pure: the objective's success test passes while a boss lives, so the sim holds the level until
+ * the boss dies (docs/13 boss rule 9). The test is objectiveStatus, so it carries the same lives
+ * rule: no hold once the lives are gone, that is a loss.
+ */
+export function bossHolds(obj: ObjectiveDef, s: ObjectiveSnapshot, bossAlive: boolean): boolean {
+  return bossAlive && objectiveStatus(obj, s) === 'success';
+}
+
+/**
+ * Pure: the level state main.ts may act on as a fallback end check. On a boss level only the sim
+ * says when the objective is won (it holds for the boss and completes on the boss's death), so a
+ * success from the snapshot is read as still running there; a failure still ends the level.
+ */
+export function fallbackStatus(obj: ObjectiveDef, s: ObjectiveSnapshot, bossLevel: boolean): ObjectiveStatus {
+  const status = objectiveStatus(obj, s);
+  return bossLevel && status === 'success' ? 'running' : status;
+}
+
+/** The sim's verdict (GameState.outcome), copied here so this module stays free of src/game. */
+export type SimOutcome = 'running' | 'won' | 'lost';
+
+/**
+ * Pure: did the player win, for the results screen. game:over carries no success flag. A normal
+ * level infers it from the objective target (goalMet, unchanged since v1). On a boss level the
+ * target can be met and the level then lost while holding for the boss, so the sim's own verdict
+ * decides there.
+ */
+export function levelSuccess(obj: ObjectiveDef, s: ObjectiveSnapshot, outcome: SimOutcome, bossLevel: boolean): boolean {
+  return bossLevel ? outcome === 'won' : goalMet(obj, s);
+}
+
 export interface ObjectiveProgress {
   label: string;
   /** 0 to 1, bar fill. */
@@ -54,8 +92,12 @@ function frac(a: number, b: number): number {
   return b > 0 ? Math.max(0, Math.min(1, a / b)) : 1;
 }
 
-/** Pure: HUD label and bar fill. */
-export function objectiveProgress(obj: ObjectiveDef, s: ObjectiveSnapshot): ObjectiveProgress {
+/**
+ * Pure: HUD label and bar fill. While the level holds for a living boss (`bossAlive` and the
+ * success test passing) the label reads "Defeat the boss" and the bar is full.
+ */
+export function objectiveProgress(obj: ObjectiveDef, s: ObjectiveSnapshot, bossAlive = false): ObjectiveProgress {
+  if (bossHolds(obj, s, bossAlive)) return { label: HOLD_LABEL, fraction: 1 };
   switch (obj.kind) {
     case 'scoreInTime':
       return {

@@ -1,7 +1,23 @@
 // B7 regression: boot "Tap to start" screen, 1.5 s level intro card, Endless "Ready" text.
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BOSS_IDS } from '../../src/levelgen/leveldef';
+import { BOSS_NAMES } from '../../src/ui/boss';
 import { bootFlow, reduceFlow, simRunning, type FlowAction } from '../../src/ui/flow';
-import { armIntro, INTRO_SEC, introActive, introCard, NO_INTRO, READY_TEXT, skipIntro, tickIntro } from '../../src/ui/intro';
+import {
+  armIntro,
+  bossIntroLine,
+  createIntroScreen,
+  INTRO_SEC,
+  introActive,
+  introCard,
+  NO_INTRO,
+  READY_TEXT,
+  skipIntro,
+  tickIntro,
+} from '../../src/ui/intro';
+import { asParent, installFakeDocument, type FakeEl } from './fakeDom';
 
 describe('B7 boot screen in the flow', () => {
   it('launches on the boot screen with the sim stopped', () => {
@@ -87,5 +103,67 @@ describe('B7 intro card text', () => {
     });
     expect(card.objective).toBe('Survive 1:30');
     expect(card.kit).toBe('Attack drone   Homing super');
+  });
+});
+
+// V3-A: the card shows "Boss: <name>" on a boss level (docs/13 section 9).
+describe('V3-A intro card boss line', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const def = {
+    objective: { kind: 'survive', durationSec: 90 } as const,
+    par: 4000,
+    stars: [4000, 8000, 16000] as [number, number, number],
+    drone: 'attack' as const,
+    superType: 'homing' as const,
+  };
+
+  it('a boss level adds "Boss: <name>" from BOSS_NAMES', () => {
+    expect(introCard(5, { ...def, boss: { id: 'warden', tier: 1, atSec: 20, hpMul: 1 } }).boss).toBe('Boss: Warden');
+    expect(introCard(50, { ...def, boss: { id: 'prism', tier: 4, atSec: 20, hpMul: 1 } }).boss).toBe('Boss: Prism');
+  });
+
+  it('every boss id gets its own line', () => {
+    const lines = BOSS_IDS.map((id) => bossIntroLine({ id, tier: 1, atSec: 20, hpMul: 1 }));
+    expect(lines).toEqual(BOSS_IDS.map((id) => `Boss: ${BOSS_NAMES[id]}`));
+    expect(new Set(lines).size).toBe(10);
+  });
+
+  it('follows an edit of BOSS_NAMES, the const Ryan edits: no name is written in intro.ts', () => {
+    const src = readFileSync(fileURLToPath(new URL('../../src/ui/intro.ts', import.meta.url)), 'utf8');
+    for (const name of Object.values(BOSS_NAMES)) expect(src).not.toContain(name);
+    expect(src).toContain('bossName');
+  });
+
+  it('a level with no boss has no line, and the other card lines are unchanged', () => {
+    const plain = introCard(7, def);
+    expect(plain.boss).toBe('');
+    expect(bossIntroLine(undefined)).toBe('');
+    const withBoss = introCard(7, { ...def, boss: { id: 'brood', tier: 1, atSec: 20, hpMul: 1 } });
+    expect({ ...withBoss, boss: '' }).toEqual(plain);
+  });
+
+  describe('screen', () => {
+    const bossEl = (root: FakeEl): FakeEl | undefined => root.all().find((e) => e.getAttribute('data-intro') === 'boss');
+    const build = () => {
+      const root = installFakeDocument();
+      const screen = createIntroScreen(asParent(root), () => undefined);
+      return { root, screen };
+    };
+
+    it('shows the line on a boss card and hides it on a plain one', () => {
+      const { root, screen } = build();
+      screen.showCard(introCard(5, { ...def, boss: { id: 'warden', tier: 1, atSec: 20, hpMul: 1 } }));
+      expect(bossEl(root)?.textContent).toBe('Boss: Warden');
+      expect(bossEl(root)?.style.display).toBe('');
+      screen.showCard(introCard(6, def));
+      expect(bossEl(root)?.style.display).toBe('none');
+    });
+
+    it('the Endless Ready text never shows it, even right after a boss card', () => {
+      const { root, screen } = build();
+      screen.showCard(introCard(5, { ...def, boss: { id: 'warden', tier: 1, atSec: 20, hpMul: 1 } }));
+      screen.showReady();
+      expect(bossEl(root)?.style.display).toBe('none');
+    });
   });
 });

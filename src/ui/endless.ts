@@ -75,6 +75,16 @@ export function endlessLevel(gen: EndlessGen, seed: number, segments = ENDLESS_S
   };
 }
 
+/** The objective label slot in Endless (docs/01 section 9: "Endless" with an empty bar). */
+export const ENDLESS_LABEL = 'Endless';
+/** The same slot while an Endless boss lives (docs/13 section 9: the wave label reads "Boss"). */
+export const ENDLESS_BOSS_LABEL = 'Boss';
+
+/** Pure: the Endless label, "Boss" while a boss lives and "Endless" otherwise. */
+export function endlessLabel(bossAlive: boolean): string {
+  return bossAlive ? ENDLESS_BOSS_LABEL : ENDLESS_LABEL;
+}
+
 /** Pure: Endless HUD line, for example "Endless  Seed 42  4:30". */
 export function endlessLine(seed: number, elapsedSec: number): string {
   const s = Math.max(0, Math.floor(Number.isFinite(elapsedSec) ? elapsedSec : 0));

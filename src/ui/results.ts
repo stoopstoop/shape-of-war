@@ -2,6 +2,7 @@
 // Endless: score, high score badge, best and the endless seed (docs/01 section 2.2), no stars.
 // Both modes: the Space physics level in effect when the run ended, omitted when Off (docs/11
 // SPEC 3.6, one score table with the physics level on the results line).
+// A win on a boss level also shows "Boss defeated, bonus N" (docs/13 SPEC 3.6 rule 6).
 // Buttons: Next (Adventure success only), Retry, Menu.
 import type { SpaceLevelSetting } from '../core/settings';
 import { button, createScreen, el, type Screen } from './dom';
@@ -30,6 +31,12 @@ export function physicsLine(level: SpaceLevelSetting | undefined): string {
   return `${SPACE_ROW_LABEL}: ${spaceLabel(level)}`;
 }
 
+/** Pure: "Boss defeated, bonus 1,000" for a win where the boss died, '' otherwise (a loss, Endless, no boss). */
+export function bossLine(r: LevelResult): string {
+  if (r.mode !== 'adventure' || !r.success || r.bossBonus === undefined) return '';
+  return `Boss defeated, bonus ${formatInt(r.bossBonus)}`;
+}
+
 export interface ResultText {
   title: string;
   score: string;
@@ -38,6 +45,8 @@ export interface ResultText {
   badge: string;
   /** Space physics line, '' when off. */
   physics: string;
+  /** Boss line, '' when the level had no boss or it was not beaten. */
+  boss: string;
 }
 
 /** Pure: the text lines shown for a result. */
@@ -51,6 +60,7 @@ export function resultLines(r: LevelResult): ResultText {
       detail: `Best ${formatInt(r.best)}\nEndless seed ${r.seed ?? 0}`,
       badge: badgeText(r),
       physics,
+      boss: '',
     };
   }
   const title = r.success ? `Level ${r.levelIndex} complete` : `Level ${r.levelIndex} failed`;
@@ -62,6 +72,7 @@ export function resultLines(r: LevelResult): ResultText {
     detail: `Par ${formatInt(r.par)}  ${best}\nLevel #${r.hash}`,
     badge: '',
     physics,
+    boss: bossLine(r),
   };
 }
 
@@ -79,10 +90,12 @@ export function createResultsScreen(parent: HTMLElement, actions: ResultsActions
   const detail = el('div', 'sow-sub');
   const physics = el('div', 'sow-sub');
   physics.setAttribute('data-results', 'physics');
+  const boss = el('div', 'sow-sub');
+  boss.setAttribute('data-results', 'boss');
   const row = el('div', 'sow-row');
   const next = button('Next', actions.next);
   row.append(next, button('Retry', actions.retry), button('Menu', actions.menu));
-  s.root.append(title, score, badge, starsEl, detail, physics, row);
+  s.root.append(title, score, badge, starsEl, boss, detail, physics, row);
   return {
     ...s,
     showResult(r) {
@@ -93,6 +106,8 @@ export function createResultsScreen(parent: HTMLElement, actions: ResultsActions
       badge.style.display = t.badge === '' ? 'none' : '';
       starsEl.textContent = t.stars;
       starsEl.style.display = t.stars === '' ? 'none' : '';
+      boss.textContent = t.boss;
+      boss.style.display = t.boss === '' ? 'none' : '';
       detail.textContent = t.detail;
       physics.textContent = t.physics;
       physics.style.display = t.physics === '' ? 'none' : '';

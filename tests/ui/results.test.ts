@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LevelResult } from '../../src/ui/flow';
 import { continueLabel, GAME_TITLE, SHOW_ENDLESS } from '../../src/ui/menu';
-import { badgeText, createResultsScreen, physicsLine, resultLines } from '../../src/ui/results';
+import { badgeText, bossLine, createResultsScreen, physicsLine, resultLines } from '../../src/ui/results';
 import { asParent, installFakeDocument, type FakeEl } from './fakeDom';
 
 const base: LevelResult = {
@@ -92,6 +92,69 @@ describe('B13 Space physics on the results screen', () => {
   it('main.ts fills the result from the settings model at game over, both modes', () => {
     const src = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8');
     expect(src.match(/space: settingsModel\.state\.spacePhysics/g)?.length).toBe(2);
+  });
+});
+
+// V3-A: "Boss defeated, bonus N" on a win with a boss (docs/13 SPEC 3.6 rule 6).
+describe('boss results line', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const bossWin: LevelResult = { ...base, levelIndex: 5, par: 4000, score: 9000, bossBonus: 1000 };
+  const bossEl = (root: FakeEl): FakeEl | undefined => root.all().find((e) => e.getAttribute('data-results') === 'boss');
+  const screenOf = (root: FakeEl): ReturnType<typeof createResultsScreen> =>
+    createResultsScreen(asParent(root), { next: () => undefined, retry: () => undefined, menu: () => undefined });
+
+  it('reads "Boss defeated, bonus N" with thousands separators on a win with a boss', () => {
+    expect(bossLine(bossWin)).toBe('Boss defeated, bonus 1,000');
+    expect(resultLines(bossWin).boss).toBe('Boss defeated, bonus 1,000');
+    expect(bossLine({ ...bossWin, bossBonus: 500 })).toBe('Boss defeated, bonus 500');
+    expect(bossLine({ ...bossWin, bossBonus: 12500 })).toBe('Boss defeated, bonus 12,500');
+  });
+
+  it('a bonus of 0 still reports the kill', () => {
+    expect(bossLine({ ...bossWin, bossBonus: 0 })).toBe('Boss defeated, bonus 0');
+  });
+
+  it('no line without a boss: a normal win, a normal loss', () => {
+    expect(bossLine(base)).toBe('');
+    expect(resultLines(base).boss).toBe('');
+    expect(resultLines({ ...base, success: false, stars: 0 }).boss).toBe('');
+  });
+
+  it('no line on a loss, even if a bonus field is present', () => {
+    expect(bossLine({ ...bossWin, success: false })).toBe('');
+  });
+
+  it('no line in Endless', () => {
+    const endless: LevelResult = { ...bossWin, mode: 'endless', success: false, par: 0, rank: 1, seed: 7 };
+    expect(resultLines(endless).boss).toBe('');
+    expect(resultLines({ ...endless, success: true }).boss).toBe('');
+  });
+
+  it('leaves every other line as it was', () => {
+    const a = resultLines(bossWin);
+    const b = resultLines({ ...bossWin, bossBonus: undefined });
+    expect({ ...a, boss: '' }).toEqual(b);
+    expect(a.title).toBe('Level 5 complete');
+  });
+
+  it('the screen draws the line and hides it on the next result without a boss', () => {
+    const root = installFakeDocument();
+    const screen = screenOf(root);
+    screen.showResult(bossWin);
+    expect(bossEl(root)?.textContent).toBe('Boss defeated, bonus 1,000');
+    expect(bossEl(root)?.style.display).toBe('');
+    screen.showResult(base);
+    expect(bossEl(root)?.textContent).toBe('');
+    expect(bossEl(root)?.style.display).toBe('none');
+    screen.showResult({ ...bossWin, success: false });
+    expect(bossEl(root)?.style.display).toBe('none');
+  });
+
+  it('main.ts reports the bonus only for a win where this run saw sim:bossDown', () => {
+    const src = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8');
+    expect(src).toMatch(/if \(success && bossDown\) result\.bossBonus = bossBonusFor\(level\.par\)/);
+    expect(src).toMatch(/bus\.on\('sim:bossDown'/);
+    expect(src).toMatch(/hud\.clearBoss\(\)/);
   });
 });
 

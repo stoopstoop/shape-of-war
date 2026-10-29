@@ -8,6 +8,10 @@
 // Main (10:9): top band for the text rows (the weapon indicator sits right of the multiplier in
 // the same rows, so the band height is unchanged), then either a right column or a bottom band
 // for the bomb and super buttons, whichever leaves the larger arena.
+// V3-A boss bar: three more boxes (name, phase pips, hit point bar) shown only while a boss lives.
+// Cover puts them in the left column under the level line. Main puts them in the level line's
+// slot and the strip under it, so the top band stays 60 px and the arena does not move when a boss
+// arrives. None is a pointer target and none reaches the bomb, super or pause rects.
 // B9: the main screen bands are measured from the real HUD elements (text row heights, and the
 // button hit rects that Thumbs lays out) instead of fixed generous bands, so the main screen
 // arena is as large as the HUD allows. The arena on main is usually width limited, so the right
@@ -45,6 +49,9 @@ export type BoxId =
   | 'par'
   | 'lives'
   | 'bombs'
+  | 'bossName'
+  | 'bossPips'
+  | 'bossBar'
   | 'superLabel'
   | 'superHint';
 
@@ -96,6 +103,11 @@ export const MAIN_MULT_W = 64;
 export const WEAPON_GAP = 8;
 /** Height of the weapon countdown bar, border included (the element is border-box). */
 export const WEAPON_BAR_H = 5;
+/**
+ * Width of the boss phase pips box (V3-A): room for the four pips of the longest boss (Prism) at
+ * 8 px with 4 px gaps, plus a little. The boss name box takes the rest of the row.
+ */
+export const BOSS_PIPS_W = 52;
 
 /** Pure: main top band height below the top inset: text rows or the pause hit rect, whichever is lower. */
 export function mainTop(buttons: ButtonRects, ins: Insets): number {
@@ -198,6 +210,12 @@ function sides(b: Base): Partial0 {
       bar: box(lx, t + 58, lw, 12, 11),
       objLabel: box(lx, t + 72, lw, 30, 11, 'left', true),
       par: box(lx, t + 106, lw, 28, 11, 'left', true),
+      // V3 boss bar, drawn only while a boss lives: name and phase pips on one row and a thick hit
+      // point bar under it, in the same left column below the level line. The right column, with
+      // the moved bomb and super buttons, is untouched.
+      bossName: box(lx, t + 140, lw - BOSS_PIPS_W, 15, 11),
+      bossPips: box(lx + lw - BOSS_PIPS_W, t + 140, BOSS_PIPS_W, 15, 0, 'right'),
+      bossBar: box(lx, t + 158, lw, 14, 0),
       lives: box(rx, below + 4, rw, 16, 12, 'right'),
       bombs: box(rx, below + 22, rw, 14, 10, 'right'),
       ...superBoxes(buttons, rx - 4, rw + 8, 11, 9),
@@ -220,6 +238,7 @@ function topRows(b: Base): Omit<HudBoxes, 'superLabel' | 'superHint'> {
   const multW = Math.min(sideW, MAIN_MULT_W);
   const wx = mx + multW + WEAPON_GAP;
   const ww = sideW - multW - WEAPON_GAP;
+  const bossHalf = Math.max(BOSS_PIPS_W + 20, Math.min(objW / 2, livesRight - sideW - cx - 4));
   return {
     score: box(mx, t + 6, sideW, 32, 28),
     mult: box(mx, t + 38, multW, MAIN_ROWS - 38, 18),
@@ -228,6 +247,13 @@ function topRows(b: Base): Omit<HudBoxes, 'superLabel' | 'superHint'> {
     bar: box(cx - objW / 2, t + 8, objW, 20, 14),
     objLabel: box(cx - objW / 2, t + 8, objW, 20, 14, 'center'),
     par: box(cx - objW / 2, t + 32, objW, 20, 14, 'center'),
+    // V3 boss bar: it takes the level line's slot (the HUD hides the line while a boss lives) and the
+    // free strip under it, so the band stays MAIN_ROWS high. Name and pips on one row, the thick
+    // hit point bar below, both ending above t + MAIN_ROWS. Centred under the objective bar and, on
+    // a narrow screen, narrowed symmetrically so it stops short of the lives and bombs boxes.
+    bossName: box(cx - bossHalf, t + 31, 2 * bossHalf - BOSS_PIPS_W, 14, 12),
+    bossPips: box(cx + bossHalf - BOSS_PIPS_W, t + 31, BOSS_PIPS_W, 14, 0, 'right'),
+    bossBar: box(cx - bossHalf, t + 46, 2 * bossHalf, 12, 0),
     lives: box(livesRight - sideW, t + 8, sideW, 20, 16, 'right'),
     bombs: box(livesRight - sideW, t + 32, sideW, 18, 14, 'right'),
   };
