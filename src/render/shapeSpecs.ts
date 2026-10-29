@@ -3,7 +3,7 @@
 // hitbox radii in docs/01-game-design.md section 6.2. Facing is +x at rot 0.
 import { Kind } from '../game/world';
 import { BOSS_COUNT, BOSS_OPEN_STEPS, tierOf } from './bossLook';
-import { BOSS_SPECS, buildBossSpec, buildPartSpec, HAZARD_GLYPH, PART_SPECS, PART_TYPES, partType } from './bossShapes';
+import { BOSS_SPECS, buildBossSpec, EXPOSED_BOSS_SPECS, buildPartSpec, HAZARD_GLYPH, PART_SPECS, PART_TYPES, partType } from './bossShapes';
 import { hash01 } from './color';
 import { SLIME_RADIUS, SLIME_VARIANTS, slimeVariant } from './enemyFx';
 import { weaponPaletteKey, type PaletteKey } from './neon';
@@ -535,8 +535,11 @@ export const BOSS_SLOT_BASE: number = SLIME_SLOT_BASE + SLIME_VARIANTS;
 /** First boss part slot: one per part type and boss tier (bossShapes.ts PART_SPECS). */
 export const PART_SLOT_BASE: number = BOSS_SLOT_BASE + BOSS_COUNT * BOSS_OPEN_STEPS;
 
+/** First exposed boss slot (ED1): the coreless white shell per boss and step, coloured by tint. */
+export const EXPOSED_SLOT_BASE: number = PART_SLOT_BASE + PART_TYPES * 4;
+
 /** Highest visual slot, for the context and texture cache sizes. */
-export const MAX_SLOT: number = PART_SLOT_BASE + PART_TYPES * 4 - 1;
+export const MAX_SLOT: number = EXPOSED_SLOT_BASE + BOSS_COUNT * BOSS_OPEN_STEPS - 1;
 
 /** Pure: visual slot for a boss index and openness step. Out of range values are clamped. */
 export function bossSlot(id: number, step: number): number {
@@ -545,19 +548,29 @@ export function bossSlot(id: number, step: number): number {
   return BOSS_SLOT_BASE + b * BOSS_OPEN_STEPS + s;
 }
 
+/** Pure: exposed (coreless, tint coloured) slot for a boss index and openness step. */
+export function exposedBossSlot(id: number, step: number): number {
+  return bossSlot(id, step) - BOSS_SLOT_BASE + EXPOSED_SLOT_BASE;
+}
+
 /** Pure: visual slot for a boss part type (w.a) at a boss tier. */
 export function partSlot(a: number, tier: number): number {
   return PART_SLOT_BASE + partType(a) * 4 + (tierOf(tier) - 1);
 }
 
-/** Pure: true for a boss body slot. */
+/** Pure: true for a boss body slot (the baked colour ones, not the exposed variants). */
 export function isBossSlot(slot: number): boolean {
   return slot >= BOSS_SLOT_BASE && slot < PART_SLOT_BASE;
 }
 
 /** Pure: true for a boss part slot. */
 export function isPartSlot(slot: number): boolean {
-  return slot >= PART_SLOT_BASE && slot <= MAX_SLOT;
+  return slot >= PART_SLOT_BASE && slot < EXPOSED_SLOT_BASE;
+}
+
+/** Pure: true for an exposed boss slot. */
+export function isExposedBossSlot(slot: number): boolean {
+  return slot >= EXPOSED_SLOT_BASE && slot <= MAX_SLOT;
 }
 
 /** Pure: visual slot for a pickup weapon index. Unknown indices give the plain pickup slot. */
@@ -582,6 +595,7 @@ export function visualSlot(kind: number, a: number, h = 0): number {
 
 /** Pure: spec for a visual slot, with the magenta fallback. */
 export function specForSlot(slot: number): ShapeSpec {
+  if (isExposedBossSlot(slot)) return EXPOSED_BOSS_SPECS[slot - EXPOSED_SLOT_BASE] ?? UNKNOWN_SPEC;
   if (isPartSlot(slot)) return PART_SPECS[slot - PART_SLOT_BASE] ?? UNKNOWN_SPEC;
   if (isBossSlot(slot)) return BOSS_SPECS[slot - BOSS_SLOT_BASE] ?? UNKNOWN_SPEC;
   if (slot >= SLIME_SLOT_BASE && slot < BOSS_SLOT_BASE) return SLIME_SPECS[slot - SLIME_SLOT_BASE] ?? UNKNOWN_SPEC;

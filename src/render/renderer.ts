@@ -88,7 +88,7 @@ import { addRipple, stepRipples, traceRippledGrid, type Ripple } from './ripple'
 import { addShake, createShake, stepShake } from './shake';
 import { buildBloomSourceContext, buildGlowSourceContext, contextForSlot, rebuildShapeContexts } from './shapes';
 import type { GraphicsContext } from 'pixi.js';
-import { MAX_SLOT, PICKUP_KIND, PICKUP_SPIN, pickupAlpha, specForSlot, visualSlot } from './shapeSpecs';
+import { exposedBossSlot, MAX_SLOT, PICKUP_KIND, PICKUP_SPIN, pickupAlpha, specForSlot, visualSlot } from './shapeSpecs';
 import {
   ATLAS_CELLS,
   ATLAS_H,
@@ -264,6 +264,7 @@ import {
   BOSS_BURST_WHITE,
   BOSS_DEATH_SHAKE_PX,
   BOSS_DEATH_SHAKE_SEC,
+  BOSS_OPEN_STEPS,
   BOSS_PHASE_BURST,
   bossBodyAlpha,
   bossColourOf,
@@ -290,18 +291,26 @@ import {
   addPulse as addAngryPulse,
   addScale,
   advancePhase,
-  EXPOSE_GLYPH_WHITE,
+  exposeShake,
+  exposeShakePx,
   EXPOSE_HOT_WHITE,
   EXPOSE_SPRITE_CAP,
   EXPOSE_UNKNOWN,
   exposedOpenTarget,
   exposePulse,
   exposePulseHz,
+  exposeAlarm,
+  flickerRedWhite,
+  shellHot,
+  FRAG_ORBIT_HZ,
+  fragmentCount,
   exposeState,
   onBossExposed,
   planBossExpose,
   resolveExposed,
+  stepSpread,
   type ExposeInput,
+  type Offset,
 } from './bossExpose';
 import {
   TURBO_BURST,
@@ -844,8 +853,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   const hazardLayer = createFxSpriteLayer('bossHazards', bossAtlas.texture, bossAtlas.frames, HAZARD_SPRITE_CAP);
   const hazardBuf = createSpriteBuf(HAZARD_SPRITE_CAP);
   const enemyBulletLayer = createEnemyBulletLayer(bossAtlas.texture, bossAtlas.frames);
-  // G3A: the boss weak point cue (hot core, ring, HIT glyph) sits over the entities, so the cue
-  // reads on top of the boss body. Same atlas, one small pooled layer, hidden when empty.
+  // G3A, ED1: the boss weak point cue (the broken hot core fragments) sits over the entities, so
+  // it reads on top of the boss body. Same atlas, one small pooled layer, hidden when empty.
   const cueLayer = createFxSpriteLayer('bossCue', bossAtlas.texture, bossAtlas.frames, EXPOSE_SPRITE_CAP);
   const cueBuf = createSpriteBuf(EXPOSE_SPRITE_CAP);
 
@@ -911,7 +920,15 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let exposed = false;
   let exposeAge = 0;
   let exposePhase = 0;
-  const exposeIn: ExposeInput = { x: 0, y: 0, coreR: 0, bodyR: 0, pulse: 0, age: 0, alpha: 0, hot: 0xffffff, glyph: 0xffffff };
+  const exposeIn: ExposeInput = { x: 0, y: 0, coreR: 0, pulse: 0, spread: 0, orbit: 0, count: 3, alpha: 0, hot: 0xffffff };
+  /**
+   * ED1 cue: fragment spread (0 assembled, 1 out) and orbit phase in cycles; the boss shake offset in
+   * arena units (render only, never the sim position); the boss whose exposed shells are prewarmed.
+   */
+  let exposeSpread = 0;
+  let exposeOrbit = 0;
+  const bossShake: Offset = { x: 0, y: 0 };
+  let prewarmedBoss = -1;
   /** Boss add ids this frame (spawnAdd), copied from the boss state so the entity pass can mark them. */
   const addIds = new Int32Array(16).fill(-1);
   let addCount = 0;
@@ -1124,6 +1141,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     glowTextures = emptyTextures();
     bloomTextures = emptyTextures();
     glowKind.fill(-1); // forces a texture reassign on the next draw
+    prewarmedBoss = -1; // the live boss rewarms its exposed shells on the next frame
     for (let i = 0; i < glowViews.length; i++) {
       const s = glowViews[i];
       if (s && s.visible) {
@@ -1530,10 +1548,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       bossOpen = 0;
       exposed = false;
       exposeAge = 0;
+      exposeSpread = 0;
+      bossShake.x = 0;
+      bossShake.y = 0;
       return;
     }
     bossIdx = bossIndex(bossView.id);
     bossTier = bossTierOf(bossIdx);
+    if (prewarmedBoss !== bossIdx) prewarmExposed(bossIdx);
     // Exposure: the bus event, else the sim open flag (real boss only, never a stress proxy).
     const bs = bossReader === readBoss ? bossOf(w) : null;
     const simState = bs !== null && bs.status === 'alive' ? exposeState(simBossOpen(bs)) : EXPOSE_UNKNOWN;
@@ -1546,6 +1568,15 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     if (exposed) exposePhase = advancePhase(exposePhase, exposePulseHz(bossIdx, bossView.mode, bossView.modeT), dt);
     const known = exposeEvent !== EXPOSE_UNKNOWN || simState !== EXPOSE_UNKNOWN;
     bossOpen = approach(bossOpen, exposedOpenTarget(known, exposed, bossIdx, bossView.mode, bossView.modeT), dt, OPEN_RATE);
+    // ED1 cue: the core fragments drift out while exposed and reassemble after; the boss shakes
+    // only while exposed. The shake is in screen pixels, so it is divided by the fit scale.
+    exposeSpread = stepSpread(exposeSpread, exposed, dt);
+    if (exposeSpread > 0) exposeOrbit = advancePhase(exposeOrbit, FRAG_ORBIT_HZ, dt);
+    if (exposed) exposeShake(exposeAge, (exposeShakePx(bossTier) * exposeAlarm(exposeAge)) / Math.max(fit.scale, 0.01), bossShake);
+    else {
+      bossShake.x = 0;
+      bossShake.y = 0;
+    }
     // Boss adds for the hostile look (the boss state owns the list; read only).
     if (bs !== null) {
       for (let k = 0; k < bs.addIds.length && addCount < addIds.length; k++) {
@@ -1561,21 +1592,41 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     return false;
   }
 
-  /** The weak point cue over the boss core while exposed, then sync the cue layer. */
+  /**
+   * Build the exposed shell contexts and glow textures of a boss once, so the first exposure never
+   * builds them mid fight. Runs when a boss first shows (its 2 s entrance) and after a texture rebuild.
+   */
+  function prewarmExposed(b: number): void {
+    for (let s = 0; s < BOSS_OPEN_STEPS; s++) {
+      const slot = exposedBossSlot(b, s);
+      contextForSlot(slot);
+      glowTextureFor(slot);
+    }
+    prewarmedBoss = b;
+  }
+
+  /** True while the boss draws its coreless exposed shell: exposed, or its core still reassembling. */
+  function bossCoreless(): boolean {
+    return bossView.active && (exposed || exposeSpread > 0);
+  }
+
+  /** The broken core cue while exposed and while it reassembles, then sync the cue layer. */
   function drawBossCue(): void {
     resetSpriteBuf(cueBuf);
-    if (bossView.active && exposed) {
+    if (bossCoreless()) {
       const r = bossView.radius > 0 ? bossView.radius : bossBodyR(bossIdx);
       const e = exposeIn;
-      e.x = bossDrawX;
-      e.y = bossDrawY;
-      e.bodyR = r;
+      e.x = bossDrawX + bossShake.x;
+      e.y = bossDrawY + bossShake.y;
       e.coreR = bossCoreFrac(bossIdx, 1) * r;
       e.pulse = exposePulse(exposePhase);
-      e.age = exposeAge;
+      e.spread = exposeSpread;
+      e.orbit = exposeOrbit;
+      e.count = fragmentCount(bossTier);
       e.alpha = bossBodyAlpha(bossView.mode, bossView.modeT);
-      e.hot = mixRgb(palette.yellow, 0xffffff, EXPOSE_HOT_WHITE);
-      e.glyph = mixRgb(palette.yellow, 0xffffff, EXPOSE_GLYPH_WHITE);
+      // Hot yellow while exposed; whitens as it reassembles, into the baked white core.
+      const hot = mixRgb(palette.yellow, 0xffffff, EXPOSE_HOT_WHITE);
+      e.hot = exposed ? hot : mixRgb(hot, 0xffffff, 1 - exposeSpread);
       planBossExpose(e, cueBuf, halo);
     }
     if (cueBuf.count > 0 || cueLayer.shown > 0) cueLayer.sync(cueBuf);
@@ -2122,6 +2173,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // One sprite per entity on both paths: bloom source (sharp, scale 1) or blurred glow.
     const glowAlpha = bloomOn ? currentRender.bloomSourceAlpha : currentRender.spriteAlpha;
     const glowScale = bloomOn ? 1 : currentRender.spriteScale;
+    // ED1 cue: while exposed (or reassembling) the boss draws its coreless white shell, tinted the
+    // tier colour or, in the flicker's on share while exposed, hot red.
+    const coreless = bossCoreless();
+    const bossTint = coreless
+      ? exposed && shellHot(exposeAge)
+        ? mixRgb(palette.red, 0xffffff, flickerRedWhite(bossTier))
+        : palette[bossColourOf(bossIdx)]
+      : 0xffffff;
     let live = 0;
     for (let i = 0; i < w.cap; i++) {
       if (w.alive[i] !== 1) {
@@ -2143,7 +2202,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       // Visual slot: the kind, the pickup variant for its weapon index (w.a), the Slime outline
       // variant from hash01(id), the boss per id and openness step, or the part per type and tier.
       const slot = isBoss
-        ? bossSlot(bossIdx, opennessStep(bossOpen))
+        ? coreless
+          ? exposedBossSlot(bossIdx, opennessStep(bossOpen))
+          : bossSlot(bossIdx, opennessStep(bossOpen))
         : isPart
           ? partSlot(w.a[i] ?? 0, bossTier)
           : visualSlot(kind, w.a[i] ?? -1, kind === KIND_NUM.slime ? hash01(i) : 0);
@@ -2166,7 +2227,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       // Parts are drawn white and take the boss colour; bosses bake theirs (tint stays white).
       // G3A: boss adds take a hostile hue (their own colour mixed toward red) and an angry pulse.
       const isAdd = addCount > 0 && !isBoss && !isPart && isBossAdd(i);
-      const baseTint = isPart ? palette[bossColourOf(bossIdx)] : spec.tint === null ? 0xffffff : palette[spec.tint];
+      const baseTint = isPart
+        ? palette[bossColourOf(bossIdx)]
+        : isBoss
+          ? bossTint
+          : spec.tint === null
+            ? 0xffffff
+            : palette[spec.tint];
       const tint = isAdd ? mixRgb(baseTint, palette.red, ADD_HUE_MIX) : baseTint;
       if (viewTint[i] !== tint) {
         v.tint = tint;
@@ -2227,9 +2294,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       else if (isBoss) {
         bossDrawX = ev.x;
         bossDrawY = ev.y;
+        // Exposed shake: the drawn body and its glow move, bossDrawX and the sim stay put.
+        ev.x += bossShake.x;
+        ev.y += bossShake.y;
         const phaseEvent = bossPhaseAge < PHASE_FLASH_SEC ? 1 - bossPhaseAge / PHASE_FLASH_SEC : 0;
         const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
         ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
+      } else if (isPart) {
+        // Parts (pods, anchors, turrets) shake with the body, so the whole boss moves as one.
+        ev.x += bossShake.x;
+        ev.y += bossShake.y;
       }
       if (isAdd) {
         const p = addAngryPulse(timeSec, hash01(i));
@@ -2471,6 +2545,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     exposed = false;
     exposeAge = 0;
     exposePhase = 0;
+    exposeSpread = 0;
+    exposeOrbit = 0;
+    bossShake.x = 0;
+    bossShake.y = 0;
     addCount = 0;
     turboK = 0;
     turboPrevActive = null;

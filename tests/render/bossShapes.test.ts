@@ -5,6 +5,7 @@ import { BOSS_OPEN_STEPS, BOSS_RIM_ALPHA, bossColourOf, tierWeight } from '../..
 import {
   BOSS_LINE,
   BOSS_SPECS,
+  EXPOSED_BOSS_SPECS,
   bossBodyR,
   buildBossSpec,
   buildPartSpec,
@@ -22,7 +23,10 @@ import {
   ALL_KINDS,
   BOSS_SLOT_BASE,
   bossSlot,
+  EXPOSED_SLOT_BASE,
+  exposedBossSlot,
   isBossSlot,
+  isExposedBossSlot,
   isFloorSlot,
   isPartSlot,
   MAX_SLOT,
@@ -76,7 +80,8 @@ describe('boss slots', () => {
     expect(PART_SPECS).toHaveLength(12);
     expect(bossSlot(0, 0)).toBe(BOSS_SLOT_BASE);
     expect(bossSlot(9, BOSS_OPEN_STEPS - 1)).toBe(PART_SLOT_BASE - 1);
-    expect(partSlot(PART_TURRET, 4)).toBe(MAX_SLOT);
+    expect(partSlot(PART_TURRET, 4)).toBe(EXPOSED_SLOT_BASE - 1);
+    expect(exposedBossSlot(9, BOSS_OPEN_STEPS - 1)).toBe(MAX_SLOT);
     for (let id = 0; id < 10; id++) {
       for (let s = 0; s < BOSS_OPEN_STEPS; s++) {
         const slot = bossSlot(id, s);
@@ -104,6 +109,40 @@ describe('boss slots', () => {
     expect(partSlot(7, 9)).toBe(partSlot(PART_POD, 1));
     expect(partType(PART_ANCHOR)).toBe(PART_ANCHOR);
     expect(partType(-2)).toBe(PART_POD);
+  });
+
+  it('exposed slots (ED1): one per boss and step after the parts, coreless, white, same geometry', () => {
+    expect(EXPOSED_BOSS_SPECS).toHaveLength(BOSS_SPECS.length);
+    expect(EXPOSED_SLOT_BASE).toBe(PART_SLOT_BASE + 12);
+    for (let id = 0; id < 10; id++) {
+      for (let s = 0; s < BOSS_OPEN_STEPS; s++) {
+        const slot = exposedBossSlot(id, s);
+        expect(slot).toBe(EXPOSED_SLOT_BASE + id * BOSS_OPEN_STEPS + s);
+        expect(isExposedBossSlot(slot)).toBe(true);
+        expect(isBossSlot(slot)).toBe(false);
+        expect(isPartSlot(slot)).toBe(false);
+        expect(isFloorSlot(slot)).toBe(false);
+        expect(isExposedBossSlot(bossSlot(id, s))).toBe(false);
+        const base = BOSS_SPECS[id * BOSS_OPEN_STEPS + s];
+        const exp = specForSlot(slot);
+        expect(exp).toBe(EXPOSED_BOSS_SPECS[id * BOSS_OPEN_STEPS + s]);
+        expect(exp.tint).toBeNull();
+        expect(exp.radius).toBe(base?.radius);
+        // The white core layer is gone (the cue draws it as fragments); every other layer is kept,
+        // drawn white so the view tint carries the tier colour or the hot red flicker.
+        const kept = (base?.layers ?? []).filter((l) => l.colour !== 'white');
+        expect(kept.length).toBe((base?.layers.length ?? 0) - 1);
+        expect(exp.layers).toHaveLength(kept.length);
+        exp.layers.forEach((l, k) => {
+          expect(l.colour).toBeNull();
+          expect(l.prims).toBe(kept[k]?.prims);
+          expect(l.width).toBe(kept[k]?.width);
+          expect(l.alpha).toBe(kept[k]?.alpha);
+          expect(l.fill).toBe(kept[k]?.fill);
+        });
+      }
+    }
+    expect(exposedBossSlot(99, 99)).toBe(exposedBossSlot(0, BOSS_OPEN_STEPS - 1));
   });
 });
 

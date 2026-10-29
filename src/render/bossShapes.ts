@@ -250,6 +250,22 @@ export const BOSS_SPECS: readonly ShapeSpec[] = Array.from({ length: BOSS_COUNT 
   buildBossSpec(Math.floor(i / BOSS_OPEN_STEPS), i % BOSS_OPEN_STEPS),
 );
 
+/**
+ * Pure: the exposed variant of a boss spec (ED1). The white core layer is dropped (the cue draws it
+ * as fragments) and every other layer is drawn white, so the view tint carries the colour: the
+ * tier colour, or the hot red of the flicker. Same geometry, so a swap never moves a line.
+ */
+export function exposedBossSpec(spec: ShapeSpec): ShapeSpec {
+  return {
+    tint: null,
+    radius: spec.radius,
+    layers: spec.layers.filter((l) => l.colour !== 'white').map((l) => ({ ...l, colour: null })),
+  };
+}
+
+/** Every exposed boss spec, indexed like BOSS_SPECS. Built once. */
+export const EXPOSED_BOSS_SPECS: readonly ShapeSpec[] = BOSS_SPECS.map(exposedBossSpec);
+
 // Boss parts (Kind.BossPart, w.a): 0 pod, 1 anchor, 2 turret. Drawn white, tinted with the boss colour.
 
 export const PART_POD = 0;

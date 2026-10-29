@@ -1,5 +1,6 @@
 // Boss weak point cue (src/render/bossExpose.ts): exposure source order, openness targets, the 4 Hz
-// pulse and its closing speed up, the ring, the HIT glyph, the bus hook and the boss add look.
+// pulse and its closing speed up, the shell flicker, the boss shake, the broken core fragments,
+// the bus hook and the boss add look. No HIT glyph and no ring any more (ED1).
 import { describe, expect, it } from 'vitest';
 import { Bus } from '../../src/core/events';
 import { BROOD, STAGGER_SEC, WARDEN } from '../../src/game/bosses/table';
@@ -18,29 +19,47 @@ import {
   EXPOSE_MAX_INSTANCES,
   EXPOSE_OPEN,
   EXPOSE_PULSE_HZ,
-  EXPOSE_RING_OUT,
-  EXPOSE_RING_SEC,
   EXPOSE_SPRITE_CAP,
   EXPOSE_UNKNOWN,
   exposedFromMode,
+  exposeAlarm,
   exposedOpenTarget,
   exposePulse,
   exposePulseHz,
-  exposeRing,
-  exposeRingSegments,
+  exposeShake,
+  exposeShakePx,
   exposeState,
+  EXPOSE_SETTLE_FADE_SEC,
+  EXPOSE_SETTLE_SEC,
   exposeWindowSec,
-  HIT_CAP_U,
-  HIT_SETTLED_ALPHA,
-  HIT_STROKE_COUNT,
-  hitCueAlpha,
-  hitGlyphTop,
+  FLICKER_DUTY,
+  FLICKER_HZ,
+  FLICKER_RED_WHITE,
+  flickerOn,
+  flickerRedWhite,
+  FRAG_CLOSE_SEC,
+  FRAG_DRIFT_MAX,
+  FRAG_DRIFT_MIN,
+  FRAG_MAX,
+  FRAG_OPEN_SEC,
+  fragmentAngle,
+  fragmentCount,
+  fragmentDrift,
+  fragmentEase,
+  fragmentOffset,
+  fragmentSizeFrac,
   onBossExposed,
   payloadExposed,
   planBossExpose,
   resolveExposed,
+  SHAKE_HZ,
+  SHAKE_PX,
+  SHAKE_PX_T3,
+  SHAKE_PX_TOP,
+  shellHot,
+  stepSpread,
   type ExposeInput,
-  type ExposeRing,
+  type Offset,
 } from '../../src/render/bossExpose';
 import {
   BOSS_BROOD,
@@ -55,13 +74,13 @@ import {
   MODE_VULNERABLE,
 } from '../../src/render/bossLook';
 import { bossCoreFrac } from '../../src/render/bossShapes';
-import { countFrame, createSpriteBuf, F_BAR, F_DOT, F_GLOW, type FxHalo } from '../../src/render/fxSprites';
+import { countFrame, createSpriteBuf, F_BAR, F_DOT, F_GLOW, F_SOFT, type FxHalo } from '../../src/render/fxSprites';
 
 const HALO: FxHalo = { alpha: 0.5, width: 2 };
 const NO_HALO: FxHalo = { alpha: 0, width: 0 };
 
 function cue(extra: Partial<ExposeInput> = {}): ExposeInput {
-  return { x: 100, y: 200, coreR: 14, bodyR: 56, pulse: 1, age: 0.5, alpha: 1, hot: 0xfff0a0, glyph: 0xfffbe0, ...extra };
+  return { x: 100, y: 200, coreR: 14, pulse: 1, spread: 1, orbit: 0, count: 3, alpha: 1, hot: 0xfff0a0, ...extra };
 }
 
 describe('exposure source', () => {
@@ -140,81 +159,241 @@ describe('pulse', () => {
   });
 });
 
-describe('expanding ring', () => {
-  it('starts at the core, grows to EXPOSE_RING_OUT body radii, fades, and repeats', () => {
-    const r: ExposeRing = { r: 0, alpha: 0 };
-    exposeRing(0, 14, 56, r);
-    expect(r.r).toBeCloseTo(14, 6);
-    const a0 = r.alpha;
-    exposeRing(EXPOSE_RING_SEC * 0.999, 14, 56, r);
-    expect(r.r).toBeCloseTo(56 * EXPOSE_RING_OUT, 0);
-    expect(r.alpha).toBeLessThan(0.01);
-    exposeRing(EXPOSE_RING_SEC * 1.0001, 14, 56, r);
-    expect(r.alpha).toBeCloseTo(a0, 2);
+describe('shell flicker', () => {
+  it('runs at FLICKER_HZ with a 30 percent hot duty, hot at the start of each cycle', () => {
+    expect(FLICKER_HZ).toBe(5);
+    expect(FLICKER_DUTY).toBeCloseTo(0.3, 9);
+    expect(flickerOn(0)).toBe(true);
+    expect(flickerOn(0.05)).toBe(true); // 0.25 of a 0.2 s cycle
+    expect(flickerOn(0.07)).toBe(false); // 0.35 of a cycle
+    expect(flickerOn(0.19)).toBe(false);
+    expect(flickerOn(0.2001)).toBe(true);
   });
 
-  it('ring segments stay in bounds', () => {
-    expect(exposeRingSegments(0)).toBe(0);
-    expect(exposeRingSegments(5)).toBe(12);
-    expect(exposeRingSegments(10000)).toBe(32);
+  it('measured duty over many cycles is 0.3 and the rate is 5 rising edges a second', () => {
+    const steps = 100000;
+    const sec = 10;
+    let on = 0;
+    let rises = 0;
+    let prev = false;
+    for (let k = 0; k < steps; k++) {
+      const now = flickerOn(((k + 0.5) / steps) * sec);
+      if (now) on++;
+      if (now && !prev) rises++;
+      prev = now;
+    }
+    expect(on / steps).toBeCloseTo(0.3, 2);
+    expect(rises).toBe(sec * FLICKER_HZ);
+  });
+
+  it('is off for a negative or non finite time; tier 3 and up mix more white', () => {
+    expect(flickerOn(-0.01)).toBe(false);
+    expect(flickerOn(Number.NaN)).toBe(false);
+    expect(flickerOn(Number.POSITIVE_INFINITY)).toBe(false);
+    expect(flickerRedWhite(1)).toBe(FLICKER_RED_WHITE);
+    expect(flickerRedWhite(2)).toBe(FLICKER_RED_WHITE);
+    expect(flickerRedWhite(3)).toBeGreaterThan(FLICKER_RED_WHITE);
+    expect(flickerRedWhite(4)).toBeGreaterThan(FLICKER_RED_WHITE);
   });
 });
 
-describe('HIT glyph', () => {
-  it('full at first, then settles to a low alpha on a long exposure', () => {
-    expect(hitCueAlpha(0)).toBe(0);
-    expect(hitCueAlpha(0.5)).toBe(1);
-    expect(hitCueAlpha(5)).toBe(1);
-    expect(hitCueAlpha(60)).toBeCloseTo(HIT_SETTLED_ALPHA, 9);
+describe('long exposure settle', () => {
+  it('flicker and shake run at full strength through the Warden and Brood windows', () => {
+    expect(EXPOSE_SETTLE_SEC).toBeGreaterThan(WARDEN.openSec);
+    expect(EXPOSE_SETTLE_SEC).toBeGreaterThan(BROOD.openSec);
+    for (let t = 0; t < EXPOSE_SETTLE_SEC; t += 0.01) {
+      expect(exposeAlarm(t)).toBe(1);
+      expect(shellHot(t)).toBe(flickerOn(t));
+    }
   });
 
-  it('sits wholly above the body rim (y down)', () => {
-    const top = hitGlyphTop(200, 56);
-    expect(top).toBeLessThan(200 - 56 * 1.18 - 1.65 * HIT_CAP_U + 1);
-    expect(top + 1.65 * HIT_CAP_U).toBeLessThan(200 - 56 * 1.18);
+  it('fades out over EXPOSE_SETTLE_FADE_SEC, and the shell stops flickering once settled', () => {
+    expect(exposeAlarm(EXPOSE_SETTLE_SEC + EXPOSE_SETTLE_FADE_SEC / 2)).toBeCloseTo(0.5, 9);
+    expect(exposeAlarm(EXPOSE_SETTLE_SEC + EXPOSE_SETTLE_FADE_SEC)).toBe(0);
+    expect(exposeAlarm(600)).toBe(0);
+    expect(exposeAlarm(Number.NaN)).toBe(1);
+    for (let t = EXPOSE_SETTLE_SEC + EXPOSE_SETTLE_FADE_SEC; t < 60; t += 0.013) expect(shellHot(t)).toBe(false);
+  });
+});
+
+describe('boss shake', () => {
+  it('amplitude is 2 to 3 screen px, a touch more on tier 3 and the top boss', () => {
+    for (const t of [1, 2, 3, 4]) {
+      expect(exposeShakePx(t)).toBeGreaterThanOrEqual(2);
+      expect(exposeShakePx(t)).toBeLessThanOrEqual(3);
+    }
+    expect(exposeShakePx(1)).toBe(SHAKE_PX);
+    expect(exposeShakePx(3)).toBeGreaterThan(exposeShakePx(2));
+    expect(exposeShakePx(4)).toBeGreaterThan(exposeShakePx(3));
+  });
+
+  it('the offset never leaves the amplitude circle, and reaches close to it', () => {
+    const o: Offset = { x: 0, y: 0 };
+    for (const amp of [SHAKE_PX, SHAKE_PX_T3, SHAKE_PX_TOP, 7.5]) {
+      let peak = 0;
+      for (let k = 0; k < 5000; k++) {
+        exposeShake(k * 0.00137, amp, o);
+        const m = Math.hypot(o.x, o.y);
+        expect(m).toBeLessThanOrEqual(amp + 1e-9);
+        if (m > peak) peak = m;
+      }
+      expect(peak).toBeGreaterThan(amp * 0.95);
+    }
+  });
+
+  it('x runs at SHAKE_HZ; zero or bad amplitude gives no offset', () => {
+    const o: Offset = { x: 0, y: 0 };
+    // x is 0 at the start and after each full x period (a clamp only scales, never moves a zero).
+    expect(exposeShake(0, 2, o).x).toBeCloseTo(0, 9);
+    expect(exposeShake(1 / SHAKE_HZ, 2, o).x).toBeCloseTo(0, 9);
+    exposeShake(0.3, 0, o);
+    expect(o.x).toBe(0);
+    expect(o.y).toBe(0);
+    exposeShake(0.3, Number.NaN, o);
+    expect(o.x).toBe(0);
+    expect(o.y).toBe(0);
+  });
+});
+
+describe('core fragments', () => {
+  it('3 fragments on tiers 1 and 2, more on tier 3 and the top boss, never past FRAG_MAX', () => {
+    expect(fragmentCount(1)).toBe(3);
+    expect(fragmentCount(2)).toBe(3);
+    expect(fragmentCount(3)).toBe(4);
+    expect(fragmentCount(4)).toBe(5);
+    expect(FRAG_MAX).toBe(5);
+  });
+
+  it('each drift sits in 8 to 14 u, and the drifts differ', () => {
+    const seen = new Set<number>();
+    for (let k = 0; k < FRAG_MAX; k++) {
+      const d = fragmentDrift(k);
+      expect(d).toBeGreaterThanOrEqual(FRAG_DRIFT_MIN);
+      expect(d).toBeLessThanOrEqual(FRAG_DRIFT_MAX);
+      seen.add(Math.round(d * 100));
+    }
+    expect(FRAG_DRIFT_MIN).toBe(8);
+    expect(FRAG_DRIFT_MAX).toBe(14);
+    expect(seen.size).toBe(FRAG_MAX);
+  });
+
+  it('fragments are evenly spaced and the orbit turns them together', () => {
+    for (const n of [3, 4, 5]) {
+      for (let k = 0; k < n; k++) expect(fragmentAngle(k, n, 0)).toBeCloseTo((k / n) * Math.PI * 2, 9);
+      const step = fragmentAngle(1, n, 0.1) - fragmentAngle(0, n, 0.1);
+      expect(step).toBeCloseTo((Math.PI * 2) / n, 9);
+    }
+    expect(fragmentAngle(0, 3, 0.25)).toBeCloseTo(Math.PI / 2, 9);
+    expect(fragmentAngle(0, 3, 1.25)).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('offset length is drift x ease: 0 when assembled, the full drift when spread', () => {
+    const o: Offset = { x: 0, y: 0 };
+    for (let k = 0; k < 5; k++) {
+      fragmentOffset(k, 5, 0, 0.37, o);
+      expect(Math.hypot(o.x, o.y)).toBeCloseTo(0, 9);
+      fragmentOffset(k, 5, 1, 0.37, o);
+      expect(Math.hypot(o.x, o.y)).toBeCloseTo(fragmentDrift(k), 9);
+      fragmentOffset(k, 5, 0.5, 0.37, o);
+      const a = fragmentAngle(k, 5, 0.37);
+      expect(o.x).toBeCloseTo(Math.cos(a) * fragmentDrift(k) * 0.5, 9);
+      expect(o.y).toBeCloseTo(Math.sin(a) * fragmentDrift(k) * 0.5, 9);
+    }
+  });
+
+  it('spread opens over FRAG_OPEN_SEC, reassembles over 0.3 s, and the ease is a smoothstep', () => {
+    expect(FRAG_CLOSE_SEC).toBeCloseTo(0.3, 9);
+    expect(stepSpread(0, true, FRAG_OPEN_SEC / 2)).toBeCloseTo(0.5, 9);
+    expect(stepSpread(0, true, 10)).toBe(1);
+    expect(stepSpread(1, false, FRAG_CLOSE_SEC / 2)).toBeCloseTo(0.5, 9);
+    // 60 fps frames: fully reassembled by about 0.3 s, not before 0.28 s.
+    let s = 1;
+    let frames = 0;
+    while (s > 0 && frames < 100) {
+      s = stepSpread(s, false, 1 / 60);
+      frames++;
+    }
+    expect(frames / 60).toBeGreaterThan(0.28);
+    expect(frames / 60).toBeLessThanOrEqual(0.3 + 1 / 60);
+    expect(stepSpread(Number.NaN, true, Number.NaN)).toBe(0);
+    expect(fragmentEase(0)).toBe(0);
+    expect(fragmentEase(1)).toBe(1);
+    expect(fragmentEase(0.5)).toBeCloseTo(0.5, 9);
+    expect(fragmentEase(0.25)).toBeLessThan(0.25);
+  });
+
+  it('pieces roughly add up to the core: n x frac squared is the same for every count', () => {
+    for (const n of [3, 4, 5]) expect(n * fragmentSizeFrac(n) ** 2).toBeCloseTo(0.7225, 6);
   });
 });
 
 describe('planBossExpose', () => {
-  it('writes the hot glow, the hot disc, the ring and the glyph strokes in the hot colours', () => {
-    const b = createSpriteBuf(EXPOSE_SPRITE_CAP);
-    const e = cue();
-    const n = planBossExpose(e, b, HALO);
-    expect(n).toBe(b.count);
-    expect(countFrame(b, F_GLOW)).toBe(1);
-    expect(countFrame(b, F_DOT)).toBe(1);
-    // Ring segments plus HIT strokes, as core bars.
-    expect(countFrame(b, F_BAR)).toBeGreaterThanOrEqual(12 + HIT_STROKE_COUNT);
-    for (let i = 0; i < b.count; i++) expect([e.hot, e.glyph]).toContain(b.tint[i]);
-    // The glyph strokes (glyph colour) all sit above the body rim.
-    let above = 0;
-    for (let i = 0; i < b.count; i++) if (b.frame[i] === F_BAR && b.tint[i] === e.glyph) {
-      expect(b.y[i] ?? 0).toBeLessThan(e.y - e.bodyR * 1.18);
-      above++;
+  it('writes the centre glow, then a glow and a shard per fragment, all in the hot colour', () => {
+    for (const count of [3, 4, 5]) {
+      const b = createSpriteBuf(EXPOSE_SPRITE_CAP);
+      const e = cue({ count });
+      const n = planBossExpose(e, b, HALO);
+      expect(n).toBe(b.count);
+      expect(countFrame(b, F_GLOW)).toBe(1 + count);
+      expect(countFrame(b, F_BAR)).toBe(count);
+      expect(countFrame(b, F_SOFT)).toBe(count);
+      expect(countFrame(b, F_DOT)).toBe(0);
+      for (let i = 0; i < b.count; i++) expect(b.tint[i]).toBe(e.hot);
     }
-    expect(above).toBe(HIT_STROKE_COUNT);
+  });
+
+  it('no text and no ring: every instance sits within the fragment reach of the core', () => {
+    const b = createSpriteBuf(EXPOSE_SPRITE_CAP);
+    const e = cue({ count: 5 });
+    planBossExpose(e, b, HALO);
+    for (let i = 0; i < b.count; i++) {
+      const d = Math.hypot((b.x[i] ?? 0) - e.x, (b.y[i] ?? 0) - e.y);
+      expect(d).toBeLessThanOrEqual(FRAG_DRIFT_MAX + 1e-3);
+    }
+  });
+
+  it('the shards sit at the fragment offsets: on the core when assembled, out when spread', () => {
+    const o: Offset = { x: 0, y: 0 };
+    const shut = createSpriteBuf(EXPOSE_SPRITE_CAP);
+    planBossExpose(cue({ spread: 0 }), shut, NO_HALO);
+    for (let i = 0; i < shut.count; i++) {
+      expect(shut.x[i] ?? 0).toBeCloseTo(100, 3);
+      expect(shut.y[i] ?? 0).toBeCloseTo(200, 3);
+    }
+    const open = createSpriteBuf(EXPOSE_SPRITE_CAP);
+    planBossExpose(cue({ spread: 1, orbit: 0.2 }), open, NO_HALO);
+    let k = 0;
+    for (let i = 0; i < open.count; i++) {
+      if (open.frame[i] !== F_BAR) continue;
+      fragmentOffset(k, 3, 1, 0.2, o);
+      expect(open.x[i] ?? 0).toBeCloseTo(100 + o.x, 3);
+      expect(open.y[i] ?? 0).toBeCloseTo(200 + o.y, 3);
+      k++;
+    }
+    expect(k).toBe(3);
   });
 
   it('never exceeds EXPOSE_MAX_INSTANCES, which fits the layer cap', () => {
     expect(EXPOSE_MAX_INSTANCES).toBeLessThanOrEqual(EXPOSE_SPRITE_CAP);
-    for (const bodyR of [20, 56, 90, 400]) {
+    for (const count of [0, 1, 3, 5, 99, Number.NaN]) {
       const b = createSpriteBuf(1024);
-      const n = planBossExpose(cue({ bodyR, coreR: bossCoreFrac(BOSS_WARDEN, 1) * bodyR, age: 0.01 }), b, HALO);
-      expect(n).toBeLessThanOrEqual(EXPOSE_MAX_INSTANCES);
+      expect(planBossExpose(cue({ count }), b, HALO)).toBeLessThanOrEqual(EXPOSE_MAX_INSTANCES);
     }
   });
 
-  it('the pulse drives the disc: brighter and larger on the beat', () => {
+  it('the 4 Hz pulse drives the core: centre glow and shards brighter and larger on the beat', () => {
     const on = createSpriteBuf(64);
     const off = createSpriteBuf(64);
     planBossExpose(cue({ pulse: 1 }), on, NO_HALO);
     planBossExpose(cue({ pulse: 0 }), off, NO_HALO);
-    const dot = (b: ReturnType<typeof createSpriteBuf>): number => {
-      for (let i = 0; i < b.count; i++) if (b.frame[i] === F_DOT) return i;
+    expect(on.alpha[0] ?? 0).toBeGreaterThan(off.alpha[0] ?? 0);
+    expect(on.w[0] ?? 0).toBeGreaterThan(off.w[0] ?? 0);
+    const bar = (b: ReturnType<typeof createSpriteBuf>): number => {
+      for (let i = 0; i < b.count; i++) if (b.frame[i] === F_BAR) return i;
       return -1;
     };
-    expect(on.alpha[dot(on)] ?? 0).toBeGreaterThan(off.alpha[dot(off)] ?? 0);
-    expect(on.w[dot(on)] ?? 0).toBeGreaterThan(off.w[dot(off)] ?? 0);
+    expect(on.alpha[bar(on)] ?? 0).toBeGreaterThan(off.alpha[bar(off)] ?? 0);
+    expect(on.h[bar(on)] ?? 0).toBeGreaterThan(off.h[bar(off)] ?? 0);
   });
 
   it('writes nothing for an invisible body or a zero core', () => {
