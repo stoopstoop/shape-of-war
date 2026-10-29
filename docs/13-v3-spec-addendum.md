@@ -111,7 +111,7 @@ After level 50 the list loops from Ember in passes of seven bosses, each pass wi
 11. Reward (default confirmed, Q8). 20 geoms and a large death burst. No weapon, life or bomb.
 12. Hazards on boss levels (default confirmed, Q19): no spawners, at most one gravity well (SPEC 3.3 rule 5). Gravity wells do not pull a boss, a part or a boss hazard (Scribe reading, flag 6).
 13. Speeds. Boss speeds are not multiplied by `speedScale`; the tier sets difficulty. Adds are multiplied as usual.
-14. Projectiles on some bosses (Ryan, Q5). A boss attack is one of the five hazard primitives, a summon of existing enemies, a drop of Mine and Slime, or, on Spindle, Ember and Bastion only, a slow enemy bullet from the pool in "Boss projectiles". No other boss, part or hazard fires one. The enemy bullet cut of SPEC 3.7 is lifted for these three bosses and for nothing else. Ryan's rule is that each shooter is balanced against its other traits: the shooter table names the trade for each.
+14. Projectiles on some bosses (Ryan, Q6). A boss attack is one of the five hazard primitives, a summon of existing enemies, a drop of Mine and Slime, or, on Spindle, Ember and Bastion only, a slow enemy bullet from the pool in "Boss projectiles". No other boss, part or hazard fires one. The enemy bullet cut of SPEC 3.7 is lifted for these three bosses and for nothing else. Ryan's rule is that each shooter is balanced against its other traits: the shooter table names the trade for each.
 15. Boss code takes every vector between two entities from `steer.ts` helpers. No raw `x[a] - x[b]` in `src/game/bosses/`. Why: a later surface change stays one edit per helper.
 
 ### Hazard primitives
@@ -126,7 +126,7 @@ Five primitives, analytic and O(1) per hazard, built once in `src/game/bosses/ki
 | 3 | tether | Segment from the entity position to (`w.vx`, `w.vy`), the second body | Ship centre within half width | half width 10 u |
 | 4 | pull | Circle of radius `w.radius` around the entity | Never lethal. Pulls the ship toward the entity through the existing well pull channel | radius 300 u, at most 100 u/s |
 
-### Boss projectiles (Ryan, Q5)
+### Boss projectiles (Ryan, Q6)
 
 Ryan's answer: bosses may shoot projectiles, but not all of them, and each shooter must be balanced against its other traits. This lifts the no enemy bullets cut for bosses only. Three bosses shoot, one per tier from 1 to 3: Spindle, Ember and Bastion. No other boss, no part except a Bastion turret, no hazard and no add fires a bullet. Starting values below are Scribe's; `BOSS_SHOTS` in `src/game/bosses/table.ts` and the constants in `src/game/enemyBullets.ts` hold them so tuning is a one file edit. Tests assert every rule.
 
@@ -156,7 +156,7 @@ Phase speed ups and enrage never raise a bullet's speed past 240 u/s. Prism and 
 
 Behaviour detail (movement, attack, Glow visual, Chorus motif) is in docs/12 "Design: the boss roster". This table holds the rules tests assert. Hit points are starting values in spread hits, so a fight with closed windows lasts longer than open fire: about 20 to 22 s (tier 1), 33 to 39 s (tier 2), 50 to 56 s (tier 3) and 56 s (tier 4) at 18 spread hits a second, computed, not measured. Names are placeholders.
 
-| # | Id | Tier | Level (Ryan, Q1) | Working name (default confirmed, Q7) | Phases | HP (Ryan, Q4) | Shot (Ryan, Q5) | Damage rule |
+| # | Id | Tier | Level (Ryan, Q1) | Working name (default confirmed, Q7) | Phases | HP (Ryan, Q4) | Shot (Ryan, Q6) | Damage rule |
 |---|---|---|---|---|---|---|---|---|
 | 1 | warden | 1 | 5 | Warden | 2 | 360 | none | A shell blocks every shot except for 2 s after each ring, when the core opens |
 | 2 | brood | 1 | 10 | Brood | 2 | 400 | none | Immune until its three pods (1 HP each) die, then the core is open 5 s. Pods regrow after 10 s |
@@ -285,7 +285,7 @@ SPEC 3.6 lists base values for the v1 enemies and docs/11 adds the v2 ones. Boss
 SPEC 3.7 as amended by docs/11 stays, with these changes for v3:
 
 - Lifted: bosses. The ten bosses of this file only.
-- Lifted for bosses only: enemy bullets, from Spindle, Ember and Bastion, through the pool in "Boss projectiles" (Ryan, Q5). Nothing else fires an enemy bullet.
+- Lifted for bosses only: enemy bullets, from Spindle, Ember and Bastion, through the pool in "Boss projectiles" (Ryan, Q6). Nothing else fires an enemy bullet.
 - Lifted behind D12 and D13: a render only perspective tilt, and a cylinder surface. Nothing else curved.
 - Stay cut: enemy bullets from anything that is not one of those three bosses, a Three.js migration, torus, sphere, capsule and twisted band surfaces, gamepad, haptics beyond one vibrate on death, achievements, leaderboards of any kind, multiple ship types, any online feature.
 - docs/09 sections 1, 2 and 4 stay parked, not cancelled, except the two clauses above. docs/09 is not v3 scope.
@@ -423,7 +423,7 @@ Boss sound effects, not music: an entry rumble, a hit tick for `Kind.Boss` heavi
 Lifted for v3, each only as scoped here:
 
 - "Boss enemies and enemy types beyond section 6." Lifted for the ten bosses of SPEC 3.4. The docs/11 lift for Charger, Bulwark, Blink, Swirl, Sower, Splime, Mine and Slime stands.
-- "Enemy bullets of any kind." Lifted for Spindle, Ember and Bastion only, through the pool in SPEC 3.4 "Boss projectiles" (Ryan, Q5). No other enemy, part, hazard or add fires one.
+- "Enemy bullets of any kind." Lifted for Spindle, Ember and Bastion only, through the pool in SPEC 3.4 "Boss projectiles" (Ryan, Q6). No other enemy, part, hazard or add fires one.
 - "Camera scroll or zoom." Stays cut. The tilt keeps the whole arena visible.
 
 Everything else in section 14 as docs/11 left it stays cut, including enemy bullets from anything that is not one of those three bosses. The cut order is "SPEC 3.7 Cuts for v3".
