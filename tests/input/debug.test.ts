@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createMoveDebug,
   formatMoveDebug,
+  noteClamp,
   noteMoveBegin,
   noteMoveSample,
   noteOffCanvasDown,
@@ -86,8 +87,22 @@ describe('landing readout', () => {
     expect([d.landX, d.landY]).toEqual([140.4, 449.6]);
     noteMoveSample(d, 120, 0, 1, 0, 10);
     const s = formatMoveDebug(d, 2.625, 832, 750);
-    expect(s.split('\n')).toHaveLength(3);
+    expect(s.split('\n')).toHaveLength(4);
     expect(s.split('\n')[2]).toBe('land 140,450');
+  });
+});
+
+describe('anchor clamp readout', () => {
+  it('starts at zero for both sticks on the last line', () => {
+    const s = formatMoveDebug(createMoveDebug(), 1, 960, 411);
+    expect(s.split('\n')[3]).toBe('clamp move 0,0  aim 0,0');
+  });
+
+  it('prints both offsets rounded to whole px, with no minus zero', () => {
+    const d = createMoveDebug();
+    noteClamp(d, -0.3, 0, -41.6, -12.2);
+    expect([d.clampMoveX, d.clampAimX, d.clampAimY]).toEqual([-0.3, -41.6, -12.2]);
+    expect(formatMoveDebug(d, 2.625, 960, 411).split('\n')[3]).toBe('clamp move 0,0  aim -42,-12');
   });
 
   it('a new landing replaces the old one', () => {

@@ -75,8 +75,10 @@ describe('hitButton', () => {
     expect(hitButton(r, ...c('pause'))).toBe('pause');
   });
 
-  it('uses circles for bomb and super, so rect corners miss', () => {
-    expect(hitButton(r, r.bomb.x + 1, r.bomb.y + r.bomb.h - 1)).toBeNull();
+  it('counts the whole hit rect for bomb and super, corners included (G2.1)', () => {
+    expect(hitButton(r, r.bomb.x + 1, r.bomb.y + r.bomb.h - 1)).toBe('bomb');
+    expect(hitButton(r, r.super.x + 1, r.super.y + 1)).toBe('super');
+    expect(hitButton(r, r.bomb.x - 1, r.bomb.y + r.bomb.h - 1)).toBeNull();
   });
 
   it('resolves the bomb and super overlap to the nearer centre', () => {

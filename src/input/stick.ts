@@ -21,9 +21,15 @@ export interface Track {
   /** Where the thumb first landed, canvas local CSS px (debug readout only). */
   lx: number;
   ly: number;
-  /** Knob, clamped to the ring. */
+  /** Knob, clamped to the ring, finger space. */
   px: number;
   py: number;
+  /**
+   * Anchor clamp offset: drawn ring centre minus the centre above, CSS px. Non zero only when the
+   * ring would cover a button (clear.ts). Output never reads it, so the landing still gives zero.
+   */
+  cx: number;
+  cy: number;
 }
 
 export interface StickVector {
@@ -51,7 +57,7 @@ export function stickVector(dx: number, dy: number, radius = STICK_RADIUS, dead 
 }
 
 export function createTrack(): Track {
-  return { id: NO_POINTER, active: false, x: 0, y: 0, ox: 0, oy: 0, lx: 0, ly: 0, px: 0, py: 0 };
+  return { id: NO_POINTER, active: false, x: 0, y: 0, ox: 0, oy: 0, lx: 0, ly: 0, px: 0, py: 0, cx: 0, cy: 0 };
 }
 
 export function beginTrack(t: Track, id: number, x: number, y: number): void {
@@ -60,6 +66,7 @@ export function beginTrack(t: Track, id: number, x: number, y: number): void {
   t.ox = t.px = t.lx = x;
   t.oy = t.py = t.ly = y;
   t.x = t.y = 0;
+  t.cx = t.cy = 0;
 }
 
 function clamp(v: number, lo: number, hi: number): number {

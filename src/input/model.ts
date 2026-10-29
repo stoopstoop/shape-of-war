@@ -2,6 +2,7 @@
 // The DOM layer (touch.ts) translates PointerEvents into these calls.
 import { createLatch, hitButton, layoutButtons, pressLatch, releaseLatch, takeLatch, ZERO_INSETS } from './buttons';
 import type { ButtonLatch } from './buttons';
+import { buttonList, clearCentre } from './clear';
 import { beginTrack, createTrack, endTrack, NO_POINTER, updateTrack } from './stick';
 import type { Track } from './stick';
 import type { ButtonId, ButtonRects, InputState, Insets } from './types';
@@ -45,6 +46,16 @@ export function inEdgeGuard(cssW: number, x: number): boolean {
 }
 
 /**
+ * Anchor clamp: set the drawn ring offset so the ring at full deflection around the drawn centre
+ * covers no button hit rect. The logical centre (ox, oy) and the output are left untouched.
+ */
+export function clampAnchor(m: TouchModel, t: Track): void {
+  const c = clearCentre(buttonList(m.buttons), t.ox, t.oy, m.cssW, m.cssH);
+  t.cx = c.x - t.ox;
+  t.cy = c.y - t.oy;
+}
+
+/**
  * Buttons are hit tested first, so a thumb on bomb never makes a stick. Otherwise the
  * first pointer in each half owns that half's stick; later pointers there are ignored.
  */
@@ -59,12 +70,20 @@ export function pointerDown(m: TouchModel, id: number, x: number, y: number): Do
   const t = m[half];
   if (t.id !== NO_POINTER) return 'ignored';
   beginTrack(t, id, x, y);
+  clampAnchor(m, t);
   return half;
 }
 
+/**
+ * A stick finger moved. Buttons are never touched here: a button fires only on a new pointer down
+ * that starts inside its hit rect, so a stick finger dragged over a button cannot fire it.
+ */
 export function pointerMove(m: TouchModel, id: number, x: number, y: number): void {
-  if (id === m.move.id) updateTrack(m.move, x, y, m.cssW, m.cssH);
-  else if (id === m.aim.id) updateTrack(m.aim, x, y, m.cssW, m.cssH);
+  if (id === NO_POINTER) return;
+  const t = id === m.move.id ? m.move : id === m.aim.id ? m.aim : null;
+  if (t === null) return;
+  updateTrack(t, x, y, m.cssW, m.cssH);
+  clampAnchor(m, t);
 }
 
 /** Frees only whatever this pointer owned. Safe to call twice (up then lostpointercapture). */
@@ -94,6 +113,8 @@ export function reanchorModel(m: TouchModel, cssW: number, cssH: number, insets:
     if (t.id !== NO_POINTER && !originInside(t, cssW, cssH)) {
       cancelled.push(t.id);
       endTrack(t);
+    } else if (t.id !== NO_POINTER) {
+      clampAnchor(m, t);
     }
   }
   return cancelled;

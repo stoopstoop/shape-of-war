@@ -56,11 +56,11 @@ export function layoutButtons(cssW: number, cssH: number, insets: Insets): Butto
   };
 }
 
-/** Distance to the centre if inside the inscribed circle, else Infinity. */
-function circleDist(r: Rect, x: number, y: number): number {
+/** Distance to the centre if inside the hit rect, else Infinity. */
+function rectDist(r: Rect, x: number, y: number): number {
+  if (!inRect(r, x, y)) return Infinity;
   const c = rectCentre(r);
-  const d = Math.hypot(x - c.x, y - c.y);
-  return d <= r.w / 2 ? d : Infinity;
+  return Math.hypot(x - c.x, y - c.y);
 }
 
 function inRect(r: Rect, x: number, y: number): boolean {
@@ -68,13 +68,14 @@ function inRect(r: Rect, x: number, y: number): boolean {
 }
 
 /**
- * Which button a point hits, or null. Bomb and super are circles; their hit
- * circles overlap a little, so the nearer centre wins. Pause is a square.
+ * Which button a point hits, or null. Any start inside a hit rect is that button, never a stick
+ * (G2.1: the corners count too, so no stick can begin inside a button rect). The bomb and super
+ * rects overlap a little, so the nearer centre wins there.
  */
 export function hitButton(rects: ButtonRects, x: number, y: number): ButtonId | null {
   if (inRect(rects.pause, x, y)) return 'pause';
-  const db = circleDist(rects.bomb, x, y);
-  const ds = circleDist(rects.super, x, y);
+  const db = rectDist(rects.bomb, x, y);
+  const ds = rectDist(rects.super, x, y);
   if (db === Infinity && ds === Infinity) return null;
   return db <= ds ? 'bomb' : 'super';
 }
