@@ -65,4 +65,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Read .agents/runs/0268-swarm-tier2, 0269-glow-tier2-fx, 0270-chorus-boss-music. Merge in docs/12 wave B order (Swarm, Glow, Chorus), glue, push, read the deploy result, then gate G3B (Ember, Mirage, Gravitas on seed 42 levels 20, 25, 30; boss music) with every field in words.
+G3B on build 78c30a6 (docs/12 wave B gate text, every field in words: Ember L20, Mirage L25, Gravitas L30, boss music, Endless boss, pellets and fans, bomb clears bullets). On pass: wave V3-C (tier 3 and Prism, two sub waves C1 and C2) from docs/12 briefs.
