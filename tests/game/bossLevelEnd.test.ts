@@ -6,7 +6,8 @@
 // w.time, the objective reads the wave clock, which pauses for each 1.5 s respawn delay. After
 // deaths the HUD shows "Defeat the boss" (or 0:00) before the sim's test passes, so a boss killed
 // in that gap leaves the level running with a timer at 0:00 (hand-off request: main.ts
-// snapshotOf reads objectiveClock).
+// snapshotOf reads objectiveClock). DECISIONS option 1 (run 0262): the boss is the objective, so a
+// boss killed before the success test now ends the level at once.
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
 import { bossHolding, bossPending, damageBoss, damageBossPart, livePart } from '../../src/game/bosses/core';
@@ -93,7 +94,7 @@ describe('the objective clock', () => {
     expect(objectiveClock(w)).toBe(gs(w).waveClock);
   });
 
-  it('a boss killed before the objective clock reaches success: the level ends when it does', () => {
+  it('a boss killed before the objective clock reaches success: the level ends at the kill (DECISIONS option 1)', () => {
     const def = generateLevel(2, 10);
     const w = createGame(def);
     const g = gs(w);
@@ -106,9 +107,7 @@ describe('the objective clock', () => {
     }
     expect(bossPending(w)).toBe(false);
     expect(objectiveClock(w)).toBeLessThan(dur);
-    for (let i = 0; i < 120 * 200 && g.outcome === 'running'; i++) stepGame(w, DT, idle());
+    // The step that killed the boss already evaluated the objective: the level is won.
     expect(g.outcome).toBe('won');
-    expect(objectiveClock(w)).toBeGreaterThanOrEqual(dur);
-    expect(objectiveClock(w)).toBeLessThan(dur + 0.05);
   });
 });

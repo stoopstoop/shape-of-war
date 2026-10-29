@@ -1,9 +1,11 @@
 // B16 retest on the real levels Ryan plays: seed 42 levels 5, 10 and 15 from the default generator
 // (typed seed path ?seed=42&level=N). A scripted bot plays through the real input (aim and fire),
-// dies twice on the way, meets the generated objective and kills the boss. The session runs with
-// main.ts's scoring port (Ledger's scoring.ts), as on the device. docs/13 boss rule 9: the level
-// completes the moment the boss dies once the success test passes, and runs as normal when the
-// boss dies first. Every run asserts one 'game:over' within 2 s of the later of the two.
+// dies twice on the way and kills the boss. The session runs with main.ts's scoring port (Ledger's
+// scoring.ts), as on the device. DECISIONS option 1 (run 0262): the boss is the objective, so the
+// level completes the moment the boss dies, whether or not the regular objective passed first (a
+// met objective still holds the level for the boss). Every run asserts one 'game:over', outcome
+// won, within 2 s of the boss death, and that Ledger (the port the HUD reads) counted the boss kill
+// and its bonus.
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
 import { bossHittable, bossHolding, bossPending, damageBoss, isBossTarget } from '../../src/game/bosses/core';
@@ -79,6 +81,12 @@ interface Run {
   heldAt: number;
   deaths: number;
   deadAtDown: boolean;
+  /** The boss kill step: sim and Ledger score and kill deltas, and the bonus paid. */
+  simScore: number;
+  ledgerScore: number;
+  simKills: number;
+  ledgerKills: number;
+  bonus: number;
 }
 
 /** Play seed 42 level n with plan. The ship is shielded except for the two scripted deaths. */
@@ -86,7 +94,7 @@ function play(level: number, plan: Plan): { w: World; r: Run } {
   const w = createGame(generateLevel(42, level), { scoring: PORT });
   const g = gs(w);
   g.invulnerable = true;
-  const r: Run = { overs: 0, overAt: -1, downAt: -1, metAt: -1, heldAt: -1, deaths: 0, deadAtDown: false };
+  const r: Run = { overs: 0, overAt: -1, downAt: -1, metAt: -1, heldAt: -1, deaths: 0, deadAtDown: false, simScore: 0, ledgerScore: 0, simKills: 0, ledgerKills: 0, bonus: 0 };
   bus.on('game:over', () => {
     r.overs++;
     if (r.overAt < 0) r.overAt = w.time;
@@ -95,7 +103,8 @@ function play(level: number, plan: Plan): { w: World; r: Run } {
   for (let i = 0; i < 120 * 400 && g.outcome === 'running'; i++) {
     // Two deaths on the way: one before the boss enters (20 s), one while it lives. deadAtKill
     // spends its second life at the killing blow instead (3 lives: a third death would lose).
-    const second = plan !== 'deadAtKill' && r.deaths === 1 && w.time >= 30;
+    // bossFirst kills the boss soon after it enters, so its second death comes as the boss arrives.
+    const second = plan !== 'deadAtKill' && r.deaths === 1 && (w.time >= 30 || (plan === 'bossFirst' && bossHittable(w) > 0));
     if (w.ship.active && ((r.deaths === 0 && w.time >= 12) || second)) {
       die(w);
       r.deaths++;
@@ -107,6 +116,9 @@ function play(level: number, plan: Plan): { w: World; r: Run } {
     // window (boss rule 6 resets the cycle), so the blow comes first.
     const id = bossHittable(w);
     const s = bossOf(w);
+    const ledger0 = scoreOf(w);
+    const sim0 = g.score;
+    const simKills0 = g.kills;
     if (plan === 'deadAtKill' && bossHolding(w) && id > 0 && s !== null && s.open && w.ship.active && (w.hp[id] ?? 0) <= 40) {
       expect(damageBoss(w, 40, w.x[id] ?? 0, w.y[id] ?? 0)).toBe(true);
       die(w);
@@ -120,13 +132,22 @@ function play(level: number, plan: Plan): { w: World; r: Run } {
     // boss enters and the bot waits for the timer away from the boss with its fire held.
     const b = s === null ? -1 : s.id;
     const wait = plan !== 'bossFirst' && !shootBoss && b > 0 && o.kind === 'scoreInTime';
-    if (wait && g.score < o.target) g.score = o.target;
+    const credit = wait && g.score < o.target ? o.target - g.score : 0;
+    g.score += credit;
     input.move.active = wait;
     input.move.x = wait ? (w.x[0] ?? 0) - (w.x[b] ?? 0) : 0;
     input.move.y = wait ? (w.y[0] ?? 0) - (w.y[b] ?? 0) : 0;
     if (wait) input.aim.active = false;
     stepGame(w, DT, input);
-    if (r.downAt < 0 && !bossPending(w)) r.downAt = w.time;
+    if (r.downAt < 0 && !bossPending(w)) {
+      r.downAt = w.time;
+      const ledger1 = scoreOf(w);
+      r.simScore = g.score - sim0 - credit;
+      r.ledgerScore = ledger1.score - ledger0.score;
+      r.simKills = g.kills - simKills0;
+      r.ledgerKills = ledger1.kills - ledger0.kills;
+      r.bonus = s === null ? 0 : s.bonus;
+    }
     if (r.metAt < 0 && metNow(w)) r.metAt = w.time;
   }
   return { w, r };
@@ -147,16 +168,26 @@ describe('B16: seed 42 boss levels end after the boss dies (real levels, real po
         const g = gs(w);
         expect(r.deaths).toBeGreaterThanOrEqual(2);
         expect(r.downAt).toBeGreaterThanOrEqual(0);
-        expect(r.metAt).toBeGreaterThanOrEqual(0);
         expect(r.overs).toBe(1);
         expect(g.outcome).toBe('won');
         expect(g.lives).toBeGreaterThan(0);
         if (plan !== 'bossFirst') {
           expect(r.heldAt).toBeGreaterThanOrEqual(0); // the objective passed first and the level held
+          expect(r.metAt).toBeGreaterThanOrEqual(0);
           expect(r.metAt).toBeLessThanOrEqual(r.downAt);
+        } else {
+          // DECISIONS option 1: the boss died before the regular objective passed and still ended it.
+          expect(r.metAt < 0 || r.metAt >= r.downAt).toBe(true);
         }
         if (plan === 'deadAtKill') expect(r.deadAtDown).toBe(true);
-        expect(r.overAt - Math.max(r.downAt, r.metAt)).toBeLessThanOrEqual(2);
+        expect(r.overAt).toBeGreaterThanOrEqual(r.downAt);
+        expect(r.overAt - r.downAt).toBeLessThanOrEqual(2);
+        // The boss kill and its bonus reached Ledger, the port the HUD reads: same deltas as the sim.
+        expect(r.bonus).toBeGreaterThan(0);
+        expect(r.simKills).toBeGreaterThanOrEqual(1);
+        expect(r.ledgerKills).toBe(r.simKills);
+        expect(r.simScore).toBeGreaterThanOrEqual(r.bonus);
+        expect(r.ledgerScore).toBe(r.simScore);
       }, 60_000);
     }
   }

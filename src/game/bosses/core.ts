@@ -75,6 +75,12 @@ export function bossPending(w: World): boolean {
   return bs !== null && bs.status !== 'defeated';
 }
 
+/** True once this level's boss died through the boss rules (a removal outside them does not count). */
+export function bossSlain(w: World): boolean {
+  const bs = bossOf(w);
+  return bs !== null && bs.status === 'defeated' && bs.slain;
+}
+
 /** True while the objective holds for the boss (HUD: "Defeat the boss"). */
 export function bossHolding(w: World): boolean {
   const bs = bossOf(w);
@@ -557,7 +563,11 @@ function defeatBoss(w: World, bs: BossState, id: number): void {
   bs.openLeft = -1;
   stepExposed(bs, 0); // a dead core is not exposed: 'sim:bossExposed' false if it was open
   bs.bonus = bossBonus(w.level.par, g.mode, bs.row.tier);
-  g.score += bs.bonus;
+  bs.slain = true; // boss rule 9 (option 1): stepObjective reads this and ends an Adventure level won
+  // The kill and its bonus go through the scoring port, so the port the HUD reads (Ledger) counts
+  // the boss kill and the bonus too. The port returns the kill points only (base 0 for the boss);
+  // the bonus is unmultiplied and the sim adds it itself, whatever the port does with it.
+  g.score += g.scoring.awardKill(w, Kind.Boss, bs.bonus) + bs.bonus;
   g.kills++; // SPEC 3.6 rule 4: the boss counts 1 kill for a destroy objective
   spawnGeoms(w, x, y, BOSS_REWARD_GEOMS);
   bs.downEv.x = x;

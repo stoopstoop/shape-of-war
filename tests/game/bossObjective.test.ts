@@ -1,13 +1,16 @@
 // Objective hold on a boss level (docs/13 boss rule 9, docs/01 section 8 override): survive,
 // scoreInTime and destroy each hold while the boss lives (waves stop, the boss enrages, the clock
 // stops), then win the moment the boss dies with lives left, or lose on lives 0. The boss counts
-// one kill for destroy.
+// one kill for destroy. DECISIONS option 1: the boss is the objective, so its death wins at once
+// even before the regular objective passes, and that objective no longer fails a boss level.
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus, type Events } from '../../src/core/events';
-import { bossAlive, bossEnraged, bossHolding, bossPending, damageBoss } from '../../src/game/bosses/core';
+import { bossAlive, bossEnraged, bossHolding, bossPending, bossSlain, damageBoss } from '../../src/game/bosses/core';
+import { bossOf } from '../../src/game/bosses/state';
 import { stepGame } from '../../src/game/game';
-import { evaluateObjective, objectiveMet, type ObjectiveInput } from '../../src/game/objective';
+import { evaluateObjective, objectiveMet, starsFor, type ObjectiveInput } from '../../src/game/objective';
 import { killShip } from '../../src/game/player';
+import { removeEntity } from '../../src/game/remove';
 import { gs } from '../../src/game/state';
 import type { ObjectiveDef } from '../../src/levelgen/leveldef';
 import { bossGame, enter, park, run } from './bossHelpers';
@@ -37,11 +40,26 @@ describe('evaluateObjective with bossPending', () => {
     expect(evaluateObjective(inp(DEST, { kills: 30 }))).toBe('won');
   });
 
-  it('lives at 0 lose as usual, hold or not; a missed score target still loses', () => {
+  it('lives at 0 lose as usual, hold or not; a missed score target no longer fails a boss level', () => {
     for (const o of [SURV, SIT, DEST]) {
       expect(evaluateObjective(inp(o, { clock: 60, score: 9000, kills: 30, lives: 0, bossPending: true }))).toBe('lost');
     }
-    expect(evaluateObjective(inp(SIT, { clock: 60, score: 4999, bossPending: true }))).toBe('lost');
+    // DECISIONS option 1: the regular objective counts for score only while the boss is pending.
+    expect(evaluateObjective(inp(SIT, { clock: 60, score: 4999, bossPending: true }))).toBe('running');
+    expect(evaluateObjective(inp(SIT, { clock: 60, score: 4999 }))).toBe('lost');
+  });
+
+  it('the boss kill wins at once, whatever the regular objective', () => {
+    for (const o of [SURV, SIT, DEST]) {
+      expect(evaluateObjective(inp(o, { clock: 1, score: 0, kills: 1, bossDown: true }))).toBe('won');
+      expect(evaluateObjective(inp(o, { clock: 1, score: 0, kills: 1, lives: 0, bossDown: true }))).toBe('won');
+    }
+    expect(evaluateObjective(inp(SIT, { clock: 60, score: 4999, bossDown: true }))).toBe('won');
+  });
+
+  it('Endless ignores the boss kill: only lives end the run', () => {
+    expect(evaluateObjective(inp(SURV, { mode: 'endless', bossDown: true }))).toBe('running');
+    expect(evaluateObjective(inp(SURV, { mode: 'endless', bossDown: true, lives: 0 }))).toBe('lost');
   });
 
   it('objectiveMet is the success test alone', () => {
@@ -102,16 +120,36 @@ describe('the hold in play', () => {
     expect(gs(w).outcome).toBe('lost');
   });
 
-  it('a boss killed before the success test lets the objective run as normal', () => {
-    const w = bossGame('spindle', { objective: { kind: 'survive', durationSec: 6 } });
+  it('a boss killed before the success test ends the level won at once (DECISIONS option 1)', () => {
+    const overs: Events['game:over'][] = [];
+    bus.on('game:over', (p) => overs.push({ ...p }));
+    const w = bossGame('spindle', { objective: { kind: 'survive', durationSec: 60 } });
     park(w, 600, 400);
     enter(w);
+    const g = gs(w);
+    expect(g.waveClock).toBeLessThan(60);
     damageBoss(w, 99999, 0, 0);
     expect(bossPending(w)).toBe(false);
     stepGame(w, DT, idle());
+    expect(g.outcome).toBe('won');
+    expect(overs).toHaveLength(1);
+    expect(overs[0]?.score).toBe(g.score);
+    expect(overs[0]?.stars).toBe(starsFor(g.score, w.level.stars));
+    run(w, 1);
+    expect(overs).toHaveLength(1);
+  });
+
+  it('a boss removed outside the boss rules does not win: the v2 objective resumes', () => {
+    const w = bossGame('spindle', { objective: { kind: 'survive', durationSec: 60 } });
+    park(w, 600, 400);
+    enter(w);
+    const s = bossOf(w);
+    expect(s).not.toBeNull();
+    removeEntity(w, s?.id ?? -1);
+    run(w, 0.5);
+    expect(bossPending(w)).toBe(false);
+    expect(bossSlain(w)).toBe(false);
     expect(gs(w).outcome).toBe('running');
-    run(w, 4);
-    expect(gs(w).outcome).toBe('won');
   });
 
   it('a success before the boss has entered brings it in at once', () => {
