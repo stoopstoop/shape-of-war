@@ -89,6 +89,9 @@ export type TimbreId =
   // The bright lead: the root a run of kill notes resolves to (kills.ts).
   | 'lead';
 
+/** Boss motif and boss stinger timbres (boss.ts), kept out of TIMBRES so the enemy table is unchanged. */
+export type BossTimbreId = 'heart' | 'murk' | 'spin' | 'flare' | 'mirror' | 'abyss' | 'bossSting';
+
 export interface Partner {
   readonly wave: OscillatorType;
   /** Cents relative to the main oscillator. */
@@ -97,7 +100,7 @@ export interface Partner {
 
 /** How one kind sounds. Read by the engine; times in seconds. */
 export interface Timbre {
-  readonly id: TimbreId;
+  readonly id: TimbreId | BossTimbreId;
   readonly wave: OscillatorType;
   /** Optional second oscillator, mixed at equal level. */
   readonly partner: Partner | null;
@@ -160,8 +163,8 @@ export type LayerRegistry = Readonly<Record<EnemyKind, LayerSpec>>;
 // ---------------------------------------------------------------------------------------
 // Timbres.
 
-function timbre(
-  id: TimbreId,
+export function timbre(
+  id: TimbreId | BossTimbreId,
   wave: OscillatorType,
   partner: Partner | null,
   filter: BiquadFilterType,

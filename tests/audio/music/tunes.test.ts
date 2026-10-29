@@ -7,6 +7,8 @@ import { fitsHarmony, harmonyForBar, inChord, inScale, STEPS_PER_BAR, type Harmo
 import { pentatonicMidi, pitchClass } from '../../../src/audio/music/scale';
 import { buildBar, structuralFill, type FillBar, type Layer } from '../../../src/audio/music/track';
 import {
+  BOSS_KEYS,
+  BOSS_TUNES,
   BPM_MAX,
   BPM_MIN,
   bossTuneFor,
@@ -190,7 +192,65 @@ describe('the tunes differ', () => {
 });
 
 describe('boss hook', () => {
-  it('returns the active tune for every tier (stub until wave B)', () => {
-    for (const t of TUNES) for (const tier of [1, 2, 3, 4]) expect(bossTuneFor(tier, t)).toBe(t);
+  it('returns the tier boss bed in A at 120 BPM whatever the active tune (wave B)', () => {
+    for (const t of TUNES) {
+      for (const tier of [1, 2, 3, 4] as const) {
+        const b = bossTuneFor(tier, t);
+        expect(b).toBe(BOSS_TUNES[tier]);
+        expect(b.bpm).toBe(120);
+        expect(b.root).toBe(69);
+        expect(b.key.tonic).toBe(9);
+        expect(b.bossTier).toBe(tier);
+      }
+    }
+    // Out of range tiers fall back to tier 1.
+    expect(bossTuneFor(0, DEFAULT_TUNE)).toBe(BOSS_TUNES[1]);
+  });
+
+  it('every boss bed chord is built from its key scale and has a voicing', () => {
+    for (const tier of [1, 2, 3, 4] as const) {
+      const t = BOSS_TUNES[tier];
+      expect(t.key.bars).toHaveLength(t.loopBars);
+      for (const h of t.key.bars) {
+        for (const pc of h.tones) expect(t.key.scale).toContain(pc);
+        expect(t.voicings[h.name]).toBeDefined();
+      }
+      expect(JSON.parse(JSON.stringify(t))).toEqual(t);
+    }
+    // Tier 2 carries the raised seventh (G sharp, pitch class 8), tier 3 the flat second (B flat, 10).
+    expect(BOSS_KEYS[2].scale).toContain(8);
+    expect(BOSS_KEYS[3].scale).toContain(10);
+  });
+
+  it('every boss bed pitch keeps the harmony rule and the bed stays inside BED_VOICE_MAX', () => {
+    for (const tier of [1, 2, 3, 4] as const) {
+      const t = BOSS_TUNES[tier];
+      const sec = t.stepSec;
+      const ev: [number, number][] = [];
+      for (let bar = 0; bar < t.loopBars * 4; bar++) {
+        const h = harmonyForBar(bar, t.key);
+        for (const n of buildBar(5, bar, t, structuralFill(t, bar)).notes) {
+          const start = (bar * STEPS_PER_BAR + n.step) * sec;
+          ev.push([start, 1], [start + voiceLength(n.layer, n.durSteps * sec), -1]);
+          if (n.midi === null) continue;
+          const what = `tier ${tier} bar ${bar} ${n.layer} step ${n.step} midi ${n.midi}`;
+          expect(inScale(n.midi, t.key), what).toBe(true);
+          if (n.layer === 'arp') expect(fitsHarmony(n.midi, bar * STEPS_PER_BAR + n.step, t.key), what).toBe(true);
+          else expect(inChord(n.midi, h), what).toBe(true);
+        }
+      }
+      ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      let cur = 0;
+      let peak = 0;
+      for (const [, d] of ev) {
+        cur += d;
+        peak = Math.max(peak, cur);
+      }
+      expect(peak, `tier ${tier}`).toBeLessThanOrEqual(BED_VOICE_MAX);
+    }
+  });
+
+  it('the level tunes are not boss beds', () => {
+    for (const t of TUNES) expect(t.bossTier).toBeUndefined();
   });
 });

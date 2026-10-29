@@ -30,6 +30,18 @@ export const ACCENT_RESERVE = 0.16;
 export const HIT_RESERVE = 0.03;
 /** Summed layer gain ceiling (SPEC 3.9 item 5). */
 export const GAIN_CEILING = 1;
+/** Summed boss motif gain (every voice at full fade) never exceeds this (v3 boss music). */
+export const BOSS_MOTIF_TOTAL_MAX = 0.24;
+/** Gain of a boss stinger (its notes share it); reserved while a boss state exists. */
+export const BOSS_STING_GAIN = 0.12;
+
+/** The boss's share of the budget at a step: the enemy motif duck and the boss motif gain sounding. */
+export interface BossBudget {
+  /** Enemy motif factor, 0.4 to 1. */
+  readonly duck: number;
+  /** Summed boss motif gain at this step (after the budget scale and the fade). */
+  readonly total: number;
+}
 
 /** Linear gain ramp in steps: g0 at or before s0, g1 at or after s1. */
 export interface Ramp {
@@ -169,8 +181,10 @@ export interface LayerMix {
  * Pure: the budget. Every active motif counts at full gain (fades only lower it), motifs share
  * at most MOTIF_TOTAL_MAX, a stinger, a kill accent and the hit sounds are always reserved,
  * and the bed is scaled so the sum of bed, motifs, stinger, accent and hits is at most 1.0.
+ * With a boss (v3) the enemy motifs count at their duck, and the boss motif and a boss stinger
+ * are in the sum too.
  */
-export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry, step: number): LayerMix {
+export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry, step: number, boss: BossBudget | null = null): LayerMix {
   let raw = 0;
   for (const l of set) {
     const spec = registry[l.kind];
@@ -178,7 +192,9 @@ export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry,
   }
   const motifScale = raw > MOTIF_TOTAL_MAX ? MOTIF_TOTAL_MAX / raw : 1;
   const motifTotal = raw * motifScale;
-  const room = GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - HIT_RESERVE - motifTotal;
+  const enemy = boss === null ? motifTotal : motifTotal * Math.max(0, Math.min(1, boss.duck));
+  const bossPart = boss === null ? 0 : BOSS_STING_GAIN + Math.max(0, boss.total);
+  const room = Math.max(0, GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - HIT_RESERVE - enemy - bossPart);
   const bedScale = bedSum > room && bedSum > 0 ? room / bedSum : 1;
   return { bedScale, motifScale, motifTotal };
 }

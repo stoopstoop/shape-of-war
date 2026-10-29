@@ -113,6 +113,20 @@ export function oldestPreferred<T>(entries: readonly PoolEntry<T>[], prefer: (d:
   return best >= 0 ? best : fallback;
 }
 
+/** Pure: the entry with the lowest rank, the oldest among equal ranks, or null when empty. */
+export function lowestRanked<T>(entries: readonly PoolEntry<T>[], rank: (d: T) => number): PoolEntry<T> | null {
+  let best: PoolEntry<T> | null = null;
+  let bestRank = Infinity;
+  for (const e of entries) {
+    const r = rank(e.data);
+    if (r < bestRank || (r === bestRank && best !== null && e.start < best.start)) {
+      best = e;
+      bestRank = r;
+    }
+  }
+  return best;
+}
+
 export interface PoolEntry<T> {
   readonly start: number;
   readonly end: number;
@@ -181,6 +195,25 @@ export class VoicePool<T> {
       const fallback = oldestPreferred(live, () => true, -1);
       const pick = prefer ? oldestPreferred(live, prefer, fallback) : fallback;
       const victim = live[pick];
+      if (!victim) break;
+      this.entries.splice(this.entries.indexOf(victim), 1);
+      stolen.push(victim.data);
+    }
+    this.entries.push({ start, end, data });
+    return stolen;
+  }
+
+  /**
+   * As insert, but the victim is the voice sounding at the peak instant with the lowest rank,
+   * the oldest among equal ranks (v3 boss music: accents, then enemy motifs, then boss, then bed).
+   */
+  insertRanked(start: number, end: number, data: T, rank: (d: T) => number): T[] {
+    const stolen: T[] = [];
+    for (let guard = 0; guard <= this.cap; guard++) {
+      const pk = peakIn(this.entries, start, end);
+      if (pk.count < this.cap) break;
+      const live = this.entries.filter((e) => liveAt(e, pk.at));
+      const victim = lowestRanked(live, rank);
       if (!victim) break;
       this.entries.splice(this.entries.indexOf(victim), 1);
       stolen.push(victim.data);
@@ -266,8 +299,22 @@ export function voicePeak(layer: Layer, gain: number): number {
 // ---------------------------------------------------------------------------------------
 // Engine.
 
-/** bed: the base track. motif: motifs and stingers. accent: kill notes, kill chords, hit ticks and deflects. */
-export type VoiceClass = 'bed' | 'motif' | 'accent';
+/**
+ * bed: the base track. motif: enemy motifs and stingers. accent: kill notes, kill chords, hit
+ * ticks and deflects. boss: the boss motif and the boss stingers (v3).
+ */
+export type VoiceClass = 'bed' | 'motif' | 'accent' | 'boss';
+
+/**
+ * Who loses a voice first when the pool is full: accents, then enemy motifs, then boss voices,
+ * then the bed (docs/13 SPEC 3.9 item 5: boss voices steal enemy motif voices first).
+ */
+export const STEAL_RANK: Readonly<Record<VoiceClass, number>> = { accent: 0, motif: 1, boss: 2, bed: 3 };
+
+/** Most boss voices at once: the motif's main line plus one per phase, stingers included (docs/13). */
+export const BOSS_VOICE_MAX = 3;
+/** Enemy motif voices beside a boss: the bed, the boss and the enemy motifs share the 16. */
+export const ENEMY_MOTIF_SLOTS_WITH_BOSS = MOTIF_VOICE_MAX - BOSS_VOICE_MAX;
 
 /** Voice spans for tests and the debug overlay: a start, and a cut when a voice is stolen. */
 export interface VoiceTrace {
@@ -318,7 +365,8 @@ export function voiceShape(n: VoiceNote): VoiceShape {
 }
 
 const isMotif = (v: Voice): boolean => v.cls === 'motif';
-const isAccent = (v: Voice): boolean => v.cls === 'accent';
+const isBoss = (v: Voice): boolean => v.cls === 'boss';
+const stealRank = (v: Voice): number => STEAL_RANK[v.cls];
 
 /** Voices kept free for a stinger, which can arrive at any moment and is never dropped. */
 export const STINGER_RESERVE = 1;
@@ -347,10 +395,11 @@ export interface MusicEngine {
   /** Schedule one planned bed note on the audio clock, with the active tune's bed waves (default the original). */
   play(n: PlannedNote, bed?: BedTimbre): void;
   /**
-   * Schedule one motif, stinger (class 'motif', the default) or kill accent (class 'accent').
-   * When the pool is full the oldest accent is stolen first, then the oldest motif voice.
+   * Schedule one motif, stinger (class 'motif', the default), kill accent (class 'accent') or
+   * boss voice (class 'boss'). When the pool is full the oldest accent is stolen first, then the
+   * oldest enemy motif voice, then the oldest boss voice, then the bed (STEAL_RANK).
    */
-  playVoice(n: VoiceNote, cls?: 'motif' | 'accent'): void;
+  playVoice(n: VoiceNote, cls?: 'motif' | 'accent' | 'boss'): void;
   /** Voices kill accents may take over [t, t + len), given the notes not scheduled yet. */
   accentRoom(t: number, len: number, upcoming: readonly Span[]): number;
   /** Music master gain, clamped to 0 to 0.35, ramped from the current time. */
@@ -364,6 +413,8 @@ export interface MusicEngine {
   readonly voiceCount: number;
   /** Voices in the pool that are motifs or stingers. */
   readonly motifVoiceCount: number;
+  /** Most boss voices that will sound at once from now on. */
+  readonly bossVoiceCount: number;
   /** Voices stolen since creation, split by the class that lost the voice. */
   readonly steals: Readonly<Record<VoiceClass, number>>;
 }
@@ -460,7 +511,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   const noise = noiseFor(ctx);
   let disposed = false;
   let nextId = 1;
-  const stealCount: Record<VoiceClass, number> = { bed: 0, motif: 0, accent: 0 };
+  const stealCount: Record<VoiceClass, number> = { bed: 0, motif: 0, accent: 0, boss: 0 };
 
   const busFor = (layer: Layer): NodeLike => {
     if (layer === 'bass') return bassBus;
@@ -550,8 +601,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     const nodes: NodeLike[] = [...sources, ...chain, env, vout];
     const voice: Voice = { id: nextId++, cls, sources, nodes, out: vout };
     pool.prune(now);
-    const preferAccent = pool.list().some((e) => isAccent(e.data));
-    for (const stolen of pool.insert(t, t + len, voice, preferAccent ? isAccent : isMotif)) {
+    for (const stolen of pool.insertRanked(t, t + len, voice, stealRank)) {
       stealCount[stolen.cls] += 1;
       steal(stolen, now);
     }
@@ -574,7 +624,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
       for (const s of sources) s.connect(env);
       launch('bed', sources, [], env, busFor(n.layer), t, len);
     },
-    playVoice(n: VoiceNote, cls: 'motif' | 'accent' = 'motif'): void {
+    playVoice(n: VoiceNote, cls: 'motif' | 'accent' | 'boss' = 'motif'): void {
       if (disposed || !(n.gain > 0) || !(n.dur > 0)) return;
       const t = Math.max(ctx.currentTime, n.time);
       const sh = voiceShape(n);
@@ -637,6 +687,9 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     },
     get motifVoiceCount(): number {
       return pool.peak(ctx.currentTime, Infinity, isMotif);
+    },
+    get bossVoiceCount(): number {
+      return pool.peak(ctx.currentTime, Infinity, isBoss);
     },
     get steals(): Readonly<Record<VoiceClass, number>> {
       return { ...stealCount };

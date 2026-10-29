@@ -107,6 +107,8 @@ export interface Tune {
   readonly arpAlt: ArpFigure;
   readonly drums: Drums;
   readonly bed: BedTimbre;
+  /** Set on a boss bed (BOSS_TUNES): the boss tier it plays under. Absent on the level tunes. */
+  readonly bossTier?: 1 | 2 | 3 | 4;
 }
 
 const hit = (step: number, vel: number): DrumHit => ({ step, vel });
@@ -399,11 +401,61 @@ export const FILL_PERC: readonly DrumHit[] = [hit(4, 1), hit(8, 0.6), hit(12, 1)
 export const FILL_RUN: readonly number[] = [0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6];
 
 // ---------------------------------------------------------------------------------------
-// Boss hook (wave B). A dark, half time variant of the active tune is wave B's job; for now the
-// entry returns the active tune unchanged.
+// Boss beds (v3 wave B, docs/13 SPEC 3.9 item 4). A boss motif is in A minor at 120 BPM inside
+// its tier scale, so whatever tune the level plays, a boss fight moves to a boss bed in A at
+// 120 BPM: Neon Drive's drums, pad and arp figure with the octave bounce as the main bass line,
+// over a chord plan built from the tier scale, so every boss motif note agrees with the chords.
+//   tier 1 (minor pentatonic): Am F C G, the original plan;
+//   tier 2 (natural minor with a raised seventh): Am F Dm E, the E major chord carries the G sharp;
+//   tier 3 (phrygian second): Am Bb Gm Bb, the flat second leaning back onto the tonic;
+//   tier 4: Am F C G until wave C writes the quoting loop.
+// Each chord lasts two bars. The id stays 'neon' (the bed is Neon Drive's); bossTier marks it.
 
-/** Pure: the tune a boss fight of this tier plays over. Stub: the active tune. */
+const B_DM = triad('Dm', 'iv', 2, 3);
+const B_E = triad('E', 'V', 4, 4);
+const B_BB = triad('Bb', 'bII', 10, 4);
+const B_GM = triad('Gm', 'vii', 7, 3);
+
+/** Boss keys per tier, all on A at 120 BPM. */
+export const BOSS_KEYS: Readonly<Record<1 | 2 | 3 | 4, Key>> = {
+  1: DEFAULT_KEY,
+  2: { tonic: 9, scale: [9, 11, 0, 2, 4, 5, 8], bars: barsOf([HARMONIES.Am, HARMONIES.F, B_DM, B_E], 2) },
+  3: { tonic: 9, scale: [9, 10, 0, 2, 4, 5, 7], bars: barsOf([HARMONIES.Am, B_BB, B_GM, B_BB], 2) },
+  4: DEFAULT_KEY,
+};
+
+const BOSS_VOICINGS: Readonly<Record<string, ChordVoicing>> = {
+  ...NEON.voicings,
+  Dm: voiced(B_DM, 2),
+  E: voiced(B_E, 3),
+  Bb: voiced(B_BB, 1),
+  Gm: voiced(B_GM, 4),
+};
+
+function bossTune(tier: 1 | 2 | 3 | 4, mood: string): Tune {
+  return {
+    ...NEON,
+    name: `Boss tier ${tier}`,
+    mood,
+    key: BOSS_KEYS[tier],
+    voicings: BOSS_VOICINGS,
+    bass: NEON.bassAlt,
+    bassAlt: NEON.bass,
+    bossTier: tier,
+  };
+}
+
+/** The boss bed of each tier. Pure data. */
+export const BOSS_TUNES: Readonly<Record<1 | 2 | 3 | 4, Tune>> = {
+  1: bossTune(1, 'boss tier 1: Am F C G, octave bounce bass, A minor pentatonic motifs'),
+  2: bossTune(2, 'boss tier 2: Am F Dm E, harmonic minor motifs'),
+  3: bossTune(3, 'boss tier 3: Am Bb Gm Bb, phrygian motifs'),
+  4: bossTune(4, 'boss tier 4: Am F C G until wave C'),
+};
+
+/** Pure: the tune a boss fight of this tier plays over: the tier's boss bed (any active tune). */
 export function bossTuneFor(tier: number, active: Tune): Tune {
-  void tier;
-  return active;
+  void active;
+  const t = Math.trunc(tier);
+  return t === 2 || t === 3 || t === 4 ? BOSS_TUNES[t] : BOSS_TUNES[1];
 }

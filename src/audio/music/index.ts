@@ -14,9 +14,43 @@
 // every 3 segments of play: the switch is booked a few bars ahead on a bar line, a 2 bar fill
 // leads into it and the scheduler changes tempo from that step. A threat phase change (the lift
 // turning on or off) also earns a 2 bar fill, and every odd pass of the loop ends in one.
+//
+// Boss music (v3 wave B): 'sim:bossEnter', 'sim:bossPhase' and 'sim:bossDown' drive bossLife.ts.
+// The fight moves to the tier's boss bed (A, 120 BPM) on the join bar and back to the level tune
+// a bar after the motif stops; the boss motif (boss.ts) plays as class 'boss' voices; the enemy
+// motifs duck and only the newest three keep a voice; the threat floor is 0.8 while the boss
+// lives. A boss death that ends the level ('game:over' in the same step) rings the defeat
+// stinger out before the engine is released.
 import { bus as coreBus, type Bus } from '../../core/events';
-import type { BossTier, EnemyKind } from '../../levelgen/leveldef';
+import type { BossId, BossTier, EnemyKind } from '../../levelgen/leveldef';
 import { getAudioGraph } from '../synth';
+import { BOSS_MOTIFS, BOSS_TIMBRES, voicesForPhase, type BossMotifNote } from './boss';
+import {
+  allowedEnemyKinds,
+  BOSS_FLOOR,
+  bookedPhase,
+  bossDone,
+  bossDown,
+  bossEnter,
+  bossEnvAt,
+  bossMotifScale,
+  bossPhase,
+  clipToStop,
+  DEFEAT_STING,
+  DEFEAT_STING_STEPS,
+  duckAt,
+  enemyMotifSlots,
+  entryStingSteps,
+  floorOn,
+  PHASE_STING_STEPS,
+  phaseAt,
+  releaseSteps,
+  takeBossStings,
+  voiceMayStart,
+  type BossLife,
+} from './bossLife';
+import { BOSS_VOICE_MAX } from './engine';
+import { chordToneMidi, harmonyAtStep } from './harmony';
 import { createMusicEngine, voiceLength, type MusicContext, type MusicEngine, type NodeLike, type Span, type VoiceTrace } from './engine';
 import {
   clamp01,
@@ -74,6 +108,8 @@ import {
 } from './hits';
 import { brighten, cutMotifs, LAYERS_FULL, stingerPhrase, type LayerRegistry, type MotifNote, type Timbre } from './layers';
 import {
+  barLineAfter,
+  BOSS_STING_GAIN,
   enterLayer,
   envelopeAt,
   exitLayer,
@@ -84,14 +120,30 @@ import {
   takeStingers,
   type LayerSet,
 } from './lifecycle';
-import { createScheduler, LOOKAHEAD_SEC, planStep, realTimer, type Scheduler, type Timer } from './scheduler';
+import { createScheduler, LOOKAHEAD_SEC, planStep, realTimer, TICK_MS, type Scheduler, type Timer } from './scheduler';
 import { endlessBlock, endlessTune, startTune, type RunMode } from './select';
 import { buildBar, STEPS_PER_BAR, structuralFill, type BarPattern, type FillBar, type Layer } from './track';
 import { bossTuneFor, DEFAULT_TUNE, FILL_BARS, tuneById, type Tune, type TuneId } from './tunes';
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
-  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'resolve' | 'chord' | 'hit' | 'deflect';
+  /** bossEntry, bossPhase and bossDefeat are the boss stingers; boss is the boss motif (v3). */
+  readonly role:
+    | 'bed'
+    | 'stinger'
+    | 'motif'
+    | 'kill'
+    | 'resolve'
+    | 'chord'
+    | 'hit'
+    | 'deflect'
+    | 'boss'
+    | 'bossEntry'
+    | 'bossPhase'
+    | 'bossDefeat';
+  /** Boss notes only: the boss, and the motif voice (0 main, 1 and 2 added by phases). */
+  readonly boss?: BossId;
+  readonly voice?: number;
   /** Bed layer, or null for stingers, motifs, kill accents and hits. */
   readonly layer: Layer | null;
   /** Enemy kind, or null for the bed, chords, deflects and non enemy sources (wells, spawners, segments, Mines, Slime). */
@@ -198,12 +250,22 @@ interface Session {
    * threat, so on a busy bar line it would take the voice a bomb or big kill chord needs.
    */
   readonly arpYield: Set<number>;
+  /** The boss music state (bossLife.ts), or null with no boss. */
+  boss: BossLife | null;
+  /** The tune a boss fight interrupted, restored after the boss; null with no boss state. */
+  preBossTune: Tune | null;
+  bossCache: { bar: number; phase: number; id: BossId; notes: readonly BossMotifNote[] } | null;
+  /** First step every scheduled phase voice note has ended by (the defeat stinger waits for it). */
+  bossExtraEnd: number;
+  /** Audio time the defeat stinger ends, or 0 when none played. */
+  defeatEnd: number;
 }
 
 interface Playing {
   readonly session: Session;
   readonly engine: MusicEngine;
   readonly scheduler: Scheduler;
+  readonly ctx: MusicContext;
 }
 
 let volume = MUSIC_VOLUME_DEFAULT;
@@ -307,7 +369,8 @@ function bookFill(s: Session, sched: Scheduler, now: number): void {
 
 /** Endless: book the next tune when the play time reaches the next rotation block. */
 function maybeRotate(s: Session, sched: Scheduler, now: number): void {
-  if (s.mode !== 'endless') return;
+  // A boss fight holds its boss bed; the rotation books its next tune after the boss state ends.
+  if (s.mode !== 'endless' || s.boss !== null) return;
   const last = s.tunes[s.tunes.length - 1];
   const cur = last?.tune ?? DEFAULT_TUNE;
   // Lead time: the fill bars plus the lookahead, so the switch lands on the segment line.
@@ -327,7 +390,9 @@ function maybeRotate(s: Session, sched: Scheduler, now: number): void {
 function onTick(s: Session, now: number, sched: Scheduler): void {
   const dt = s.lastTick === null ? 0 : now - s.lastTick;
   s.lastTick = now;
-  level = smoothThreat(level, target, dt);
+  // While a boss lives the threat never falls under the floor; after it dies the floor goes and
+  // the smoother's release (3 s) brings the level down.
+  level = smoothThreat(level, floorOn(s.boss) ? Math.max(target, BOSS_FLOOR) : target, dt);
   const lift = nextLift(s.lift, level);
   // A threat phase change (the lift turning on or off) earns a 2 bar fill.
   if (lift !== s.lift) bookFill(s, sched, now);
@@ -379,8 +444,52 @@ function upcomingSpans(s: Session, sched: Scheduler, until: number, yieldAt: num
         if (n.step === inBar) out.push({ start: time, end: time + n.durSteps * sec });
       }
     }
+    const b = s.boss;
+    if (b !== null) {
+      for (const n of bossBar(s, b, barIndex)) {
+        if (n.step !== inBar || !voiceMayStart(b, n.voice, step)) continue;
+        const d = clipToStop(b, step, n.durSteps);
+        if (d > 0) out.push({ start: time, end: time + d * sec });
+      }
+    }
   }
   return out;
+}
+
+/** The boss motif notes of an absolute bar (empty before the join), cached per bar and phase. */
+function bossBar(s: Session, b: BossLife, bar: number): readonly BossMotifNote[] {
+  const local = bar - Math.floor(b.joinStep / STEPS_PER_BAR);
+  if (local < 0) return [];
+  const phase = phaseAt(b, bar * STEPS_PER_BAR);
+  const c = s.bossCache;
+  if (c && c.bar === bar && c.phase === phase && c.id === b.id) return c.notes;
+  const notes = BOSS_MOTIFS[b.id].motif(phase, local);
+  s.bossCache = { bar, phase, id: b.id, notes };
+  return notes;
+}
+
+/**
+ * Book `tune` from the bar line `fromBar`: tune spans that have not started yet (a pending
+ * Endless rotation, a pending boss bed) are dropped first, so the scheduler's single tempo change
+ * always belongs to the last span. Booking the tune already playing only cancels what was pending.
+ */
+function bookTune(s: Session, sched: Scheduler, fromBar: number, tune: Tune): void {
+  while (s.tunes.length > 1) {
+    const last = s.tunes[s.tunes.length - 1];
+    if (!last || last.fromBar * STEPS_PER_BAR < sched.nextStep) break;
+    s.tunes.pop();
+  }
+  // Bars and motifs built ahead with the old plan are rebuilt.
+  s.motifs.clear();
+  s.bossCache = null;
+  if (s.bar !== null && s.barIndex >= fromBar) s.bar = null;
+  const cur = s.tunes[s.tunes.length - 1]?.tune ?? DEFAULT_TUNE;
+  if (cur === tune) {
+    sched.setStepSec(cur.stepSec, sched.nextStep);
+    return;
+  }
+  s.tunes.push({ fromBar, tune });
+  sched.setStepSec(tune.stepSec, fromBar * STEPS_PER_BAR);
 }
 
 /**
@@ -581,6 +690,19 @@ function onStep(p: Session, step: number, time: number): void {
   p.layers = pruneLayers(p.layers, step);
   const take = takeStingers(p.layers, step);
   p.layers = take.set;
+  // Boss stingers are taken (and the boss state pruned) at volume 0 too, so none plays late.
+  let stings = { entry: false, phase: false, defeat: false };
+  let b = p.boss;
+  if (b !== null) {
+    const t = takeBossStings(b, step, p.bossExtraEnd <= step);
+    stings = t;
+    b = t.life;
+    p.boss = bossDone(b, step) ? null : b;
+    if (p.boss === null) {
+      p.preBossTune = null;
+      p.bossCache = null;
+    }
+  }
   const w = where(p, step);
   const sec = w.tune.stepSec;
   p.playSec += sec;
@@ -588,7 +710,20 @@ function onStep(p: Session, step: number, time: number): void {
   const barIndex = Math.floor(step / STEPS_PER_BAR);
   const inBar = step % STEPS_PER_BAR;
   const mix = mixFor(level, p.lift);
-  const lm = layerMix(sumGains(mix.gains), p.layers, registry, step);
+  // Beside a boss only the newest enemy motifs keep a voice, ducked; the boss motif is budgeted.
+  const live = p.boss;
+  const duck = duckAt(live, step);
+  const allowed = live === null ? null : allowedEnemyKinds(p.layers, step, enemyMotifSlots(live));
+  const enemies = allowed === null ? p.layers : p.layers.filter((l) => allowed.has(l.kind));
+  const bossSpec = b === null ? null : BOSS_MOTIFS[b.id];
+  const bossVoices = b === null || bossSpec === null ? 0 : voicesForPhase(bossSpec, phaseAt(b, step));
+  const bossScale = bossSpec === null ? 1 : bossMotifScale(bossSpec.gain, bossVoices);
+  const bossEnv = b === null ? 0 : bossEnvAt(b, step);
+  // The budget counts a booked phase's voices from the moment it is booked (as enemy layers count
+  // at full gain from their entry), so the bed makes room before the new voice joins.
+  const booked = b === null || bossSpec === null ? 0 : voicesForPhase(bossSpec, bookedPhase(b));
+  const bossTotal = bossSpec === null ? 0 : bossSpec.gain * booked * bossMotifScale(bossSpec.gain, booked) * bossEnv;
+  const lm = layerMix(sumGains(mix.gains), enemies, registry, step, live === null ? null : { duck, total: bossTotal });
   const arpYields = p.arpYield.delete(step);
   for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time, sec)) {
     if (arpYields && n.layer === 'arp') continue;
@@ -609,8 +744,10 @@ function onStep(p: Session, step: number, time: number): void {
       if (noteHook) logNote(w.tune, { role: 'stinger', layer: null, kind, step: n.step + offset, time: t, midi: n.midi, gain });
     }
   }
-  for (const l of p.layers) {
-    const env = envelopeAt(l, step);
+  for (const l of enemies) {
+    // The duck multiplies the layer's own fade, so a motif fading out when a boss enters keeps
+    // falling and a motif fading in rises only to the duck.
+    const env = envelopeAt(l, step) * duck;
     if (env <= 0) continue;
     const spec = registry[l.kind];
     for (const n of motifBar(p, l.kind, barIndex)) {
@@ -620,6 +757,114 @@ function onStep(p: Session, step: number, time: number): void {
       if (noteHook) logNote(w.tune, { role: 'motif', layer: null, kind: l.kind, step, time, midi: n.midi, gain });
     }
   }
+  if (b !== null && bossSpec !== null) {
+    if (stings.entry) playEntrySting(p, b, step, time);
+    if (stings.phase && voicesForPhase(bossSpec, phaseAt(b, step)) < BOSS_VOICE_MAX) playPhaseSting(p, b, step, time);
+    if (stings.defeat) playDefeatSting(p, b, step, time);
+    for (const n of bossBar(p, b, barIndex)) {
+      if (n.step !== inBar || !voiceMayStart(b, n.voice, step)) continue;
+      const dur = clipToStop(b, step, n.durSteps);
+      if (dur <= 0) continue;
+      const gain = bossSpec.gain * bossScale * bossEnv * n.vel;
+      p.engine.playVoice({ time, dur: dur * sec, midi: n.midi, fromMidi: n.fromMidi, gain, timbre: bossSpec.timbre }, 'boss');
+      if (n.voice > 0) p.bossExtraEnd = Math.max(p.bossExtraEnd, step + dur);
+      if (noteHook) logNote(w.tune, { role: 'boss', layer: null, kind: null, boss: b.id, voice: n.voice, step, time, midi: n.midi, gain });
+    }
+  }
+}
+
+/** Notes of the entry stinger, the base chord tones it is built from (root, third, fifth). */
+const ENTRY_DEGREES: readonly number[] = [0, 1, 2];
+/** The entry chord is voiced from the root nearest A3. */
+const ENTRY_BASE = 57;
+
+/** The entry stinger: one chord hit on the chord sounding now, ending by the join bar line. */
+function playEntrySting(p: Session, b: BossLife, step: number, time: number): void {
+  const w = where(p, step);
+  const h = harmonyAtStep(w.step, w.tune.key);
+  const dur = entryStingSteps(b, step) * w.tune.stepSec;
+  const gain = BOSS_STING_GAIN / ENTRY_DEGREES.length;
+  for (const deg of ENTRY_DEGREES) {
+    const midi = chordToneMidi(h, deg, ENTRY_BASE);
+    p.engine.playVoice({ time, dur, midi, fromMidi: null, gain, timbre: BOSS_TIMBRES.bossSting }, 'boss');
+    if (noteHook) logNote(w.tune, { role: 'bossEntry', layer: null, kind: null, boss: b.id, step, time, midi, gain });
+  }
+}
+
+/** The phase sting: the chord root then its fifth, one voice, ending by the bar line the new voice joins on. */
+function playPhaseSting(p: Session, b: BossLife, step: number, time: number): void {
+  const w = where(p, step);
+  const h = harmonyAtStep(w.step, w.tune.key);
+  const left = barLineAfter(step) - step;
+  const base = BOSS_MOTIFS[b.id].register + 12;
+  const notes = [
+    { at: 0, midi: chordToneMidi(h, 0, base) },
+    { at: PHASE_STING_STEPS, midi: chordToneMidi(h, 2, base) },
+  ];
+  for (const n of notes) {
+    const len = Math.min(PHASE_STING_STEPS, left - n.at);
+    if (len <= 0) continue;
+    const t = time + n.at * w.tune.stepSec;
+    p.engine.playVoice({ time: t, dur: len * w.tune.stepSec, midi: n.midi, fromMidi: null, gain: BOSS_STING_GAIN, timbre: BOSS_TIMBRES.bossSting }, 'boss');
+    if (noteHook) logNote(w.tune, { role: 'bossPhase', layer: null, kind: null, boss: b.id, step: step + n.at, time: t, midi: n.midi, gain: BOSS_STING_GAIN });
+  }
+}
+
+/** Root of the defeat stinger: A4. */
+const DEFEAT_ROOT = 69;
+
+/** The defeat stinger: A, C sharp, E rising from A4 (an A major resolution), one voice. */
+function playDefeatSting(p: Session, b: BossLife, step: number, time: number): void {
+  const w = where(p, step);
+  const sec = w.tune.stepSec;
+  for (const n of DEFEAT_STING) {
+    const t = time + n.at * sec;
+    const midi = DEFEAT_ROOT + n.semis;
+    p.engine.playVoice({ time: t, dur: n.dur * sec, midi, fromMidi: null, gain: BOSS_STING_GAIN, timbre: BOSS_TIMBRES.bossSting }, 'boss');
+    if (noteHook) logNote(w.tune, { role: 'bossDefeat', layer: null, kind: null, boss: b.id, step: step + n.at, time: t, midi, gain: BOSS_STING_GAIN });
+  }
+  p.defeatEnd = time + DEFEAT_STING_STEPS * sec;
+}
+
+function onBossEnter(id: BossId, tier: BossTier): void {
+  const p = playing;
+  if (!p || !(id in BOSS_MOTIFS)) return;
+  const s = p.session;
+  const sched = p.scheduler;
+  const prev = s.boss;
+  const next = bossEnter(prev, id, tier, sched.nextStep);
+  if (next === prev) return;
+  // The tune the level plays (a pending Endless rotation included), unless a boss already
+  // interrupted it: a second boss restores the same tune afterwards.
+  if (s.preBossTune === null) s.preBossTune = s.tunes[s.tunes.length - 1]?.tune ?? DEFAULT_TUNE;
+  s.boss = next;
+  s.bossCache = null;
+  s.bossExtraEnd = 0;
+  s.defeatEnd = 0;
+  bookTune(s, sched, Math.floor(next.joinStep / STEPS_PER_BAR), bossTuneFor(tier, s.preBossTune));
+}
+
+function onBossPhase(id: BossId, phase: number): void {
+  const p = playing;
+  const b = p?.session.boss ?? null;
+  if (!p || b === null) return;
+  p.session.boss = bossPhase(b, id, phase, p.scheduler.nextStep);
+}
+
+/** Bars of the boss bed after the motif stops, under the defeat stinger, before the level tune returns. */
+const RESTORE_BARS = 1;
+
+function onBossDown(id: BossId): void {
+  const p = playing;
+  const s = p?.session;
+  const b = s?.boss ?? null;
+  if (!p || !s || b === null) return;
+  const sched = p.scheduler;
+  const next = bossDown(b, id, sched.nextStep, releaseSteps(secAt(s, sched.nextStep)));
+  if (next === b) return;
+  s.boss = next;
+  const stop = next.stopStep ?? barLineAfter(sched.nextStep);
+  if (s.preBossTune !== null) bookTune(s, sched, Math.floor(stop / STEPS_PER_BAR) + RESTORE_BARS, s.preBossTune);
 }
 
 function onEnter(kind: EnemyKind): void {
@@ -708,6 +953,10 @@ export function initMusic(opts: MusicOptions = {}): () => void {
       if (source !== null) queueHit({ blocked: false, source });
     }),
     b.on('fx:bomb', () => queueAccent({ type: 'bomb' })),
+    // Boss music (v3). The payload objects are reused by the sim: read the fields here.
+    b.on('sim:bossEnter', (p) => onBossEnter(p.id, p.tier)),
+    b.on('sim:bossPhase', (p) => onBossPhase(p.id, p.phase)),
+    b.on('sim:bossDown', (p) => onBossDown(p.id)),
     // The run mode picks the selection rule (a level's tune, or the Endless rotation). Next,
     // Retry and Restart keep the mode, so only 'game:start' carries it. Glue may start the music
     // inside this same emit, before this handler runs: a session still in its first bar with the
@@ -725,7 +974,9 @@ export function initMusic(opts: MusicOptions = {}): () => void {
       gamePaused = false;
       maybeResume();
     }),
-    b.on('game:over', () => stopMusic()),
+    // A boss death completes an Adventure level (docs/13 boss rule 9) in the same sim step, so
+    // the defeat stinger rings out before the music stops.
+    b.on('game:over', () => endMusic()),
     b.on('game:quit', () => stopMusic()),
   ];
   const onVisibility = (): void => {
@@ -829,6 +1080,12 @@ export function startMusic(seed: number): boolean {
     hitGate: HIT_GATE_INIT,
     hits: [],
     arpYield: new Set(),
+    // A new or restarted level has no boss: the sim announces it again when it enters.
+    boss: null,
+    preBossTune: null,
+    bossCache: null,
+    bossExtraEnd: 0,
+    defeatEnd: 0,
   };
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
@@ -837,7 +1094,7 @@ export function startMusic(seed: number): boolean {
     onStep: (step, time) => onStep(session, step, time),
     onTick: (now) => onTick(session, now, scheduler),
   });
-  playing = { session, engine, scheduler };
+  playing = { session, engine, scheduler, ctx };
   session.lastCutoff = masterCutoff(level);
   engine.setCutoff(session.lastCutoff);
   scheduler.start();
@@ -847,6 +1104,7 @@ export function startMusic(seed: number): boolean {
 
 /** Stop the music and release every node. Safe to call when nothing plays. */
 export function stopMusic(): void {
+  endRingOut();
   const p = playing;
   if (!p) return;
   playing = null;
@@ -854,9 +1112,59 @@ export function stopMusic(): void {
   p.engine.dispose();
 }
 
+/** An engine left sounding after the music stopped, until the defeat stinger ends. */
+let ringing: { readonly engine: MusicEngine; readonly cancel: () => void } | null = null;
+
+function endRingOut(): void {
+  const r = ringing;
+  if (!r) return;
+  ringing = null;
+  r.cancel();
+  r.engine.dispose();
+}
+
+/** Seconds after the defeat stinger's last note before its engine is released (its release tail). */
+const RING_TAIL_SEC = 0.4;
+
+/**
+ * 'game:over': stop the music. If the boss just died the defeat stinger still plays (it is
+ * scheduled now if its step has not come yet) and the engine is released after it; the bed
+ * stops scheduling at once.
+ */
+function endMusic(): void {
+  const p = playing;
+  const s = p?.session;
+  const b = s?.boss ?? null;
+  if (!p || !s || b === null || b.downStep === null || volume === 0 || p.scheduler.paused) {
+    stopMusic();
+    return;
+  }
+  const sched = p.scheduler;
+  if (b.defeatStep !== null) {
+    const step = Math.max(sched.nextStep, s.bossExtraEnd);
+    playDefeatSting(s, b, step, sched.timeOf(step));
+    s.boss = { ...b, defeatStep: null };
+  }
+  const until = s.defeatEnd + RING_TAIL_SEC;
+  if (!(until > p.ctx.currentTime)) {
+    stopMusic();
+    return;
+  }
+  endRingOut();
+  playing = null;
+  sched.stop();
+  const ctx = p.ctx;
+  const engine = p.engine;
+  const cancel = timer.every(() => {
+    if (ringing?.engine === engine && ctx.currentTime >= until) endRingOut();
+  }, TICK_MS);
+  ringing = { engine, cancel };
+}
+
 /** Music volume 0 to 100 (clamped, default 50). 0 is silence. Returns the applied value. */
 export function setMusicVolume(v: number): number {
   volume = clampMusicVolume(v);
+  if (volume === 0) endRingOut();
   if (playing) {
     playing.engine.setMaster(musicMasterGain(volume));
     if (volume === 0) playing.engine.silence();
@@ -893,6 +1201,20 @@ export interface MusicState {
   readonly tune: TuneId | null;
   /** That tune's tempo, or 0 when nothing plays. */
   readonly bpm: number;
+  /** The boss with a music state (alive, or releasing after its death), or null. */
+  readonly boss: BossId | null;
+  /** The boss bed's tier when the next step plays one, else null. */
+  readonly bossTier: BossTier | null;
+  /** Most boss voices that will sound at once from now on. */
+  readonly bossVoices: number;
+  /** Boss voices stolen this session (0 when the budget holds). */
+  readonly bossSteals: number;
+  /** Enemy motif duck at the next step (1 with no boss, 0.4 during a fight). */
+  readonly duck: number;
+  /** True while the boss intensity floor holds. */
+  readonly floor: boolean;
+  /** True while a defeat stinger rings out after the music stopped. */
+  readonly ringing: boolean;
 }
 
 /** Read only snapshot for tests and the debug overlay. */
@@ -915,15 +1237,24 @@ export function musicState(): MusicState {
     skippedSteps: p?.scheduler.skipped ?? 0,
     motifSteals: steals?.motif ?? 0,
     kills: { ...(p?.session.stats ?? { seen: 0, notes: 0, chords: 0 }) },
+    boss: p?.session.boss?.id ?? null,
+    bossTier: tune?.bossTier ?? null,
+    bossVoices: p?.engine.bossVoiceCount ?? 0,
+    bossSteals: steals?.boss ?? 0,
+    duck: p ? duckAt(p.session.boss, p.scheduler.nextStep) : 1,
+    floor: p ? floorOn(p.session.boss) : false,
+    ringing: ringing !== null,
   };
 }
 export { CUT1_KEEP, LAYER_KINDS } from './layers';
 export { TUNE_IDS, TUNES, type Tune, type TuneId } from './tunes';
 
+export { BOSS_MOTIFS } from './boss';
+
 /**
- * Boss hook for wave B (docs/12 "Design: boss music"): the tune a boss fight of `tier` plays
- * over. Meant to become a dark, half time variant of the active tune; for now it returns the
- * active tune (the default tune when nothing plays).
+ * The tune a boss fight of `tier` plays over (docs/12 "Design: boss music"): the tier's boss bed
+ * in A at 120 BPM (tunes.ts BOSS_TUNES), whatever the active tune. The music switches to it by
+ * itself on 'sim:bossEnter'; this is for tests and the debug overlay.
  */
 export function selectBossTune(tier: BossTier): Tune {
   const p = playing;

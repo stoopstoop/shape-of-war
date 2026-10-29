@@ -1,7 +1,9 @@
 // Pure audio tables and helpers (docs/01-game-design.md section 13). No Web Audio here, so
 // tests run in node. synth.ts turns a CueDef into oscillators, noise and gain envelopes.
-import type { SfxName } from '../core/events';
-import type { PaletteKey } from '../render/neon';
+import type { Events, SfxName } from '../core/events';
+
+/** The fx:kill colour, taken from the bus type so audio never imports src/render. */
+type PaletteKey = Events['fx:kill']['colour'];
 
 export type CueName =
   | 'fire'
@@ -17,7 +19,12 @@ export type CueName =
   | 'levelStart'
   | 'levelComplete'
   | 'levelFail'
-  | 'uiTap';
+  | 'uiTap'
+  // v3 boss sound effects (docs/12 "Design: boss music" item 6, docs/13 section 13).
+  | 'bossRumble'
+  | 'bossHit'
+  | 'bossDeath'
+  | 'bossShot';
 
 export type Wave = 'sine' | 'square' | 'sawtooth' | 'triangle' | 'noise';
 
@@ -74,7 +81,29 @@ export const CUES: Readonly<Record<CueName, CueDef>> = {
   levelComplete: { voices: [arp('triangle', [523, 659, 784, 1047], 0.12, 0.14)] },
   levelFail: { voices: [v('sawtooth', 330, 110, 0.8, 0.12)] },
   uiTap: { voices: [v('sine', 1000, 1000, 0.03, 0.05)] },
+  // Boss entry: a low noise rumble closing down with a sub sweep under it, about a second.
+  bossRumble: { voices: [v('noise', 0, 0, 1.2, 0.22, lp(420, 60)), v('triangle', 82, 41, 1.2, 0.2)] },
+  // Boss hit: a low, longer thud with a short noise knock, heavier than the music's per kind
+  // ticks (those are at most 0.03 gain and 0.05 s).
+  bossHit: { voices: [v('triangle', 196, 98, 0.09, 0.08), v('noise', 0, 0, 0.05, 0.06, { type: 'bandpass', f0: 900, f1: 260 })] },
+  // Boss death: bigKill grown up, a longer noise burst and saw fall plus a sub boom.
+  bossDeath: {
+    voices: [v('noise', 0, 0, 1.4, 0.22, lp(3600, 120)), v('sawtooth', 220, 41, 1.4, 0.18), v('sine', 73, 36, 1.4, 0.2)],
+  },
+  // Boss shot: a soft, low falling blip, so it reads apart from the player's square fire cue.
+  bossShot: { voices: [v('sine', 640, 420, 0.07, 0.045)] },
 };
+
+/**
+ * The sim's Kind.Boss value. Audio never imports src/game, so it is mirrored here;
+ * tests/audio/cues.test.ts checks it against the real enum.
+ */
+export const BOSS_KIND = 22;
+
+/** Pure: the cue for an fx:hit: the boss hit on a boss hit that did damage, otherwise none (the music plays hit ticks). */
+export function cueForHit(kind: number, blocked: boolean): CueName | null {
+  return kind === BOSS_KIND && !blocked ? 'bossHit' : null;
+}
 
 /** Bus 'sfx' names to cues. 'explode' is upgraded to bigKill by the preceding fx:kill colour. */
 export const SFX_TO_CUE: Readonly<Record<SfxName, CueName>> = {
@@ -102,7 +131,29 @@ export const RATE_LIMITS: Readonly<Partial<Record<CueName, number>>> = {
   fire: 12,
   geomPickup: 20,
   telegraph: 4,
+  bossHit: 8,
 };
+
+/**
+ * Strict caps: at most this many plays inside any one second window (no jitter tolerance).
+ * The boss shot blip is capped at 6 per s (docs/12 item 6).
+ */
+export const WINDOW_LIMITS: Readonly<Partial<Record<CueName, number>>> = {
+  bossShot: 6,
+};
+
+/** Pure: at most `max` plays inside any window of `windowSec` seconds. */
+export function createWindowLimiter(max: number, windowSec = 1): RateLimiter {
+  const times: number[] = [];
+  return {
+    allow(nowSec: number): boolean {
+      while (times.length > 0 && nowSec - (times[0] ?? 0) >= windowSec) times.shift();
+      if (times.length >= max) return false;
+      times.push(nowSec);
+      return true;
+    },
+  };
+}
 
 export interface RateLimiter {
   /** True if a play at nowSec is allowed; records it when allowed. */
