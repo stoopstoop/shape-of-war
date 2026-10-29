@@ -18,11 +18,14 @@ export const FADE_IN_BARS = 1;
 /** A stinger later than this many steps (pause, stall) is dropped, not played late. */
 export const STINGER_STALE_STEPS = STEPS_PER_BAR;
 /** Summed motif gain never exceeds this; more kinds share it. */
-export const MOTIF_TOTAL_MAX = 0.28;
-/** Gain of one stinger note; reserved in the budget at all times. */
-export const STINGER_GAIN = 0.07;
-/** Kill accents (one note or one chord at a time, kills.ts); reserved in the budget at all times. */
-export const ACCENT_RESERVE = 0.09;
+// v2.1 melody: the melodic layer is lifted against the bed (motifs x2 in layers.ts, kill notes
+// x2 in kills.ts, the stinger and accent reserves below), and the bed takes the difference.
+// melodyRatioDb measures it; tests/audio/music/lifecycle.test.ts pins the lift.
+export const MOTIF_TOTAL_MAX = 0.36;
+/** Gain of one entrance phrase note (one at a time per kind); reserved in the budget at all times. */
+export const STINGER_GAIN = 0.12;
+/** Kill accents (one note, one resolution or one chord at a time, kills.ts); reserved at all times. */
+export const ACCENT_RESERVE = 0.16;
 /** Hit ticks and shield deflects (one at a time on a mono lane, hits.ts); reserved at all times. */
 export const HIT_RESERVE = 0.03;
 /** Summed layer gain ceiling (SPEC 3.9 item 5). */
@@ -178,4 +181,11 @@ export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry,
   const room = GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - HIT_RESERVE - motifTotal;
   const bedScale = bedSum > room && bedSum > 0 ? room / bedSum : 1;
   return { bedScale, motifScale, motifTotal };
+}
+
+/** Pure: a melodic voice's level against the bed it sits on, dB (20 log10 of the gain ratio). */
+export function melodyRatioDb(melodyGain: number, bedGain: number): number {
+  if (!(melodyGain > 0)) return -Infinity;
+  if (!(bedGain > 0)) return Infinity;
+  return 20 * Math.log10(melodyGain / bedGain);
 }

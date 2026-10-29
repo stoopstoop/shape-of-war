@@ -11,7 +11,11 @@ import {
   type MusicOptions,
   type NoteLog,
 } from '../../../src/audio/music/index';
-import { CUT1_KEEP, LAYER_KINDS } from '../../../src/audio/music/layers';
+import { inChord, harmonyAtStep } from '../../../src/audio/music/harmony';
+import { CUT1_KEEP, LAYER_KINDS, LAYERS_FULL } from '../../../src/audio/music/layers';
+
+/** Notes in a kind's entrance phrase. */
+const phraseLen = (k: EnemyKind): number => LAYERS_FULL[k].phrase.length;
 import { GAIN_CEILING, STINGER_GAIN } from '../../../src/audio/music/lifecycle';
 import { START_LEAD_SEC, TICK_MS } from '../../../src/audio/music/scheduler';
 import { BAR_SEC, STEP_SEC, STEPS_PER_BAR } from '../../../src/audio/music/track';
@@ -77,10 +81,17 @@ describe('enemy layers in the music loop', () => {
     bus.emit('sim:enemyEnter', { kind: 'grunt', live: 1 });
     advance(0.2);
     const st = of('grunt', 'stinger');
-    expect(st).toHaveLength(1);
+    // The whole entrance phrase, from the next sixteenth, on the grid, in the chord.
+    expect(st).toHaveLength(phraseLen('grunt'));
     expect(st[0]?.step).toBe(next);
     expect(st[0]?.time).toBeCloseTo(stepTime(next), 9);
     expect(st[0]?.gain).toBe(STINGER_GAIN);
+    st.forEach((n, i) => {
+      expect(n.step).toBe(next + (LAYERS_FULL.grunt.phrase[i]?.at ?? -1));
+      expect(n.time).toBeCloseTo(stepTime(n.step), 9);
+      expect(inChord(n.midi ?? 0, harmonyAtStep(n.step))).toBe(true);
+      expect(n.gain).toBeLessThanOrEqual(STINGER_GAIN);
+    });
     // Quantized to the audio clock: never in the past, at most one lookahead plus a step ahead.
     expect(st[0]?.time ?? 0).toBeGreaterThanOrEqual(0.6);
     advance(BAR_SEC * 3);
@@ -120,7 +131,7 @@ describe('enemy layers in the music loop', () => {
     advance(BAR_SEC * 1.5);
     bus.emit('sim:enemyEnter', { kind: 'grunt', live: 1 });
     advance(BAR_SEC * 6);
-    expect(of('grunt', 'stinger')).toHaveLength(2);
+    expect(of('grunt', 'stinger')).toHaveLength(2 * phraseLen('grunt'));
     const steps = of('grunt', 'motif').map((n) => n.step);
     const first = Math.min(...steps);
     const last = Math.max(...steps);
@@ -235,7 +246,7 @@ describe('enemy layers in the music loop', () => {
     startMusic(18);
     for (const k of ['grunt', 'snake', 'blink'] as const) bus.emit('sim:enemyEnter', { kind: k, live: 1 });
     advance(BAR_SEC * 4);
-    for (const k of ['grunt', 'snake', 'blink'] as const) expect(of(k, 'stinger')).toHaveLength(1);
+    for (const k of ['grunt', 'snake', 'blink'] as const) expect(of(k, 'stinger')).toHaveLength(phraseLen(k));
     expect(of('grunt', 'motif').length).toBeGreaterThan(0);
     expect(of('snake', 'motif')).toHaveLength(0);
     expect(of('blink', 'motif')).toHaveLength(0);
@@ -265,7 +276,7 @@ describe('wireMusic', () => {
     bus.emit('sim:enemyEnter', { kind: 'weaver', live: 1 });
     advance(0.3);
     // One subscription only: one stinger, not two.
-    expect(of('weaver', 'stinger')).toHaveLength(1);
+    expect(of('weaver', 'stinger')).toHaveLength(phraseLen('weaver'));
     bus.emit('game:quit');
     expect(musicState().playing).toBe(false);
     w1.unwire();
@@ -278,6 +289,6 @@ describe('wireMusic', () => {
     startMusic(6);
     bus.emit('sim:enemyEnter', { kind: 'weaver', live: 1 });
     advance(0.3);
-    expect(of('weaver', 'stinger')).toHaveLength(1);
+    expect(of('weaver', 'stinger')).toHaveLength(phraseLen('weaver'));
   });
 });

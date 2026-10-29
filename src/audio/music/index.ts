@@ -5,7 +5,9 @@
 // 'sim:enemyExit'; see lifecycle.ts for the timing rules and layers.ts for the registry.
 // Kill accents (v2 fixes) follow 'fx:kill' plus 'sfx' explode and 'fx:bomb'; see kills.ts. Hit
 // ticks and shield deflects follow 'fx:hit'; see hits.ts. Bus handlers only queue; every Web
-// Audio node is made inside the scheduler tick, between frames.
+// Audio node is made inside the scheduler tick, between frames. Every melodic pitch (motifs,
+// entrance phrases, kill notes, resolutions, chord hits) comes from the harmonic plan in
+// harmony.ts, so the contributions always agree with the bed.
 import { bus as coreBus, type Bus } from '../../core/events';
 import type { EnemyKind } from '../../levelgen/leveldef';
 import { getAudioGraph } from '../synth';
@@ -24,12 +26,9 @@ import {
   type Mix,
 } from './intensity';
 import {
-  bombStepFor,
-  CHORD_GAIN,
   CHORD_STEPS,
   CHORD_TIMBRE,
-  chordMidis,
-  chordStepFor,
+  chordHit,
   enemyOf,
   gateBomb,
   gateKill,
@@ -38,7 +37,11 @@ import {
   KILL_LEAD_SEC,
   KILL_QUEUE_MAX,
   KILL_SPECS,
-  killMidi,
+  killNoteMidi,
+  RESOLVE_GAIN,
+  RESOLVE_STEPS,
+  RESOLVE_TIMBRE,
+  resolveMidi,
   sourceFor,
   type GateResult,
   type KillGate,
@@ -63,7 +66,7 @@ import {
   type HitGate,
   type QueuedHit,
 } from './hits';
-import { cutMotifs, LAYERS_FULL, STINGER_STEPS, stingerMidi, type LayerRegistry, type MotifNote } from './layers';
+import { brighten, cutMotifs, LAYERS_FULL, stingerPhrase, type LayerRegistry, type MotifNote, type Timbre } from './layers';
 import {
   enterLayer,
   envelopeAt,
@@ -80,7 +83,7 @@ import { buildBar, STEP_SEC, STEPS_PER_BAR, type BarPattern, type Layer } from '
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
-  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'chord' | 'hit' | 'deflect';
+  readonly role: 'bed' | 'stinger' | 'motif' | 'kill' | 'resolve' | 'chord' | 'hit' | 'deflect';
   /** Bed layer, or null for stingers, motifs, kill accents and hits. */
   readonly layer: Layer | null;
   /** Enemy kind, or null for the bed, chords, deflects and non enemy sources (wells, spawners, segments, Mines, Slime). */
@@ -156,8 +159,6 @@ interface Session {
   /** Last cutoff sent to the engine, so near repeats are not sent. */
   lastCutoff: number | null;
   gate: KillGate;
-  /** Kills in this level so far; the thinning hash reads it. */
-  killOrdinal: number;
   readonly queue: QueuedAccent[];
   readonly stats: KillStats;
   hitGate: HitGate;
@@ -254,20 +255,29 @@ function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSour
   if (a.type === 'note' && source !== null) {
     const spec = KILL_SPECS[source];
     const bar = Math.floor(a.step / STEPS_PER_BAR);
-    const midi = killMidi(spec, bar);
+    // The kind's voice, the chord's arpeggio: climbing with the kill count in the bar.
+    const midi = killNoteMidi(bar, a.index);
     const time = sched.timeOf(a.step);
-    const gain = spec.gain * (0.8 + 0.2 * level);
-    s.engine.playVoice({ time, dur: spec.durSteps * STEP_SEC, midi, fromMidi: null, gain, timbre: spec.timbre }, 'accent');
+    const gain = spec.noteGain * (0.8 + 0.2 * level);
+    s.engine.playVoice({ time, dur: a.dur * STEP_SEC, midi, fromMidi: null, gain, timbre: spec.noteTimbre }, 'accent');
     s.stats.notes++;
     noteHook?.({ role: 'kill', layer: null, kind: enemyOf(source), source, step: a.step, time, midi, gain, at });
+    if (a.resolveAt !== null) {
+      // The third kill note of the bar: the run resolves to the next chord's root on the bar line.
+      const rTime = sched.timeOf(a.resolveAt);
+      const rMidi = resolveMidi(Math.floor(a.resolveAt / STEPS_PER_BAR));
+      s.engine.playVoice({ time: rTime, dur: RESOLVE_STEPS * STEP_SEC, midi: rMidi, fromMidi: null, gain: RESOLVE_GAIN, timbre: RESOLVE_TIMBRE }, 'accent');
+      noteHook?.({ role: 'resolve', layer: null, kind: null, step: a.resolveAt, time: rTime, midi: rMidi, gain: RESOLVE_GAIN, at });
+    }
   } else if (a.type === 'chord') {
     const bar = Math.floor(a.step / STEPS_PER_BAR);
     const time = sched.timeOf(a.step);
-    const all = chordMidis(bar, a.big);
+    const hit = chordHit(bar, a.big, a.withResolve);
+    const all = hit.midis;
     const room = roomAt(s, sched, a.step, CHORD_STEPS);
     // Fewer free voices than notes: drop from the bottom (the big chord's low note goes first).
     const notes = all.slice(Math.max(0, all.length - room));
-    const gain = CHORD_GAIN / Math.max(1, notes.length);
+    const gain = hit.gain / Math.max(1, notes.length);
     for (const midi of notes) {
       s.engine.playVoice({ time, dur: CHORD_STEPS * STEP_SEC, midi, fromMidi: null, gain, timbre: CHORD_TIMBRE }, 'accent');
       noteHook?.({ role: 'chord', layer: null, kind: null, step: a.step, time, midi, gain, at });
@@ -296,18 +306,17 @@ function drainAccents(s: Session, now: number, sched: Scheduler): void {
     }
     return r;
   };
+  const chordRoom = (at: number): number => room(at, CHORD_STEPS);
+  const resolveRoom = (at: number): number => room(at, RESOLVE_STEPS);
   for (const q of s.queue) {
     let r: GateResult;
     let source: KillSource | null = null;
     if (q.type === 'bomb') {
-      r = gateBomb(s.gate, step, room(bombStepFor(s.gate, step), CHORD_STEPS));
+      r = gateBomb(s.gate, step, chordRoom);
     } else {
       source = q.source;
       const spec = KILL_SPECS[q.source];
-      const absorbed = step < s.gate.chordEnd;
       r = gateKill(s.gate, {
-        seed: s.seed,
-        ordinal: s.killOrdinal++,
         step,
         level,
         big: isBigSource(q.source),
@@ -315,8 +324,9 @@ function drainAccents(s: Session, now: number, sched: Scheduler): void {
         // would absorb the head's big chord.
         streaks: q.source !== 'segment',
         durSteps: spec.durSteps,
-        noteRoom: absorbed ? 0 : room(step, spec.durSteps),
-        chordRoom: absorbed ? 0 : room(chordStepFor(s.gate, step), CHORD_STEPS),
+        noteRoom: room,
+        chordRoom,
+        resolveRoom,
       });
     }
     applyGate(s, sched, r, source, now);
@@ -395,6 +405,18 @@ function motifBar(s: Session, kind: EnemyKind, bar: number): readonly MotifNote[
   return notes;
 }
 
+const leadTimbres = new Map<Timbre, Timbre>();
+
+/** The brightened timbre for an entrance phrase (cached; the same object every call). */
+function leadTimbre(t: Timbre): Timbre {
+  let b = leadTimbres.get(t);
+  if (b === undefined) {
+    b = brighten(t);
+    leadTimbres.set(t, b);
+  }
+  return b;
+}
+
 function scaleMix(m: Mix, k: number): Mix {
   if (k >= 1) return m;
   const g = m.gains;
@@ -416,10 +438,16 @@ function onStep(p: Session, step: number, time: number): void {
     noteHook?.({ role: 'bed', layer: n.layer, kind: null, step, time, midi: n.midi, gain: n.gain });
   }
   for (const kind of take.due) {
+    // The kind's entrance phrase, whole, from this step: the same shape every time, each note
+    // in the chord of its own bar. Monophonic, so it holds one voice at a time.
     const spec = registry[kind];
-    const midi = stingerMidi(spec, barIndex);
-    p.engine.playVoice({ time, dur: STINGER_STEPS * STEP_SEC, midi, fromMidi: null, gain: STINGER_GAIN, timbre: spec.timbre });
-    noteHook?.({ role: 'stinger', layer: null, kind, step, time, midi, gain: STINGER_GAIN });
+    const timbre = leadTimbre(spec.timbre);
+    for (const n of stingerPhrase(spec, step)) {
+      const t = time + (n.step - step) * STEP_SEC;
+      const gain = STINGER_GAIN * n.vel;
+      p.engine.playVoice({ time: t, dur: n.dur * STEP_SEC, midi: n.midi, fromMidi: null, gain, timbre });
+      noteHook?.({ role: 'stinger', layer: null, kind, step: n.step, time: t, midi: n.midi, gain });
+    }
   }
   for (const l of p.layers) {
     const env = envelopeAt(l, step);
@@ -453,6 +481,9 @@ function suspend(): void {
   p.engine.silence();
   p.session.queue.length = 0;
   p.session.hits.length = 0;
+  // Chord hits and resolutions booked ahead were just silenced: forget them, so a bomb after
+  // the resume is not absorbed by a chord that never sounds.
+  p.session.gate = KILL_GATE_INIT;
   pendingKill = null;
 }
 
@@ -615,7 +646,6 @@ export function startMusic(seed: number): boolean {
     lift: false,
     lastCutoff: null,
     gate: KILL_GATE_INIT,
-    killOrdinal: 0,
     queue: [],
     stats: { seen: 0, notes: 0, chords: 0 },
     hitGate: HIT_GATE_INIT,

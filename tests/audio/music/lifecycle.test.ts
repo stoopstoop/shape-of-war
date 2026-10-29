@@ -12,6 +12,7 @@ import {
   HIT_RESERVE,
   layerMix,
   leaveStepOf,
+  melodyRatioDb,
   MOTIF_TOTAL_MAX,
   pruneLayers,
   rampAt,
@@ -21,6 +22,7 @@ import {
   type LayerSet,
   type LayerState,
 } from '../../../src/audio/music/lifecycle';
+import { KILL_SPECS } from '../../../src/audio/music/kills';
 import { STEPS_PER_BAR as BAR } from '../../../src/audio/music/track';
 
 function only(set: LayerSet): LayerState {
@@ -161,9 +163,40 @@ describe('gain budget', () => {
         const m = layerMix(bed, set, LAYERS_FULL, 100);
         expect(m.motifTotal).toBeLessThanOrEqual(MOTIF_TOTAL_MAX + 1e-12);
         expect(bed * m.bedScale + m.motifTotal + STINGER_GAIN + ACCENT_RESERVE + HIT_RESERVE).toBeLessThanOrEqual(GAIN_CEILING + 1e-12);
-        expect(m.bedScale).toBeGreaterThan(0.6);
+        // v2.1: the bed ducks at most about 9 dB, under six motifs at full threat.
+        expect(m.bedScale).toBeGreaterThan(0.35);
       }
     }
+  });
+
+  it('the melodic layer is at least 6 dB louder against the bed than in v2.0 (measured)', () => {
+    // v2.0 figures: grunt motif gain 0.06, kill note gains 0.045 to 0.08, stinger 0.07, and the
+    // bed scaled by 1 - 0.07 - 0.09 - 0.03 - motifs. Measured at threat 1 (bed sum 0.88).
+    const bed = sumGains(layerGains(1));
+    const oldBed = (b: number, motifs: number): number => Math.min(b, 1 - 0.07 - 0.09 - 0.03 - motifs);
+    const oldMotifDb = melodyRatioDb(0.06, oldBed(bed, 0.06));
+    const oldKillDb = melodyRatioDb(0.07, oldBed(bed, 0.06));
+    const oldStingerDb = melodyRatioDb(0.07, oldBed(bed, 0.06));
+    const one = enterLayer([], 'grunt', 0);
+    const m = layerMix(bed, one, LAYERS_FULL, 100);
+    const newBed = bed * m.bedScale;
+    const motifDb = melodyRatioDb(LAYERS_FULL.grunt.gain * m.motifScale, newBed);
+    const killDb = melodyRatioDb(KILL_SPECS.grunt.noteGain, newBed);
+    const stingerDb = melodyRatioDb(STINGER_GAIN, newBed);
+    expect(motifDb - oldMotifDb).toBeGreaterThanOrEqual(6);
+    expect(killDb - oldKillDb).toBeGreaterThanOrEqual(6);
+    expect(stingerDb - oldStingerDb).toBeGreaterThanOrEqual(6);
+    // And at low threat, where the bed is not scaled, the lift is the gain factor alone.
+    const calm = sumGains(layerGains(0.2));
+    expect(layerMix(calm, one, LAYERS_FULL, 100).bedScale).toBe(1);
+    expect(melodyRatioDb(LAYERS_FULL.grunt.gain, calm) - melodyRatioDb(0.06, calm)).toBeCloseTo(6.02, 1);
+  });
+
+  it('melodyRatioDb is 20 log10 of the gain ratio', () => {
+    expect(melodyRatioDb(0.1, 0.1)).toBe(0);
+    expect(melodyRatioDb(0.2, 0.1)).toBeCloseTo(6.0206, 3);
+    expect(melodyRatioDb(0, 0.1)).toBe(-Infinity);
+    expect(melodyRatioDb(0.1, 0)).toBe(Infinity);
   });
 
   it('leaves the wave A bed untouched while it already fits', () => {

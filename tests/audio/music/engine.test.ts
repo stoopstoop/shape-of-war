@@ -7,6 +7,7 @@ import {
   STINGER_RESERVE,
   KICK_F0,
   KICK_F1,
+  LIMITER,
   MUSIC_VOICE_CAP,
   oldestPreferred,
   voiceLength,
@@ -18,7 +19,7 @@ import {
 import { LAYERS_FULL } from '../../../src/audio/music/layers';
 import { midiToHz } from '../../../src/audio/music/scale';
 import type { PlannedNote } from '../../../src/audio/music/scheduler';
-import { FakeContext, FakeNode, FakeOsc } from './fakeAudio';
+import { FakeContext, FakeContextNoLimiter, FakeNode, FakeOsc } from './fakeAudio';
 
 const arp = (time: number, midi = 69): PlannedNote => ({ layer: 'arp', midi, time, dur: 0.125, gain: 0.1 });
 
@@ -169,12 +170,41 @@ describe('music engine', () => {
     const f = ctx.filters[filtersBefore];
     expect(f?.type).toBe(tb.filter);
     expect(engine.motifVoiceCount).toBe(1);
-    // The output gain feeds the motif bus, which feeds the music out gain directly.
+    // The output gain feeds the motif bus, which skips the threat lowpass and meets the bed in
+    // the limiter before the music out gain.
     const out = ctx.gains[0];
     const motifBus = ctx.gains[1];
-    expect(motifBus?.connected).toContain(out);
+    const limiter = ctx.compressors[0];
+    expect(motifBus?.connected).toContain(limiter);
+    expect(limiter?.connected).toEqual([out]);
     expect(a?.startAt).toBe(0.1);
     expect(a?.stops[0]).toBeCloseTo(1.12, 9);
+  });
+
+  it('a limiter guards the summed music before the volume; it is optional and disposed', () => {
+    const { ctx, dest, engine } = setup();
+    expect(ctx.compressors).toHaveLength(1);
+    const lim = ctx.compressors[0];
+    expect(lim?.threshold.value).toBe(LIMITER.thresholdDb);
+    expect(lim?.knee.value).toBe(LIMITER.kneeDb);
+    expect(lim?.ratio.value).toBe(LIMITER.ratio);
+    expect(lim?.attack.value).toBe(LIMITER.attackSec);
+    expect(lim?.release.value).toBe(LIMITER.releaseSec);
+    expect(LIMITER.thresholdDb).toBeLessThan(0);
+    expect(LIMITER.ratio).toBeGreaterThanOrEqual(20);
+    // Both the threat lowpass (bed) and the motif bus feed it; it feeds only the music gain.
+    const master = ctx.filters[0];
+    expect(master?.connected).toContain(lim);
+    expect(ctx.gains[1]?.connected).toContain(lim);
+    expect(lim?.connected).toEqual([ctx.gains[0]]);
+    expect(ctx.gains[0]?.connected).toEqual([dest]);
+    engine.dispose();
+    expect(lim?.disconnected).toBe(true);
+    // A context without a compressor wires the buses straight into the music gain and still plays.
+    const bare = new FakeContextNoLimiter();
+    const e2 = createMusicEngine(bare, dest, 0.2);
+    e2.play(arp(0.1));
+    expect(e2.voiceCount).toBe(1);
   });
 
   it('voiceShape fits attack, release and glide inside the note', () => {
