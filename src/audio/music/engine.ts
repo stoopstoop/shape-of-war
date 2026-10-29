@@ -5,8 +5,8 @@
 // room first (accentRoom) and are dropped rather than steal, so in play the bed is never cut.
 // The graph is
 //   bed voices -> layer buses (bass lowpass, pad lowpass with LFO, perc bandpass, hat
-//   highpass) -> master lowpass -> music gain (at most 0.35) -> synth master;
-//   motif, stinger and accent voices (own filter each) -> motif bus -> music gain.
+//   highpass) -> master lowpass -> limiter -> music gain (at most 0.35) -> synth master;
+//   motif, stinger and accent voices (own filter each) -> motif bus -> limiter.
 // The context is a narrow structural type: a real AudioContext satisfies it and tests pass a fake.
 import { hash01 } from '../../core/rng';
 import { MUSIC_MASTER_MAX } from './intensity';
@@ -68,6 +68,14 @@ export interface BufferSourceLike extends SourceLike {
   loop: boolean;
 }
 
+export interface CompressorLike extends NodeLike {
+  readonly threshold: ParamLike;
+  readonly knee: ParamLike;
+  readonly ratio: ParamLike;
+  readonly attack: ParamLike;
+  readonly release: ParamLike;
+}
+
 export interface MusicContext {
   readonly currentTime: number;
   readonly sampleRate: number;
@@ -76,7 +84,17 @@ export interface MusicContext {
   createBiquadFilter(): FilterLike;
   createBufferSource(): BufferSourceLike;
   createBuffer(channels: number, length: number, sampleRate: number): BufferLike;
+  /** Every browser AudioContext has it; a context without it runs with no limiter. */
+  createDynamicsCompressor?(): CompressorLike;
 }
+
+/**
+ * The music limiter (v2.1 melody): a hard knee compressor on the summed music, before the music
+ * volume, so the louder melodic layer can never clip the bus. The layer budget keeps the sum at
+ * or under 1.0 already; the limiter catches partner oscillators and envelope overlaps that add
+ * in phase. Pure data.
+ */
+export const LIMITER = Object.freeze({ thresholdDb: -3, kneeDb: 0, ratio: 20, attackSec: 0.003, releaseSec: 0.12 });
 
 // ---------------------------------------------------------------------------------------
 // Voice pool: pure bookkeeping, no Web Audio.
@@ -387,6 +405,18 @@ function filter(ctx: MusicContext, type: BiquadFilterType, hz: number, q = 0.707
   return f;
 }
 
+/** The limiter node with LIMITER settings, or null when the context cannot make one. */
+function makeLimiter(ctx: MusicContext): CompressorLike | null {
+  if (typeof ctx.createDynamicsCompressor !== 'function') return null;
+  const c = ctx.createDynamicsCompressor();
+  c.threshold.value = LIMITER.thresholdDb;
+  c.knee.value = LIMITER.kneeDb;
+  c.ratio.value = LIMITER.ratio;
+  c.attack.value = LIMITER.attackSec;
+  c.release.value = LIMITER.releaseSec;
+  return c;
+}
+
 export function createMusicEngine(ctx: MusicContext, destination: NodeLike, masterGain = 0, opts: EngineOptions = {}): MusicEngine {
   const pool = new VoicePool<Voice>(MUSIC_VOICE_CAP);
   const trace = opts.trace ?? null;
@@ -397,7 +427,11 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   const padBus = filter(ctx, 'lowpass', PAD_LP_HZ, 1.2);
   const hatBus = filter(ctx, 'highpass', HAT_HP_HZ);
   const percBus = filter(ctx, 'bandpass', PERC_BP_HZ, 0.9);
-  master.connect(out);
+  // Bed and melody meet in the limiter (when the context has one), then the music volume.
+  const limiter = makeLimiter(ctx);
+  const sum: NodeLike = limiter ?? out;
+  if (limiter) limiter.connect(out);
+  master.connect(sum);
   out.connect(destination);
   bassBus.connect(master);
   padBus.connect(master);
@@ -407,7 +441,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   // enemy's motif is audible at low threat.
   const motifBus = ctx.createGain();
   motifBus.gain.value = 1;
-  motifBus.connect(out);
+  motifBus.connect(sum);
   // One slow LFO shared by every pad note, so the filter sweep is continuous across chords.
   const lfo = ctx.createOscillator();
   lfo.type = 'sine';
@@ -418,6 +452,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   lfoDepth.connect(padBus.frequency);
   lfo.start(ctx.currentTime);
   const graph: NodeLike[] = [lfo, lfoDepth, bassBus, padBus, hatBus, percBus, motifBus, master, out];
+  if (limiter) graph.push(limiter);
   const noise = noiseFor(ctx);
   let disposed = false;
   let nextId = 1;

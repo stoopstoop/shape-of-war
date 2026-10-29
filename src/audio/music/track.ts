@@ -1,13 +1,15 @@
 // The composed base track (SPEC 3.9, docs/10 wave A). A minor, 120 BPM, 4/4, 16 steps per
-// bar, 8 bar loop, chords Am F C G two bars each. Pure: a bar is a function of (seed, bar).
+// bar, 8 bar loop, chords Am F C G two bars each (the harmonic plan lives in harmony.ts and
+// chordForBar exposes it per bar). Pure: a bar is a function of (seed, bar).
 // Bass, pad, kick, perc and hat are fixed by the composition; only the arp reads the seed, through
 // the stateless hash01. No PRNG, no Web Audio.
 import { hash01 } from '../../core/rng';
+import { fitPitch, harmonyForBar, LOOP_BARS, loopBar, STEPS_PER_BAR, type ChordName, type Harmony } from './harmony';
 import { pentatonicMidi } from './scale';
 
+export { LOOP_BARS, loopBar, STEPS_PER_BAR, type ChordName } from './harmony';
+
 export const BPM = 120;
-export const STEPS_PER_BAR = 16;
-export const LOOP_BARS = 8;
 /** One sixteenth at 120 BPM: 0.125 s. */
 export const STEP_SEC = 60 / BPM / 4;
 export const BAR_SEC = STEP_SEC * STEPS_PER_BAR;
@@ -16,10 +18,10 @@ export type Layer = 'bass' | 'pad' | 'kick' | 'perc' | 'hat' | 'arp';
 /** Bottom to top, the order layers are listed in mixes and tests. */
 export const LAYERS: readonly Layer[] = ['bass', 'pad', 'kick', 'perc', 'hat', 'arp'];
 
-export type ChordName = 'Am' | 'F' | 'C' | 'G';
-
 export interface Chord {
   readonly name: ChordName;
+  /** The chord's harmony: root, triad intervals and pitch classes. */
+  readonly harmony: Harmony;
   /** Sub bass root, MIDI. */
   readonly bass: number;
   /** Pad voicing, three notes, MIDI. */
@@ -29,13 +31,11 @@ export interface Chord {
 }
 
 const CHORDS: Readonly<Record<ChordName, Chord>> = {
-  Am: { name: 'Am', bass: 45, pad: [57, 60, 64], arpAnchor: 0 },
-  F: { name: 'F', bass: 41, pad: [57, 60, 65], arpAnchor: 1 },
-  C: { name: 'C', bass: 48, pad: [55, 60, 64], arpAnchor: 3 },
-  G: { name: 'G', bass: 43, pad: [55, 59, 62], arpAnchor: 2 },
+  Am: { name: 'Am', harmony: harmonyForBar(0), bass: 45, pad: [57, 60, 64], arpAnchor: 0 },
+  F: { name: 'F', harmony: harmonyForBar(2), bass: 41, pad: [57, 60, 65], arpAnchor: 1 },
+  C: { name: 'C', harmony: harmonyForBar(4), bass: 48, pad: [55, 60, 64], arpAnchor: 3 },
+  G: { name: 'G', harmony: harmonyForBar(6), bass: 43, pad: [55, 59, 62], arpAnchor: 2 },
 };
-
-const PROGRESSION: readonly ChordName[] = ['Am', 'F', 'C', 'G'];
 
 export interface TrackNote {
   readonly layer: Layer;
@@ -58,15 +58,9 @@ export interface BarPattern {
   readonly notes: readonly TrackNote[];
 }
 
-/** Bar index wrapped into the 8 bar loop (negatives wrap too). */
-export function loopBar(bar: number): number {
-  const b = Math.trunc(bar);
-  return ((b % LOOP_BARS) + LOOP_BARS) % LOOP_BARS;
-}
-
+/** Pure: the current chord of a bar, as the track voices it. */
 export function chordForBar(bar: number): Chord {
-  const name = PROGRESSION[Math.floor(loopBar(bar) / 2)] ?? 'Am';
-  return CHORDS[name];
+  return CHORDS[harmonyForBar(bar).name];
 }
 
 function note(layer: Layer, step: number, midi: number | null, durSteps: number, vel: number, sub = false): TrackNote {
@@ -136,6 +130,7 @@ function lane(seed: number, salt: number): number {
 /**
  * Arp: square sixteenths on the pentatonic. The composed contour is rotated by a per bar
  * hash, then each step may rest or move one degree, also by hash. Steps 0 and 8 never rest.
+ * Beats snap to the nearest chord tone (harmony.ts fitPitch), so the arp agrees with the pad.
  */
 export function arpNotes(seed: number, bar: number, chord: Chord): TrackNote[] {
   const lb = loopBar(bar);
@@ -149,7 +144,7 @@ export function arpNotes(seed: number, bar: number, chord: Chord): TrackNote[] {
     const shift = h < SHIFT_P ? -1 : h > 1 - SHIFT_P ? 1 : 0;
     const rel = contour[(s + rot) % STEPS_PER_BAR] ?? 0;
     const deg = Math.min(ARP_MAX, Math.max(ARP_MIN, chord.arpAnchor + rel + shift));
-    out.push(note('arp', s, pentatonicMidi(deg), 1, s % 4 === 0 ? 0.9 : 0.65));
+    out.push(note('arp', s, fitPitch(pentatonicMidi(deg), key), 1,s % 4 === 0 ? 0.9 : 0.65));
   }
   return out;
 }

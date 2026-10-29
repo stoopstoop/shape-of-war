@@ -6,7 +6,8 @@ import {
   pentatonicMidi,
   pitchClass,
 } from '../../../src/audio/music/scale';
-import { buildBar, LOOP_BARS } from '../../../src/audio/music/track';
+import { fitsHarmony, harmonyForBar, inChord, isStrongStep } from '../../../src/audio/music/harmony';
+import { buildBar, LOOP_BARS, STEPS_PER_BAR } from '../../../src/audio/music/track';
 
 const SEEDS = [0, 1, 2, 42, 0x229578a8, 0xdeadbeef, 0xffffffff, 123456789];
 
@@ -45,7 +46,7 @@ describe('scale maths', () => {
 });
 
 describe('every base track note is in the scale', () => {
-  it('arp notes are pentatonic, bass and pad notes are natural minor', () => {
+  it('arp notes follow the harmony, bass and pad notes are chord tones', () => {
     let pitched = 0;
     for (const seed of SEEDS) {
       for (let bar = 0; bar < LOOP_BARS; bar++) {
@@ -55,8 +56,15 @@ describe('every base track note is in the scale', () => {
             continue;
           }
           pitched++;
-          if (n.layer === 'arp') expect(inPentatonic(n.midi)).toBe(true);
-          else expect(inNaturalMinor(n.midi)).toBe(true);
+          expect(inNaturalMinor(n.midi)).toBe(true);
+          const abs = bar * STEPS_PER_BAR + n.step;
+          if (n.layer === 'arp') {
+            expect(fitsHarmony(n.midi, abs)).toBe(true);
+            // Weak steps keep the composed pentatonic line.
+            if (!isStrongStep(abs)) expect(inPentatonic(n.midi)).toBe(true);
+          } else {
+            expect(inChord(n.midi, harmonyForBar(bar))).toBe(true);
+          }
         }
       }
     }

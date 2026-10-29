@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MUSIC_VOICE_CAP, type VoiceClass, type VoiceTrace } from '../../../src/audio/music/engine';
 import { initMusic, musicState, startMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
 import { HIT_DUR_SEC } from '../../../src/audio/music/hits';
-import { KILL_BUDGET_MAX } from '../../../src/audio/music/kills';
+import { fitsHarmony, harmonyAtStep, inChord, inScale } from '../../../src/audio/music/harmony';
+import { isKillSlot, KILL_BUDGET_MAX } from '../../../src/audio/music/kills';
 import { STEPS_PER_BAR } from '../../../src/audio/music/track';
 import { Bus, type Events } from '../../../src/core/events';
 import { hash01 } from '../../../src/core/rng';
@@ -244,13 +245,50 @@ describe('60 s of a 400 entity wave under timing jitter', () => {
     for (const c of perBar.values()) expect(c).toBeLessThanOrEqual(KILL_BUDGET_MAX);
     // One kill note per sixteenth at most.
     expect(new Set(kills.map((k) => k.step)).size).toBe(kills.length);
-    // Chords sit on beat lines.
-    for (const c of notes.filter((n) => n.role === 'chord')) expect(c.step % 4).toBe(0);
+    // Chord hits and resolutions sit on bar lines; kill notes on the off beat slots.
+    for (const c of notes.filter((n) => n.role === 'chord' || n.role === 'resolve')) expect(c.step % STEPS_PER_BAR).toBe(0);
+    for (const k of kills) expect(isKillSlot(k.step)).toBe(true);
+    expect(notes.filter((n) => n.role === 'resolve').length).toBeGreaterThan(3);
     const s = musicState().kills;
     expect(s.notes).toBeGreaterThan(20);
     expect(s.chords).toBeGreaterThanOrEqual(4);
     // Well balanced: a share of kills is heard, never all of them.
     expect(s.notes + s.chords).toBeLessThan(s.seen / 2);
+  });
+
+  it('every scheduled pitch agrees with the harmony: chord tones on the beats, scale tones between', () => {
+    simulate(60);
+    const pitched = notes.filter((n) => n.midi !== null);
+    const byRole = new Map<string, number>();
+    for (const n of pitched) {
+      const midi = n.midi ?? 0;
+      const h = harmonyAtStep(n.step);
+      const what = `${n.role} ${n.layer ?? n.kind ?? n.source ?? ''} step ${n.step} midi ${midi}`;
+      byRole.set(n.role, (byRole.get(n.role) ?? 0) + 1);
+      // Everything is in A natural minor.
+      expect(inScale(midi), what).toBe(true);
+      switch (n.role) {
+        case 'bed':
+          if (n.layer === 'arp') expect(fitsHarmony(midi, n.step), what).toBe(true);
+          else expect(inChord(midi, h), what).toBe(true);
+          break;
+        case 'motif':
+          expect(fitsHarmony(midi, n.step), what).toBe(true);
+          break;
+        case 'stinger':
+        case 'kill':
+        case 'resolve':
+        case 'chord':
+          // The melodic contributions are chord tones wherever they land.
+          expect(inChord(midi, h), what).toBe(true);
+          break;
+        case 'hit':
+        case 'deflect':
+          // Off grid ticks: in the scale (checked above).
+          break;
+      }
+    }
+    for (const r of ['bed', 'motif', 'stinger', 'kill', 'resolve', 'chord', 'hit', 'deflect']) expect(byRole.get(r) ?? 0, r).toBeGreaterThan(0);
   });
 
   it('is deterministic: the same run schedules the same notes', () => {

@@ -2,6 +2,7 @@
 import type {
   BufferLike,
   BufferSourceLike,
+  CompressorLike,
   FilterLike,
   GainLike,
   MusicContext,
@@ -79,9 +80,45 @@ export class FakeBufferSource extends FakeSource implements BufferSourceLike {
   loop = false;
 }
 
+export class FakeCompressor extends FakeNode implements CompressorLike {
+  readonly threshold = new FakeParam();
+  readonly knee = new FakeParam();
+  readonly ratio = new FakeParam();
+  readonly attack = new FakeParam();
+  readonly release = new FakeParam();
+}
+
+/** A context without createDynamicsCompressor (an old browser): the engine runs with no limiter. */
+export class FakeContextNoLimiter implements MusicContext {
+  currentTime = 0;
+  readonly sampleRate = 8000;
+  createGain(): FakeGain {
+    return new FakeGain();
+  }
+  createOscillator(): FakeOsc {
+    return new FakeOsc();
+  }
+  createBiquadFilter(): FakeFilter {
+    return new FakeFilter();
+  }
+  createBufferSource(): FakeBufferSource {
+    return new FakeBufferSource();
+  }
+  createBuffer(_channels: number, length: number): BufferLike {
+    const data = new Float32Array(length);
+    return { getChannelData: () => data };
+  }
+}
+
 export class FakeContext implements MusicContext {
   currentTime = 0;
   readonly sampleRate = 8000;
+  compressors: FakeCompressor[] = [];
+  createDynamicsCompressor(): FakeCompressor {
+    const c = new FakeCompressor();
+    this.compressors.push(c);
+    return c;
+  }
   gains: FakeGain[] = [];
   oscs: FakeOsc[] = [];
   filters: FakeFilter[] = [];

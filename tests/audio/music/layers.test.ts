@@ -8,13 +8,20 @@ import {
   MOTIF_MAX_NOTES,
   MOTIF_MIN_NOTES,
   PHRASE_STEPS,
+  STINGER_BASE_MIN,
+  STINGER_MAX_NOTES,
+  STINGER_MIN_NOTES,
+  STINGER_STEPS,
+  stingerBase,
   stingerMidi,
+  stingerPhrase,
   TIMBRES,
   varyPattern,
   type LayerRegistry,
 } from '../../../src/audio/music/layers';
+import { chordToneMidi, fitsHarmony, harmonyAtStep, harmonyForBar, inChord, isStrongStep } from '../../../src/audio/music/harmony';
 import { inPentatonic, pentatonicMidi } from '../../../src/audio/music/scale';
-import { chordForBar, LOOP_BARS, STEPS_PER_BAR } from '../../../src/audio/music/track';
+import { LOOP_BARS, STEPS_PER_BAR } from '../../../src/audio/music/track';
 import { ENEMY_KINDS, V2_ENEMY_KINDS, type EnemyKind } from '../../../src/levelgen/leveldef';
 
 // Compile time: tsc (npm run build) fails if EnemyKind gains a kind LAYER_KINDS lacks.
@@ -42,7 +49,8 @@ describe('layer registry', () => {
       const e = LAYERS_FULL[k];
       expect(e, k).toBeDefined();
       expect(e.kind).toBe(k);
-      expect([-1, 0, 1]).toContain(e.stingerDegree);
+      expect(e.phrase.length).toBeGreaterThanOrEqual(STINGER_MIN_NOTES);
+      expect(e.phrase.length).toBeLessThanOrEqual(STINGER_MAX_NOTES);
       expect(e.gain).toBeGreaterThan(0);
       expect(typeof e.motif).toBe('function');
     }
@@ -54,8 +62,8 @@ describe('layer registry', () => {
     expect(new Set(kinds.map((k) => LAYERS_FULL[k].timbre.id)).size).toBe(kinds.length);
     expect(new Set(kinds.map((k) => LAYERS_FULL[k].register)).size).toBe(kinds.length);
     // Plus six accent only timbres (kills.ts): gong, clank, chime, rattle, pop and blip, and
-    // the shield deflect (hits.ts).
-    expect(Object.keys(TIMBRES)).toHaveLength(kinds.length + 7);
+    // the shield deflect (hits.ts) and the resolution lead (kills.ts).
+    expect(Object.keys(TIMBRES)).toHaveLength(kinds.length + 8);
     // Register roots are themselves scale notes.
     for (const k of kinds) expect(inPentatonic(pentatonicMidi(LAYERS_FULL[k].register))).toBe(true);
   });
@@ -72,30 +80,64 @@ describe('layer registry', () => {
     }
   });
 
-  it('every motif note, glide start and stinger is in the scale', () => {
+  it('every motif note follows the harmony: chord tones on the beats, scale tones between', () => {
+    let strong = 0;
     for (const k of LAYER_KINDS) {
       for (const seed of SEEDS) {
         for (let bar = 0; bar < LOOP_BARS * 2; bar++) {
           for (const n of LAYERS_FULL[k].motif(seed, bar)) {
-            expect(inPentatonic(n.midi), `${k} ${n.midi}`).toBe(true);
+            const abs = bar * STEPS_PER_BAR + n.step;
+            expect(fitsHarmony(n.midi, abs), `${k} bar ${bar} step ${n.step} midi ${n.midi}`).toBe(true);
+            if (isStrongStep(abs)) {
+              strong++;
+              expect(inChord(n.midi, harmonyForBar(bar))).toBe(true);
+            }
             if (n.fromMidi !== null) expect(inPentatonic(n.fromMidi)).toBe(true);
             expect(n.step).toBeGreaterThanOrEqual(0);
             expect(n.step).toBeLessThan(STEPS_PER_BAR);
           }
-          expect(inPentatonic(stingerMidi(LAYERS_FULL[k], bar))).toBe(true);
+          expect(inChord(stingerMidi(LAYERS_FULL[k], bar), harmonyForBar(bar))).toBe(true);
         }
       }
     }
+    expect(strong).toBeGreaterThan(500);
   });
 
-  it('the stinger is the chord anchor or its pentatonic neighbour, in the kind octave', () => {
+  it('entrance phrases: 3 to 5 chord tones, monophonic, the same shape in every chord', () => {
+    const shapes = new Set<string>();
     for (const k of LAYER_KINDS) {
       const e = LAYERS_FULL[k];
-      for (let bar = 0; bar < LOOP_BARS; bar++) {
-        const anchor = chordForBar(bar).arpAnchor + Math.floor(e.register / 5) * 5;
-        expect(stingerMidi(e, bar)).toBe(pentatonicMidi(anchor + e.stingerDegree));
+      shapes.add(JSON.stringify(e.phrase));
+      // Monophonic and inside the longest phrase.
+      e.phrase.forEach((n, i) => {
+        const next = e.phrase[i + 1];
+        if (next) expect(n.at + n.dur, k).toBeLessThanOrEqual(next.at);
+        else expect(n.at + n.dur).toBeLessThanOrEqual(STINGER_STEPS);
+      });
+      for (let start = 0; start < LOOP_BARS * STEPS_PER_BAR; start++) {
+        const placed = stingerPhrase(e, start);
+        expect(placed).toHaveLength(e.phrase.length);
+        placed.forEach((n, i) => {
+          const shape = e.phrase[i];
+          expect(n.step).toBe(start + (shape?.at ?? 0));
+          expect(n.dur).toBe(shape?.dur);
+          // Each note is the shape's chord degree in its own bar's chord, never below A3.
+          const h = harmonyAtStep(n.step);
+          expect(inChord(n.midi, h)).toBe(true);
+          expect(n.midi).toBe(chordToneMidi(h, shape?.deg ?? 0, stingerBase(e.register)));
+          expect(n.midi).toBeGreaterThanOrEqual(STINGER_BASE_MIN - 12);
+        });
+        // Inside one chord the contour is identical whatever the chord: same rises and falls.
+        const sameChord = placed.every((n) => harmonyAtStep(n.step) === harmonyAtStep(start));
+        if (sameChord) {
+          const dirs = placed.slice(1).map((n, i) => Math.sign(n.midi - (placed[i]?.midi ?? 0)));
+          const want = e.phrase.slice(1).map((n, i) => Math.sign(n.deg - (e.phrase[i]?.deg ?? 0)));
+          expect(dirs, `${k} at ${start}`).toEqual(want);
+        }
       }
     }
+    // Every kind has its own phrase.
+    expect(shapes.size).toBe(LAYER_KINDS.length);
   });
 
   it('motifs are monophonic: a note ends by the next one, wrapping at the phrase end', () => {
@@ -160,7 +202,7 @@ describe('cut 1', () => {
     expect(Object.keys(cut).sort()).toEqual([...ALL_KINDS].sort());
     for (const k of LAYER_KINDS) {
       const e = cut[k];
-      expect(e.stingerDegree).toBe(LAYERS_FULL[k].stingerDegree);
+      expect(e.phrase).toEqual(LAYERS_FULL[k].phrase);
       expect(stingerMidi(e, 2)).toBe(stingerMidi(LAYERS_FULL[k], 2));
       if (CUT1_KEEP.includes(k)) {
         expect(e.pattern.length).toBeGreaterThan(0);
