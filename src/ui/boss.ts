@@ -2,8 +2,10 @@
 // by 'hud:boss'. Names, tiers and colours live here so Ryan edits one const (BOSS_NAMES) and the
 // bar, the intro card and the results line all read it. Hues come from the render palette, the
 // single source Glow tunes (the weaponHue pattern), so no hue number is written in this file.
+// The boss kill bonus is not here: src/game/scoring.ts bossBonus is the only copy (G3A), so the
+// number on the results line cannot drift from the number the sim pays.
 import type { Events } from '../core/events';
-import { BOSS_IDS, type BossId, type BossTier } from '../levelgen/leveldef';
+import { BOSS_IDS, type BossId, type BossTier, type LevelDef } from '../levelgen/leveldef';
 import { BASE_PALETTE, type PaletteKey } from '../render/neon';
 
 export type HudBoss = Events['hud:boss'];
@@ -192,17 +194,45 @@ export function enterPayload(id: BossId): HudBoss {
   return { id, hp: 1, maxHp: 1, phase: FIRST_PHASE, phases: 0, mode: 0 };
 }
 
-/** Share of par paid as the boss kill bonus (docs/13 SPEC 3.6 rule 1). */
-export const BOSS_BONUS_SHARE = 0.25;
-/** The bonus is rounded half up to a multiple of this. */
-export const BOSS_BONUS_STEP = 500;
+/**
+ * Pure: does the cover screen reserve its boss strip (the bar across the top of the play area) for
+ * this run? Yes on a boss level, in Endless (a boss comes every so often there) and when the
+ * ?boss= debug hook forces one. The answer is fixed at level start, so the arena never moves when
+ * a boss arrives. Main ignores it: the main screen keeps its top band layout.
+ */
+export function needsBossStrip(mode: 'adventure' | 'endless', level: Pick<LevelDef, 'boss'>, forced: boolean): boolean {
+  return mode === 'endless' || level.boss !== undefined || forced;
+}
+
+/** The dot on the banner: one dot in the boss colour, which is the tier colour (docs/13 section 11). */
+export const TIER_DOT = '●';
+
+/** Banner timing (G3A): fades in over 1.2 s, holds, then fades out so it never sits over the arena for long. */
+export const BANNER_FADE_IN_SEC = 1.2;
+export const BANNER_HOLD_SEC = 1.0;
+export const BANNER_FADE_OUT_SEC = 0.6;
+export const BANNER_TOTAL_SEC = BANNER_FADE_IN_SEC + BANNER_HOLD_SEC + BANNER_FADE_OUT_SEC;
+/** Longest clock step the banner takes at once: a pause or a stalled tab must not skip the fade. */
+export const BANNER_MAX_STEP_SEC = 0.25;
+
+/** Pure: the banner line, the upper case name then the dot. '' for an unknown id. */
+export function bossBannerText(id: string): string {
+  return isBossId(id) ? `${BOSS_NAMES[id].toUpperCase()} ${TIER_DOT}` : '';
+}
 
 /**
- * Pure: the flat boss kill bonus for a level of this par, 25 percent of par rounded half up to the
- * nearest 500, never multiplied (docs/13 SPEC 3.6). The sim awards the same number; the results
- * line only reports it. A par that is not a positive finite number gives 0.
+ * Pure: banner opacity `t` seconds after the boss entered. 0 before and after, a straight ramp to 1
+ * over BANNER_FADE_IN_SEC, 1 through the hold, then a straight ramp back to 0. A non finite t is 0.
  */
-export function bossBonusFor(par: number): number {
-  if (!Number.isFinite(par) || par <= 0) return 0;
-  return Math.floor((par * BOSS_BONUS_SHARE + BOSS_BONUS_STEP / 2) / BOSS_BONUS_STEP) * BOSS_BONUS_STEP;
+export function bannerAlpha(t: number): number {
+  if (!Number.isFinite(t) || t <= 0 || t >= BANNER_TOTAL_SEC) return 0;
+  if (t < BANNER_FADE_IN_SEC) return t / BANNER_FADE_IN_SEC;
+  const outStart = BANNER_FADE_IN_SEC + BANNER_HOLD_SEC;
+  return t < outStart ? 1 : (BANNER_TOTAL_SEC - t) / BANNER_FADE_OUT_SEC;
+}
+
+/** Pure: the banner clock after `dtSec` more seconds. A negative or non finite step adds nothing, one step is capped, and the clock stops at BANNER_TOTAL_SEC. */
+export function bannerAdvance(t: number, dtSec: number): number {
+  const step = Number.isFinite(dtSec) ? Math.min(BANNER_MAX_STEP_SEC, Math.max(0, dtSec)) : 0;
+  return Math.min(BANNER_TOTAL_SEC, t + step);
 }

@@ -9,9 +9,16 @@
 // the same rows, so the band height is unchanged), then either a right column or a bottom band
 // for the bomb and super buttons, whichever leaves the larger arena.
 // V3-A boss bar: three more boxes (name, phase pips, hit point bar) shown only while a boss lives.
-// Cover puts them in the left column under the level line. Main puts them in the level line's
-// slot and the strip under it, so the top band stays 60 px and the arena does not move when a boss
-// arrives. None is a pointer target and none reaches the bomb, super or pause rects.
+// G3A fix, cover: Ryan found the left column version unreadable on the folded screen (11 px name,
+// a 136 px bar low in the left column). On a boss run the cover now reserves a COVER_BOSS_STRIP px strip across
+// the top of the play area, between the two columns, and the boss row lives there: name at 14 px,
+// a 12 px bar that runs the rest of the width, then the phase pips. The strip is carved out of the
+// play rect, so it is fixed for the whole run and the arena never moves when a boss arrives. A run
+// with no boss (bossStrip false) keeps the v2 play rect exactly and the old left column boxes.
+// Main puts the boxes in the level line's slot and the strip under it, so the top band stays 60 px.
+// None is a pointer target and none reaches the bomb, super or pause rects.
+// The boss banner (G3A) is not a HUD box: it is a transient line at the top of the play rect, the
+// place overlays use, and it is checked against every HUD rect instead (HudFrame.banner).
 // B9: the main screen bands are measured from the real HUD elements (text row heights, and the
 // button hit rects that Thumbs lays out) instead of fixed generous bands, so the main screen
 // arena is as large as the HUD allows. The arena on main is usually width limited, so the right
@@ -78,11 +85,26 @@ export interface HudFrame {
   superD: number;
   pauseIcon: number;
   boxes: HudBoxes;
+  /**
+   * The boss banner line (G3A): centred at the top of the play rect, so it overlaps no HUD box,
+   * button or the cover boss strip. It is not in `boxes` or `hudRects`: it sits on the play area
+   * for a few seconds by design, like the intro card.
+   */
+  banner: HudBox;
   /** Where overlays (pause, results, intro card) may put content: clear of every HUD element. */
   content: Rect;
 }
 
-type Partial0 = Omit<HudFrame, 'fit' | 'arena' | 'content'>;
+type Partial0 = Omit<HudFrame, 'fit' | 'arena' | 'content' | 'banner'>;
+
+export interface FrameOptions {
+  /**
+   * Cover only: reserve the boss strip at the top of the play area. Default true, so a caller that
+   * says nothing always has room for a boss. main.ts passes false on an Adventure level with no
+   * boss, which keeps the arena exactly as it was before the strip existed. Main ignores it.
+   */
+  bossStrip?: boolean;
+}
 
 /** Cover column widths in CSS px. */
 export const COVER_LEFT = 160;
@@ -108,6 +130,23 @@ export const WEAPON_BAR_H = 5;
  * 8 px with 4 px gaps, plus a little. The boss name box takes the rest of the row.
  */
 export const BOSS_PIPS_W = 52;
+/** Smallest boss text in CSS px on either screen (G3A: the cover name was 11 px and unreadable). */
+export const BOSS_TEXT_MIN = 13;
+/** Cover boss strip: height of the strip carved off the top of the play rect, in CSS px. */
+export const COVER_BOSS_STRIP = 20;
+/** Cover boss strip: gap between the strip's ends and the two HUD columns. */
+export const COVER_BOSS_PAD = 8;
+/** Cover boss strip: width of the name box (14 px bold, the longest working name is 8 letters) and the gap around the bar. */
+export const COVER_BOSS_NAME_W = 92;
+export const COVER_BOSS_GAP = 6;
+/** Cover boss strip: name text size and bar thickness. */
+export const COVER_BOSS_TEXT = 14;
+export const COVER_BOSS_BAR_H = 12;
+/** Boss banner: one line at the top of the play rect. 20 px bold with wide tracking fits twelve capitals in 260 px. */
+export const BANNER_W = 260;
+export const BANNER_H = 26;
+export const BANNER_SIZE = 20;
+export const BANNER_TOP = 6;
 
 /** Pure: main top band height below the top inset: text rows or the pause hit rect, whichever is lower. */
 export function mainTop(buttons: ButtonRects, ins: Insets): number {
@@ -172,13 +211,48 @@ function superBoxes(
   };
 }
 
-function sides(b: Base): Partial0 {
+type BossBoxes = Pick<HudBoxes, 'bossName' | 'bossPips' | 'bossBar'>;
+
+/**
+ * Cover boss row inside the top strip: name at the left, the bar across the middle, the pips at
+ * the right end. Spans only the play rect's columns, so it never reaches the left or right HUD
+ * column or the pause button, and it is the same row for every level, so nothing moves.
+ */
+function coverStripBoss(b: Base): BossBoxes {
+  const { W, ins } = b;
+  const x0 = ins.left + COVER_LEFT + COVER_BOSS_PAD;
+  const x1 = W - ins.right - COVER_RIGHT - COVER_BOSS_PAD;
+  const barX = x0 + COVER_BOSS_NAME_W + COVER_BOSS_GAP;
+  const pipsX = x1 - BOSS_PIPS_W;
+  const t = ins.top;
+  return {
+    bossName: box(x0, t, COVER_BOSS_NAME_W, COVER_BOSS_STRIP, COVER_BOSS_TEXT),
+    bossBar: box(barX, t + (COVER_BOSS_STRIP - COVER_BOSS_BAR_H) / 2, pipsX - COVER_BOSS_GAP - barX, COVER_BOSS_BAR_H, 0),
+    bossPips: box(pipsX, t, BOSS_PIPS_W, COVER_BOSS_STRIP, 0, 'right'),
+  };
+}
+
+/**
+ * Cover boss row for a run with no boss: the v3-A left column boxes under the level line, kept so a
+ * boss that shows up anyway is still drawn. Text is 13 px, the floor, not the old 11.
+ */
+function coverColumnBoss(b: Base, lx: number, lw: number): BossBoxes {
+  const t = b.ins.top;
+  return {
+    bossName: box(lx, t + 140, lw - BOSS_PIPS_W, 17, BOSS_TEXT_MIN),
+    bossPips: box(lx + lw - BOSS_PIPS_W, t + 140, BOSS_PIPS_W, 17, 0, 'right'),
+    bossBar: box(lx, t + 161, lw, 14, 0),
+  };
+}
+
+function sides(b: Base, strip: boolean): Partial0 {
   const { W, H, ins } = b;
+  const stripH = strip ? COVER_BOSS_STRIP : 0;
   const playRect = clampRect({
     x: ins.left + COVER_LEFT,
-    y: ins.top,
+    y: ins.top + stripH,
     w: W - ins.left - ins.right - COVER_LEFT - COVER_RIGHT,
-    h: H - ins.top - ins.bottom,
+    h: H - ins.top - ins.bottom - stripH,
   });
   const buttonInsets: Insets = { ...ins, left: W - ins.right - COVER_RIGHT };
   const buttons = layoutButtons(W, H, buttonInsets);
@@ -210,12 +284,10 @@ function sides(b: Base): Partial0 {
       bar: box(lx, t + 58, lw, 12, 11),
       objLabel: box(lx, t + 72, lw, 30, 11, 'left', true),
       par: box(lx, t + 106, lw, 28, 11, 'left', true),
-      // V3 boss bar, drawn only while a boss lives: name and phase pips on one row and a thick hit
-      // point bar under it, in the same left column below the level line. The right column, with
-      // the moved bomb and super buttons, is untouched.
-      bossName: box(lx, t + 140, lw - BOSS_PIPS_W, 15, 11),
-      bossPips: box(lx + lw - BOSS_PIPS_W, t + 140, BOSS_PIPS_W, 15, 0, 'right'),
-      bossBar: box(lx, t + 158, lw, 14, 0),
+      // V3 boss bar, drawn only while a boss lives: the top strip on a boss run (G3A), the left
+      // column under the level line otherwise. The right column, with the moved bomb and super
+      // buttons, is untouched either way.
+      ...(strip ? coverStripBoss(b) : coverColumnBoss(b, lx, lw)),
       lives: box(rx, below + 4, rw, 16, 12, 'right'),
       bombs: box(rx, below + 22, rw, 14, 10, 'right'),
       ...superBoxes(buttons, rx - 4, rw + 8, 11, 9),
@@ -251,7 +323,7 @@ function topRows(b: Base): Omit<HudBoxes, 'superLabel' | 'superHint'> {
     // free strip under it, so the band stays MAIN_ROWS high. Name and pips on one row, the thick
     // hit point bar below, both ending above t + MAIN_ROWS. Centred under the objective bar and, on
     // a narrow screen, narrowed symmetrically so it stops short of the lives and bombs boxes.
-    bossName: box(cx - bossHalf, t + 31, 2 * bossHalf - BOSS_PIPS_W, 14, 12),
+    bossName: box(cx - bossHalf, t + 31, 2 * bossHalf - BOSS_PIPS_W, 14, BOSS_TEXT_MIN),
     bossPips: box(cx + bossHalf - BOSS_PIPS_W, t + 31, BOSS_PIPS_W, 14, 0, 'right'),
     bossBar: box(cx - bossHalf, t + 46, 2 * bossHalf, 12, 0),
     lives: box(livesRight - sideW, t + 8, sideW, 20, 16, 'right'),
@@ -307,19 +379,32 @@ function topBottom(b: Base): Partial0 {
   };
 }
 
+/** Pure: the banner line, centred at the top of the play rect. */
+function bannerBox(play: Rect): HudBox {
+  const w = Math.min(BANNER_W, Math.max(0, play.w - 16));
+  return box(play.x + (play.w - w) / 2, play.y + BANNER_TOP, w, BANNER_H, BANNER_SIZE, 'center');
+}
+
 function finish(f: Partial0, arenaW: number, arenaH: number): HudFrame {
   const fit = fitArena(arenaW, arenaH, f.playRect);
-  return { ...f, fit, arena: arenaRect(fit, arenaW, arenaH), content: f.playRect };
+  return { ...f, fit, arena: arenaRect(fit, arenaW, arenaH), banner: bannerBox(f.playRect), content: f.playRect };
 }
 
 /**
  * Pure: the HUD frame for a viewport, its safe area insets and the current arena size.
  * Cover always uses side columns. Main picks the arrangement with the larger arena scale; a tie
- * keeps the right column.
+ * keeps the right column. `opts.bossStrip` is cover only (see FrameOptions).
  */
-export function hudFrame(cssW: number, cssH: number, insets: Insets, arenaW: number, arenaH: number): HudFrame {
+export function hudFrame(
+  cssW: number,
+  cssH: number,
+  insets: Insets,
+  arenaW: number,
+  arenaH: number,
+  opts: FrameOptions = {},
+): HudFrame {
   const b: Base = { W: Math.max(1, cssW), H: Math.max(1, cssH), ins: insets };
-  if (aspectClass(cssW, cssH) === 'cover') return finish(sides(b), arenaW, arenaH);
+  if (aspectClass(cssW, cssH) === 'cover') return finish(sides(b, opts.bossStrip ?? true), arenaW, arenaH);
   const a = finish(topRight(b), arenaW, arenaH);
   const c = finish(topBottom(b), arenaW, arenaH);
   return c.fit.scale > a.fit.scale + 1e-9 ? c : a;

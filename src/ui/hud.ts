@@ -8,8 +8,12 @@ import type { Bus, Events, WeaponKind } from '../core/events';
 import type { Insets, Rect } from '../input/types';
 import type { BossId, SuperKind } from '../levelgen/leveldef';
 import {
+  BANNER_TOTAL_SEC,
+  bannerAdvance,
+  bannerAlpha,
   BOSS_GATE_START,
   BOSS_MAX_PIPS,
+  bossBannerText,
   bossColour,
   bossFill,
   bossGate,
@@ -219,6 +223,12 @@ export interface Hud {
   clearBoss(): void;
   /** True while the boss bar is up. */
   bossShown(): boolean;
+  /** Start the boss banner for this boss: it fades in over 1.2 s, holds, fades out, then hides itself. */
+  showBanner(id: BossId): void;
+  /** Advance the banner clock to now (capped per call, so a pause cannot skip the fade). listen() calls it on every hud:score. */
+  tickBanner(): void;
+  /** True while the banner is up. */
+  bannerShown(): boolean;
   /**
    * Re-anchor on resize, fold, unfold and arena change from the pure HUD frame. `buttons` is
    * false when there is no touch input (renderer failed), which hides the rings and pause.
@@ -299,6 +309,24 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
   const bossFillEl = el('div', 'sow-hud-fill');
   bossFillEl.setAttribute('data-hud', 'boss-fill');
   bossBarEl.append(bossFillEl);
+  // Boss banner (G3A): one line, the upper case name and a dot in the boss colour. It is not a HUD
+  // box: it sits at the top of the play rect for a few seconds. Its opacity follows a pure clock
+  // (bannerAlpha) that hud:score advances; a short CSS transition smooths the 100 ms steps.
+  const bannerEl = el('div', 'sow-hud-item', '');
+  bannerEl.style.fontWeight = '800';
+  bannerEl.style.letterSpacing = '0.14em';
+  bannerEl.style.opacity = '0';
+  bannerEl.style.display = 'none';
+  bannerEl.style.transition = 'opacity 120ms linear';
+  bannerEl.setAttribute('data-hud', 'boss-banner');
+  /** Seconds since the boss entered; BANNER_TOTAL_SEC means finished or never started. */
+  let bannerT = BANNER_TOTAL_SEC;
+  let bannerLastMs = 0;
+  const paintBanner = (): void => {
+    const done = bannerT >= BANNER_TOTAL_SEC;
+    bannerEl.style.display = done ? 'none' : '';
+    bannerEl.style.opacity = String(Math.round(bannerAlpha(bannerT) * 100) / 100);
+  };
   let bossGateState: BossGate = { ...BOSS_GATE_START };
   let bossUp = false;
   /** Set by sim:bossDown, cleared by the next sim:bossEnter, a living hud:boss or clearBoss. */
@@ -333,7 +361,7 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
   superName.style.fontWeight = '600';
   const superTip = el('div', 'sow-hud-item', superHint(0));
   superTip.style.opacity = '0.7';
-  root.append(bar, objLabel, score, mult, weaponBar, weaponLabel, par, bossBarEl, bossNameEl, bossPipsEl, lives, bombs, pause, bombRing, superRing, superName, superTip);
+  root.append(bar, objLabel, score, mult, weaponBar, weaponLabel, par, bossBarEl, bossNameEl, bossPipsEl, bannerEl, lives, bombs, pause, bombRing, superRing, superName, superTip);
   parent.append(root);
   // On main the boss bar takes the level line's slot, so the line steps aside while a boss lives.
   const syncPar = (): void => {
@@ -406,9 +434,29 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       bossNameEl.style.display = 'none';
       bossBarEl.style.display = 'none';
       bossPipsEl.style.display = 'none';
+      bannerT = BANNER_TOTAL_SEC; // a boss that goes (or a new world) takes the banner with it
+      paintBanner();
       syncPar();
     },
     bossShown: () => bossUp,
+    showBanner(id) {
+      const text = bossBannerText(id);
+      if (text === '') return;
+      bannerEl.textContent = text;
+      bannerEl.style.color = bossColour(id);
+      bannerEl.style.textShadow = `0 0 8px ${bossColour(id, 0.9)}, 0 0 18px ${bossColour(id, 0.5)}`;
+      bannerT = 0;
+      bannerLastMs = now();
+      paintBanner();
+    },
+    tickBanner() {
+      if (bannerT >= BANNER_TOTAL_SEC) return;
+      const t = now();
+      bannerT = bannerAdvance(bannerT, (t - bannerLastMs) / 1000);
+      bannerLastMs = t;
+      paintBanner();
+    },
+    bannerShown: () => bannerT < BANNER_TOTAL_SEC,
     setLevel(levelIndex, parScore, hash) {
       par.textContent = levelLine(levelIndex, parScore, hash);
     },
@@ -435,6 +483,8 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       setBox(bossNameEl, B.bossName, true);
       setBox(bossPipsEl, B.bossPips, false);
       setBox(bossBarEl, B.bossBar, false);
+      setBox(bannerEl, frame.banner, true);
+      bannerEl.style.overflow = 'visible'; // setBox clips text boxes, which would cut the banner glow
       const pipD = Math.max(6, Math.min(10, B.bossPips.h - 6));
       for (const pip of bossPipEls) {
         pip.style.width = `${pipD}px`;
@@ -451,7 +501,10 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       for (const e of [superName, superTip]) e.style.display = buttons ? '' : 'none';
     },
     listen(bus) {
-      const offScore = bus.on('hud:score', (p) => hud.update(p));
+      const offScore = bus.on('hud:score', (p) => {
+        hud.update(p);
+        hud.tickBanner(); // the sim emits hud:score only while it steps, so a pause stops the fade
+      });
       const offWeapon = bus.on('hud:weapon', (p) => {
         const g = weaponGate(gate, p, now());
         gate = g.gate;
@@ -469,6 +522,7 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       });
       const offEnter = bus.on('sim:bossEnter', (p) => {
         bossDownSeen = false;
+        hud.showBanner(p.id); // every entrance, even one a hud:boss already drew
         if (bossGateState.id === p.id) return; // a hud:boss already drew this boss: do not reset its bar
         const e = enterPayload(p.id);
         bossGateState = bossGate(bossGateState, e, now()).gate;
