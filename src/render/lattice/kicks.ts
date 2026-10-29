@@ -33,6 +33,12 @@ export const KICK_WELL: PointKick = { t: 'point', strength: 900, radius: 240 };
 export const KICK_DEATH: PointKick = { t: 'point', strength: 1100, radius: 260 };
 /** Large and expanding: a bomb. */
 export const KICK_BOMB: RingKick = { t: 'ring', strength: 420, speed: 1100, life: 1.1, width: 70 };
+/** Boss death (sim:bossDown): the largest shock, a ring that crosses most of the arena. */
+export const KICK_BOSS_DOWN: RingKick = { t: 'ring', strength: 720, speed: 950, life: 1.5, width: 95 };
+/** Boss phase change (sim:bossPhase): a short ring from the boss. */
+export const KICK_BOSS_PHASE: RingKick = { t: 'ring', strength: 300, speed: 800, life: 0.6, width: 60 };
+/** A boss pull hazard dimples the lattice like a well, at half the well's pull. */
+export const BOSS_PULL_ACCEL = -1000;
 /** A super activation. */
 export const KICK_SUPER: RingKick = { t: 'ring', strength: 260, speed: 900, life: 0.6, width: 55 };
 

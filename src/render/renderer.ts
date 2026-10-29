@@ -250,8 +250,47 @@ import {
   type ThreatPulse,
   type WallFeature,
 } from './mapFx';
-import { burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
-import { isFloorSlot, KIND_NUM, specFor } from './shapeSpecs';
+import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
+import { bossSlot, isFloorSlot, KIND_NUM, partSlot, specFor } from './shapeSpecs';
+// V3 wave A: boss, parts, hazards and enemy bullets (bossLook.ts, bossShapes.ts, hazardFx.ts,
+// enemyBulletFx.ts). The boss is read through readBoss only; enemy bullets through enemyBulletsOf.
+import { readBoss, type BossView } from '../game/bosses/view';
+import { enemyBulletsOf } from '../game/enemyBullets';
+import { BOSS_IDS } from '../levelgen/leveldef';
+import {
+  approach,
+  BOSS_BURST_WHITE,
+  BOSS_DEATH_SHAKE_PX,
+  BOSS_DEATH_SHAKE_SEC,
+  BOSS_PHASE_BURST,
+  bossBodyAlpha,
+  bossColourOf,
+  bossDeathBurst,
+  bossEdgePulse,
+  bossGlowMul,
+  bossHitAllow,
+  bossIndex,
+  bossOpenness,
+  bossPhaseFlash,
+  bossTierOf,
+  createBossHitThrottle,
+  entranceRing,
+  OPEN_RATE,
+  opennessStep,
+  PHASE_FLASH_SEC,
+  podPulse,
+  TIER_BULLET_KEY,
+  type EntranceRing,
+} from './bossLook';
+import { bossBodyR, PART_POD, partR, partType } from './bossShapes';
+import { createSpriteBuf, fxHalo, resetSpriteBuf, type FxHalo } from './fxSprites';
+import { createFxSpriteLayer, makeBossFxAtlas } from './fxSpriteLayer';
+import { createEnemyBulletLayer } from './enemyBullets';
+import type { EnemyBulletFrame, EnemyBulletsLike } from './enemyBulletFx';
+import { HAZARD_PULL, HAZARD_SPRITE_CAP, planEntranceRing, planHazard, type HazardInput } from './hazardFx';
+import { BOSS_PULL_ACCEL, KICK_BOSS_DOWN, KICK_BOSS_PHASE } from './lattice/kicks';
+import { HEAT_BOSS } from './lattice/heat';
+import { RIPPLE_BOSS } from './fx';
 
 /** Structural view of Forge's BulletPool (03 section 5). Only the fields the renderer reads. */
 export interface BulletPoolLike {
@@ -291,7 +330,14 @@ export interface RenderStats {
   /** Lattice nodes and spacing in arena units; 0 on the low tier (v1 grid). */
   latticeNodes: number;
   latticeSpacing: number;
+  /** V3: live enemy bullets drawn, and sprite instances in the hazard and enemy bullet layers. */
+  enemyBullets: number;
+  hazardSprites: number;
+  bulletSprites: number;
 }
+
+/** Reads the boss into out (readBoss from src/game/bosses/view.ts, or a test or stress stand in). */
+export type BossReader = (w: World, out: BossView) => BossView;
 
 export interface GameRenderer {
   readonly app: Application;
@@ -310,6 +356,10 @@ export interface GameRenderer {
   setSticks(circles: readonly StickCircleLike[]): void;
   /** Ring burst, particles and ripple at a point (super activation). Also fired automatically. */
   superFx(x: number, y: number): void;
+  /** V3: explicit enemy bullet source. If unset, draw() reads enemyBulletsOf(w). */
+  setEnemyBullets(pool: EnemyBulletsLike | null): void;
+  /** V3: explicit boss reader (stress proxy). If unset, draw() uses readBoss. */
+  setBossReader(reader: BossReader | null): void;
   destroy(): void;
 }
 
@@ -754,8 +804,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   wallPulse.visible = false;
   wallFlash.visible = false;
 
+  // V3 wave A: boss hazards (lanes, rings, sweeps, tethers, pulls and the entrance ring) and enemy
+  // bullets, each one pooled ParticleContainer from one atlas: one draw call each, no Graphics.clear.
+  // Hazards sit under the entities, enemy bullets above the player bullets so they always read.
+  const bossAtlas = makeBossFxAtlas(app.renderer);
+  const hazardLayer = createFxSpriteLayer('bossHazards', bossAtlas.texture, bossAtlas.frames, HAZARD_SPRITE_CAP);
+  const hazardBuf = createSpriteBuf(HAZARD_SPRITE_CAP);
+  const enemyBulletLayer = createEnemyBulletLayer(bossAtlas.texture, bossAtlas.frames);
+
   bloomLayer.addChild(lattice.glow, wallGlow, wallPulse, wallFlash, comets, glowSprites, particles, trails, pulseLayer, enemyFxGlow, ringGlow);
-  lines.addChild(walls, floor, enemyFx, entities, bullets, rings);
+  lines.addChild(walls, floor, hazardLayer.container, enemyFx, entities, bullets, enemyBulletLayer.layer.container, rings);
   gridLayer.addChild(lattice.dust, grid, lattice.lines);
   world.addChild(gridLayer, bloomLayer, lines);
   app.stage.addChild(world, sticks);
@@ -781,7 +839,40 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let explicitBullets: BulletPoolLike | null = null;
   let lastDraw = 0;
 
-  const stats: RenderStats = { entities: 0, bullets: 0, particles: 0, glowPath: 'bloom', latticeNodes: 0, latticeSpacing: 0 };
+  const stats: RenderStats = {
+    entities: 0,
+    bullets: 0,
+    particles: 0,
+    glowPath: 'bloom',
+    latticeNodes: 0,
+    latticeSpacing: 0,
+    enemyBullets: 0,
+    hazardSprites: 0,
+    bulletSprites: 0,
+  };
+
+  // V3 boss render state. The view is filled once per frame by the boss reader (no allocation).
+  const bossView: BossView = { active: false, id: 0, mode: 0, phase: 0, hp: 0, maxHp: 0, modeT: 0, x: 0, y: 0, rot: 0, radius: 0 };
+  let bossReader: BossReader = readBoss;
+  let explicitEnemyBullets: EnemyBulletsLike | null = null;
+  /** Displayed shell or core openness (eased), boss index and tier of the live or last boss. */
+  let bossOpen = 0;
+  let bossIdx = 0;
+  let bossTier = 1;
+  /** Drawn boss position (event payloads without a position use it). */
+  let bossDrawX = 0;
+  let bossDrawY = 0;
+  /** Seconds since the last boss hit flash, phase event and entrance (edge pulse). */
+  let bossHitAge = Number.POSITIVE_INFINITY;
+  let bossPhaseAge = Number.POSITIVE_INFINITY;
+  let bossEdgeAge = Number.POSITIVE_INFINITY;
+  let bossEdgeKey: PaletteKey = 'bossBlue';
+  const bossHitThrottle = createBossHitThrottle();
+  const entrance: EntranceRing = { r: 0, alpha: 0 };
+  const halo: FxHalo = { alpha: 0, width: 0 };
+  const hazardIn: HazardInput = { type: 0, x: 0, y: 0, rot: 0, radius: 0, vx: 0, vy: 0, age: 0, tier: 1, tint: 0xffffff, timeSec: 0 };
+  const bulletTints: number[] = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff];
+  const bulletFrame: EnemyBulletFrame = { alpha: 0, timeSec: 0, effects: 'standard', halo, tints: bulletTints, white: 0xffffff };
 
   // Lattice (wave D): on when the tier says so; the governor only coarsens inside a level.
   let latticeActive = false;
@@ -1254,6 +1345,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
    * damage: one tiny additive flash in its hue. Off on the low tier. No allocation.
    */
   function onHit(x: number, y: number, kind: number, id: number, blocked: boolean): void {
+    if (kind === KIND_NUM.boss) {
+      onBossHit(x, y, blocked);
+      return;
+    }
     if (!hitFxOn(getEffectsTier()) || !hitThrottleAllow(hitThrottle, id, hitClockMs)) return;
     hitSeq = (hitSeq + 1) | 0;
     if (blocked) deflectAt(x, y, kind, id);
@@ -1284,6 +1379,154 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const colour = mixRgb(palette.bulwark, 0xffffff, DEFLECT_WHITE);
     addPulse(hitPool, PULSE_ARC, px, py, Math.atan2(hitDir.y, hitDir.x), 0, 0, DEFLECT_ARC_LIFE, colour, 1);
     emitDeflectSparks(px, py, hitDir.x, hitDir.y, colour);
+  }
+
+  /**
+   * 'fx:hit' with Kind.Boss, throttled to one flash per BOSS_HIT_MS on the draw clock. A damaging hit
+   * boosts the boss glow sprite briefly (every tier: a multiplier on the existing sprite) and, off
+   * Low, adds a flash at the hit point. A blocked hit (shell, membrane) throws deflect sparks off
+   * the body instead, so the player sees the shot did nothing. No allocation.
+   */
+  function onBossHit(x: number, y: number, blocked: boolean): void {
+    if (!bossHitAllow(bossHitThrottle, hitClockMs)) return;
+    if (!blocked) bossHitAge = 0;
+    if (!hitFxOn(getEffectsTier())) return;
+    const hue = palette[bossColourOf(bossIdx)];
+    if (blocked) {
+      const dx = x - bossDrawX;
+      const dy = y - bossDrawY;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const colour = mixRgb(hue, 0xffffff, DEFLECT_WHITE);
+      emitDeflectSparks(x, y, d > 1e-3 ? dx / d : 1, d > 1e-3 ? dy / d : 0, colour);
+      return;
+    }
+    addPulse(hitPool, PULSE_FLASH, x, y, 0, 0, 0, HIT_FLASH_LIFE * 1.5, mixRgb(hue, 0xffffff, HIT_FLASH_WHITE), 1);
+  }
+
+  /** Boss index of a bus payload id (a BossId string). No allocation. */
+  function payloadBoss(id: string): number {
+    return bossIndex((BOSS_IDS as readonly string[]).indexOf(id));
+  }
+
+  /** 'sim:bossEnter': the screen edge pulse in the boss colour (map effect, off on Low). */
+  function onBossEnter(id: string): void {
+    const b = payloadBoss(id);
+    bossIdx = b;
+    bossTier = bossTierOf(b);
+    bossEdgeKey = bossColourOf(b);
+    if (mapEffectsOn(getEffectsTier())) bossEdgeAge = 0;
+  }
+
+  /**
+   * 'sim:bossPhase': a body flash (every tier), a ring of sparks and, on the lattice tiers, a shock
+   * ring and a short lattice kick at the drawn boss position.
+   */
+  function onBossPhase(id: string): void {
+    const b = payloadBoss(id);
+    bossPhaseAge = 0;
+    const hue = palette[bossColourOf(b)];
+    const hot = mixRgb(hue, 0xffffff, 0.45);
+    burstBoss(bossDrawX, bossDrawY, hot, BOSS_PHASE_BURST, 200, 600, 0.4, 0.8);
+    if (!mapEffectsOn(getEffectsTier())) return;
+    addPulse(pulsePool, PULSE_RING, bossDrawX, bossDrawY, 0, SHOCK_R0, SHOCK_R1 * 2.2, SHOCK_LIFE * 1.6, hot, 1);
+    const sim = lattice.sim;
+    if (latticeActive && sim) {
+      const k = KICK_BOSS_PHASE;
+      addRing(sim, bossDrawX, bossDrawY, k.strength, k.speed, k.life, k.width);
+    }
+  }
+
+  /**
+   * 'sim:bossDown': the large death burst (capped by effects tier), a 14 px shake for 0.6 s, the bomb
+   * style ring in the boss colour, and the lattice shock (or the v1 ripple on Low).
+   */
+  function onBossDown(id: string, x: number, y: number): void {
+    const b = payloadBoss(id);
+    const t = getEffectsTier();
+    const key = bossColourOf(b);
+    const hue = palette[key];
+    const total = bossDeathBurst(t, bossTierOf(b));
+    const white = Math.round(total * BOSS_BURST_WHITE);
+    burstBoss(x, y, hue, total - white, 250, 1100, 0.7, 1.6);
+    burstBoss(x, y, 0xffffff, white, 350, 1300, 0.5, 1.1);
+    addShake(shake, BOSS_DEATH_SHAKE_PX, BOSS_DEATH_SHAKE_SEC);
+    if (ringList.length >= MAX_RINGS) ringList.shift();
+    ringList.push({ x, y, age: 0, colour: key });
+    const sim = lattice.sim;
+    if (latticeActive && sim) {
+      const k = KICK_BOSS_DOWN;
+      addRing(sim, x, y, k.strength, k.speed, k.life, k.width);
+      if (mapEffectsOn(t)) lattice.pulse(x, y, hue, HEAT_BOSS);
+    } else {
+      addRipple(ripples, x, y, RIPPLE_BOSS);
+    }
+    if (mapEffectsOn(t)) {
+      addPulse(pulsePool, PULSE_RING, x, y, 0, SHOCK_R0, SHOCK_R1 * 3, SHOCK_LIFE * 2, mixRgb(hue, 0xffffff, 0.3), 1);
+      wallFlashAt(x, y);
+    }
+  }
+
+  /** Read the boss once per frame and ease its displayed openness. */
+  function updateBoss(w: World, dt: number): void {
+    bossReader(w, bossView);
+    bossHitAge += dt;
+    bossPhaseAge += dt;
+    bossEdgeAge += dt;
+    if (!bossView.active) {
+      bossOpen = 0;
+      return;
+    }
+    bossIdx = bossIndex(bossView.id);
+    bossTier = bossTierOf(bossIdx);
+    bossOpen = approach(bossOpen, bossOpenness(bossIdx, bossView.mode, bossView.modeT), dt, OPEN_RATE);
+  }
+
+  /** One Kind.BossHazard into the hazard sprite buffer, in the boss tier colour. */
+  function planHazardAt(w: World, i: number, alpha: number, timeSec: number): void {
+    const h = hazardIn;
+    h.type = w.a[i] ?? 0;
+    h.x = interp(w.prevX[i] ?? 0, w.x[i] ?? 0, alpha);
+    h.y = interp(w.prevY[i] ?? 0, w.y[i] ?? 0, alpha);
+    h.rot = w.rot[i] ?? 0;
+    h.radius = w.radius[i] ?? 0;
+    h.vx = w.vx[i] ?? 0;
+    h.vy = w.vy[i] ?? 0;
+    h.age = w.t[i] ?? 0;
+    h.tier = bossTier;
+    h.tint = palette[bossColourOf(bossIdx)];
+    h.timeSec = timeSec;
+    planHazard(h, hazardBuf, halo);
+    // A pull dimples the lattice like a well (Gravitas, wave B uses it).
+    const sim = lattice.sim;
+    if (h.type === HAZARD_PULL && sim && wellsSeen < MAX_WELLS) {
+      addForce(sim, h.x, h.y, h.radius, BOSS_PULL_ACCEL);
+      wellsSeen++;
+    }
+  }
+
+  /** Entrance telegraph ring while the boss enters, then sync the hazard layer. */
+  function drawHazards(): void {
+    if (bossView.active) {
+      entranceRing(bossView.mode, bossView.modeT, bossView.radius, entrance);
+      if (entrance.alpha > 0) planEntranceRing(hazardBuf, bossDrawX, bossDrawY, entrance.r, entrance.alpha, palette[bossColourOf(bossIdx)], bossTier, halo);
+    }
+    if (hazardBuf.count > 0 || hazardLayer.shown > 0) hazardLayer.sync(hazardBuf);
+    stats.hazardSprites = hazardBuf.count;
+  }
+
+  /** Enemy bullets: one layer, one draw call. Tints and halo follow the palette and neon each frame. */
+  function drawEnemyBullets(w: World, alpha: number, timeSec: number, dt: number): void {
+    const pool = explicitEnemyBullets ?? enemyBulletsOf(w);
+    bulletTints[1] = palette[TIER_BULLET_KEY[1]];
+    bulletTints[2] = palette[TIER_BULLET_KEY[2]];
+    bulletTints[3] = palette[TIER_BULLET_KEY[3]];
+    bulletTints[4] = palette[TIER_BULLET_KEY[4]];
+    bulletFrame.alpha = alpha;
+    bulletFrame.timeSec = timeSec;
+    bulletFrame.effects = getEffectsTier();
+    enemyBulletLayer.draw(pool, bulletFrame, dt);
+    stats.enemyBullets = enemyBulletLayer.live;
+    stats.bulletSprites = enemyBulletLayer.layer.shown;
   }
 
   /**
@@ -1433,6 +1676,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bus.on('fx:pickup', (p) => burst(p.x, p.y, palette[weaponTint(p.weapon)], PICKUP_BURST_COUNT)),
     // Damage that did not kill, or a Bulwark shield block (run 0198). The payload is reused.
     bus.on('fx:hit', (p) => onHit(p.x, p.y, p.kind, p.id, p.blocked)),
+    // V3 boss events (Swarm, wave A). Payloads are reused: read the fields now.
+    bus.on('sim:bossEnter', (p) => onBossEnter(p.id)),
+    bus.on('sim:bossPhase', (p) => onBossPhase(p.id)),
+    bus.on('sim:bossDown', (p) => onBossDown(p.id, p.x, p.y)),
   ];
   offFx.push(
     onEffectsTierChanged((t) => {
@@ -1440,7 +1687,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       // Attached trail frame and length follow the tier; the comet and pulses hide on low.
       restyleBullets();
       if (!trailsOn(t)) hideComet();
-      if (!mapEffectsOn(t)) clearPulseFx();
+      if (!mapEffectsOn(t)) {
+        clearPulseFx();
+        bossEdgeAge = Number.POSITIVE_INFINITY;
+      }
       if (!hitFxOn(t)) clearHitFx();
     }),
   );
@@ -1497,10 +1747,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     threatPulse(threatShown, pulse);
     pulsePhase = (pulsePhase + pulse.hz * dt) % 1;
     const a = wallPulseAlpha(pulse.amp, pulsePhase) * gain;
-    wallPulse.visible = a > 0.004;
+    // V3: the boss entrance edge pulse takes over the wall pulse layer while it is the stronger.
+    const edge = bossEdgePulse(bossEdgeAge) * gain;
+    wallPulse.visible = a > 0.004 || edge > 0.004;
     if (wallPulse.visible) {
-      wallPulse.alpha = a;
-      wallPulse.tint = mixRgb(palette.grid, palette.red, threatShown * PULSE_WARM_MAX);
+      wallPulse.alpha = edge > a ? edge : a;
+      wallPulse.tint = edge > a ? palette[bossEdgeKey] : mixRgb(palette.grid, palette.red, threatShown * PULSE_WARM_MAX);
     }
     if (!flashDirty) return;
     wallFlash.clear();
@@ -1751,11 +2003,23 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       live++;
       const kind = w.kind[i] ?? 0;
+      // V3: boss hazards draw through the hazard sprite layer, never as a Graphics view.
+      if (kind === KIND_NUM.bossHazard) {
+        hideSlot(i);
+        planHazardAt(w, i, alpha, timeSec);
+        continue;
+      }
       const isPickup = kind === PICKUP_KIND;
       const isV2 = kind >= KIND_NUM.charger && kind <= KIND_NUM.slime;
-      // Visual slot: the kind, the pickup variant for its weapon index (w.a), or the Slime
-      // outline variant from hash01(id).
-      const slot = visualSlot(kind, w.a[i] ?? -1, kind === KIND_NUM.slime ? hash01(i) : 0);
+      const isBoss = kind === KIND_NUM.boss;
+      const isPart = kind === KIND_NUM.bossPart;
+      // Visual slot: the kind, the pickup variant for its weapon index (w.a), the Slime outline
+      // variant from hash01(id), the boss per id and openness step, or the part per type and tier.
+      const slot = isBoss
+        ? bossSlot(bossIdx, opennessStep(bossOpen))
+        : isPart
+          ? partSlot(w.a[i] ?? 0, bossTier)
+          : visualSlot(kind, w.a[i] ?? -1, kind === KIND_NUM.slime ? hash01(i) : 0);
       let v = views[i];
       if (!v) {
         v = new Graphics(contextForSlot(slot));
@@ -1772,7 +2036,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       if (v.parent !== parent) parent.addChild(v);
       if (!v.visible) v.visible = true;
       const spec = specForSlot(slot);
-      const tint = spec.tint === null ? 0xffffff : palette[spec.tint];
+      // Parts are drawn white and take the boss colour; bosses bake theirs (tint stays white).
+      const tint = isPart ? palette[bossColourOf(bossIdx)] : spec.tint === null ? 0xffffff : palette[spec.tint];
       if (viewTint[i] !== tint) {
         v.tint = tint;
         viewTint[i] = tint;
@@ -1793,12 +2058,29 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       else if (kind === KIND_GRAVITY_WELL) {
         const r = w.radius[i] ?? 0;
         if (r > 0) scale = r / WELL_BASE_RADIUS;
+      } else if (isBoss) {
+        const r = bossView.active && bossView.radius > 0 ? bossView.radius : (w.radius[i] ?? 0);
+        if (r > 0) scale = r / bossBodyR(bossIdx);
+      } else if (isPart) {
+        const a = w.a[i] ?? 0;
+        const r = w.radius[i] ?? 0;
+        if (r > 0) scale = r / partR(a);
+        if (partType(a) === PART_POD) scale *= podPulse(timeSec, hash01(i));
       }
       // Pickups spin on the render clock (phase per slot) and blink in their last 2 s (w.t).
       const rot = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);
       // Telegraphing enemies flash at 50 percent alpha (Swarm W3 request).
-      const teleNow = !isPickup && isTelegraphing(w, i);
-      const tele = isPickup ? pickupAlpha(w.t[i] ?? 0) : teleNow ? telegraphAlpha(telegraphLeft(w, i)) : 1;
+      // The boss has its own 2 s entrance telegraph (the ring and the body fade in), not the 0.6 s one.
+      const teleNow = !isPickup && !isBoss && isTelegraphing(w, i);
+      const tele = isPickup
+        ? pickupAlpha(w.t[i] ?? 0)
+        : isBoss
+          ? bossView.active
+            ? bossBodyAlpha(bossView.mode, bossView.modeT)
+            : 1
+          : teleNow
+            ? telegraphAlpha(telegraphLeft(w, i))
+            : 1;
       ev.x = x;
       ev.y = y;
       ev.alpha = tele;
@@ -1812,6 +2094,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       else if (kind === KIND_GEOM) ev.alpha *= geomAlpha(w.t[i] ?? 0);
       if (isV2) applyEnemyContract(w, i, kind, teleNow, timeSec, dt);
       else if (kind === KIND_DART || kind === KIND_GEOM) applyV1Sparkle(w, i, kind, teleNow, timeSec, dt);
+      else if (isBoss) {
+        bossDrawX = ev.x;
+        bossDrawY = ev.y;
+        const phaseEvent = bossPhaseAge < PHASE_FLASH_SEC ? 1 - bossPhaseAge / PHASE_FLASH_SEC : 0;
+        const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
+        ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
+      }
       // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
       if (kind === KIND_GRAVITY_WELL && !teleNow && wellsSeen < MAX_WELLS && lattice.sim) {
         addForce(lattice.sim, ev.x, ev.y, wellPullRadius(w.radius[i] ?? 0), WELL_PULL_ACCEL);
@@ -1939,7 +2228,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     if (sim) clearForces(sim);
     wellsSeen = 0;
     sparkleColour = mixRgb(palette.geom, 0xffffff, GEOM_SPARKLE_WHITE);
+    // V3: boss state and the hazard buffer for this frame; the halo follows applyNeon's settings.
+    updateBoss(w, fxDt);
+    fxHalo(currentRender, bloomOn, halo);
+    resetSpriteBuf(hazardBuf);
     drawEntities(w, a, nowSec, fxDt);
+    drawHazards();
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
     // Ship trail: reads the sim velocity, writes only render particles and the comet ribbon.
@@ -1958,6 +2252,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
     lastFxSec = nowSec;
     drawBullets(explicitBullets ?? bulletsFromWorld(w), a, shipX, shipY, fxDt);
+    drawEnemyBullets(w, a, nowSec, fxDt);
     stepEffects(dt);
     drawPulses(fxDt);
     drawHitFx(fxDt);
@@ -2011,6 +2306,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     hideComet();
     clearPulseFx();
     clearHitFx();
+    clearBossFx();
     // New level: the governor starts again from the tier spacing.
     gov = initialGovernor();
     avgFrameMs = 0;
@@ -2018,6 +2314,18 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     applyLatticeTier(getEffectsTier());
     lattice.seedDust(arena);
     applyFit();
+  }
+
+  /** New level: no hazards, enemy bullets, boss flashes or edge pulse on screen. */
+  function clearBossFx(): void {
+    resetSpriteBuf(hazardBuf);
+    hazardLayer.clear();
+    enemyBulletLayer.clear();
+    bossOpen = 0;
+    bossHitAge = Number.POSITIVE_INFINITY;
+    bossPhaseAge = Number.POSITIVE_INFINITY;
+    bossEdgeAge = Number.POSITIVE_INFINITY;
+    bossHitThrottle.lastMs = Number.NEGATIVE_INFINITY;
   }
 
   /** New arena: wall features, calm threat, no flashes, pops or per slot fx state. */
@@ -2051,6 +2359,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     registerParticleStress(null);
     disposeParticles();
     lattice.destroy();
+    hazardLayer.destroy();
+    enemyBulletLayer.destroy();
+    for (const t of bossAtlas.frames) t.destroy(false);
+    bossAtlas.texture.destroy(true);
     for (const t of fxAtlas.frames) t.destroy(false);
     fxAtlas.texture.destroy(true);
     cometAtlas.halo.destroy(false);
@@ -2095,6 +2407,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     },
     setSticks,
     superFx,
+    setEnemyBullets(pool: EnemyBulletsLike | null): void {
+      explicitEnemyBullets = pool;
+    },
+    setBossReader(reader: BossReader | null): void {
+      bossReader = reader ?? readBoss;
+    },
     destroy,
   };
 }

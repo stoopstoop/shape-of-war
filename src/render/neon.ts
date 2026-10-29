@@ -61,12 +61,20 @@ export const BASE_PALETTE = {
   pierce: [258, 1.0, 0.78],
   /** Orbit: mint blades, in the gap between Weaver green (125) and Swirl (160). */
   orbit: [143, 1.0, 0.72],
-  // V3 contract stubs (docs/12-v3-plan.md V3-W0). Placeholder HSL, Glow tunes them in wave A. They
-  // are plain hue guesses and are not yet checked against the enemy and weapon hue gap tests.
-  /** Tier 1 boss colours: blue, green, yellow (docs/12 boss schedule). */
-  bossBlue: [220, 0.8, 0.6],
-  bossGreen: [130, 0.8, 0.55],
-  bossYellow: [52, 0.85, 0.6],
+  // V3 boss colours (docs/13 section 11). Tier 1 tuned in wave A (Glow): Ryan named blue, green and
+  // yellow, which are also Grunt, Weaver and Spawner, so the hue alone cannot separate them. Each
+  // boss key sits 9 to 15 degrees off its enemy family toward the emptiest side of the wheel, at full
+  // saturation and a little lighter (0.56 to 0.64, still under every weapon colour at 0.72 or more),
+  // so it reads as a hotter cousin. The rest of the separation is shape: a body radius of 44 to 90 u
+  // against 24 u for the largest enemy, a second concentric rim at 0.6 alpha, a white core and the
+  // x1.6 tier 1 line weight (bossShapes.ts). tests/render/bossPalette.test.ts holds the rules.
+  /** Warden: electric blue, 9 off Grunt blue (215) away from Rapid (200), toward Bulwark (242). */
+  bossBlue: [224, 0.95, 0.64],
+  /** Brood: leaf green, 15 off Weaver green (125) away from Orbit (143), toward the geom (95). */
+  bossGreen: [110, 0.9, 0.56],
+  /** Spindle: gold, 10 off Spawner yellow and the spread shot (55), toward Dart orange (28). */
+  bossYellow: [45, 1.0, 0.6],
+  // Tier 2 to 4 keys are the V3-W0 placeholders, tuned in waves B and C.
   /** Tier 2 boss colours: orange, magenta, violet. */
   bossOrange: [24, 0.85, 0.58],
   bossMagenta: [315, 0.8, 0.62],

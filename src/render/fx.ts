@@ -45,6 +45,8 @@ export const RIPPLE_WELL = 30;
 export const RIPPLE_DEATH = 36;
 export const RIPPLE_SUPER = 30;
 export const RIPPLE_BOMB = 60;
+/** Boss death on the low tier (v1 grid ripple instead of the lattice shock). */
+export const RIPPLE_BOSS = 60;
 
 function burst(
   count: number,

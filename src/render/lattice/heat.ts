@@ -37,7 +37,9 @@ export const HEAT_KILL_BIG: HeatPulse = { speed: 560, life: 0.5, width: 28, stre
 /** The ship dies. */
 export const HEAT_DEATH: HeatPulse = { speed: 700, life: 0.8, width: 34, strength: 1 };
 /** A super pulse, repeated while a timed super runs. */
-export const HEAT_SUPER: HeatPulse = { speed: 520, life: 0.5, width: 22, strength: 0.7 };
+/** Boss death colour pulse through the lattice: the widest and longest. */
+export const HEAT_BOSS: HeatPulse = { speed: 820, life: 1.1, width: 42, strength: 1 };
+export const HEAT_SUPER: HeatPulse ={ speed: 520, life: 0.5, width: 22, strength: 0.7 };
 /** Bomb front speed; its life comes from the arena size (heatBombFor). */
 export const HEAT_BOMB_SPEED = 1100;
 
