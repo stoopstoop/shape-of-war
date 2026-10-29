@@ -7,12 +7,15 @@ import {
   clampVolume,
   CUES,
   createRateLimiter,
+  createWindowLimiter,
+  cueForHit,
   cueForSfx,
   isBigKillColour,
   masterGain,
   RATE_LIMITS,
   VOLUME_DEFAULT,
   voiceToSteal,
+  WINDOW_LIMITS,
   type CueName,
   type RateLimiter,
   type VoiceDef,
@@ -40,10 +43,11 @@ const limiters = new Map<CueName, RateLimiter>();
 
 function limiterFor(cue: CueName): RateLimiter | null {
   const rate = RATE_LIMITS[cue];
-  if (rate === undefined) return null;
+  const windowMax = WINDOW_LIMITS[cue];
+  if (rate === undefined && windowMax === undefined) return null;
   let l = limiters.get(cue);
   if (!l) {
-    l = createRateLimiter(rate);
+    l = windowMax !== undefined ? createWindowLimiter(windowMax) : createRateLimiter(rate ?? 0);
     limiters.set(cue, l);
   }
   return l;
@@ -106,6 +110,12 @@ export function setVolume(v: number): number {
 
 export function getVolume(): number {
   return volume;
+}
+
+/** Sound effect cues sounding now (tests: the 24 voice cap holds). */
+export function sfxVoiceCount(): number {
+  const now = ctx?.currentTime ?? 0;
+  return voices.filter((vc) => vc.end > now).length;
 }
 
 function stopVoice(vc: Voice, at: number): void {
@@ -200,16 +210,36 @@ export function installAudio(opts: AudioOptions): () => void {
   const b = opts.bus ?? bus;
   setVolume(opts.volume);
   let bigKill = false;
+  // A boss death emits 'sim:bossDown' then sfx explode in the same step: the boss death cue
+  // replaces that explode, so the small kill sound never doubles it.
+  let bossDown = false;
   const offs = [
     // combat emits fx:kill then sfx explode, so the colour decides the explode sound.
     b.on('fx:kill', (p) => {
       bigKill = isBigKillColour(p.colour);
+      bossDown = false;
     }),
     b.on('sfx', (name) => {
+      if (name === 'explode' && bossDown) {
+        bossDown = false;
+        bigKill = false;
+        return;
+      }
       play(cueForSfx(name, bigKill));
       if (name === 'explode') bigKill = false;
     }),
     b.on('game:start', () => play('levelStart')),
+    // v3 boss sound effects. Payload objects are reused by the sim: read the fields here.
+    b.on('sim:bossEnter', () => play('bossRumble')),
+    b.on('sim:bossDown', () => {
+      play('bossDeath');
+      bossDown = true;
+    }),
+    b.on('fx:hit', (p) => {
+      const cue = cueForHit(p.kind, p.blocked);
+      if (cue !== null) play(cue);
+    }),
+    b.on('fx:bossShot', () => play('bossShot')),
   ];
   const onGesture = (): void => {
     if (ctx && ctx.state === 'running') return;

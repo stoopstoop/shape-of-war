@@ -1,14 +1,14 @@
 // The tune library through the real entry points, with a fake audio clock: a level plays its
 // tune (musicState().tune), consecutive levels differ, the bed takes the tune's tempo, voicings
 // and waves, Endless rotates every 3 segments with a fill before the switch, a threat phase
-// change earns a fill, and the boss hook returns the active tune.
+// change earns a fill, and the boss hook returns the tier boss bed.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initMusic, musicState, selectBossTune, startMusic, stopMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
 import { inScale } from '../../../src/audio/music/harmony';
 import { TICK_MS } from '../../../src/audio/music/scheduler';
 import { endlessTune, startTune } from '../../../src/audio/music/select';
 import { STEPS_PER_BAR } from '../../../src/audio/music/track';
-import { DEFAULT_TUNE, FILL_KICK, tuneById, TUNES, type TuneId } from '../../../src/audio/music/tunes';
+import { BOSS_TUNES, DEFAULT_TUNE, FILL_KICK, tuneById, TUNES, type TuneId } from '../../../src/audio/music/tunes';
 import { Bus } from '../../../src/core/events';
 import { levelSeed, segmentSeed } from '../../../src/levelgen/leveldef';
 import { FakeContext, FakeNode, FakeTimer } from './fakeAudio';
@@ -172,10 +172,10 @@ describe('fills at a phase change', () => {
 });
 
 describe('boss hook', () => {
-  it('selectBossTune returns the active tune for every tier, the default tune when idle', () => {
-    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(DEFAULT_TUNE);
+  it('selectBossTune returns the tier boss bed, idle or playing any tune', () => {
+    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(BOSS_TUNES[tier]);
     startMusic(levelSeed(7, 3));
-    const active = tuneById(musicState().tune ?? '');
-    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(active);
+    expect(tuneById(musicState().tune ?? '')).toBeDefined();
+    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(BOSS_TUNES[tier]);
   });
 });

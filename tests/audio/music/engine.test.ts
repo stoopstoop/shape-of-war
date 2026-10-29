@@ -227,10 +227,10 @@ describe('music engine', () => {
     engine.playVoice({ time: 0.05, dur: 0.3, midi: 60, fromMidi: null, gain: 0.07, timbre: tb });
     expect(engine.voiceCount).toBe(16);
     expect(firstMotif?.stops).toHaveLength(2);
-    expect(engine.steals).toEqual({ bed: 0, motif: 1, accent: 0 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 1, accent: 0, boss: 0 });
     // A bed note arriving now also takes a motif slot first.
     engine.play({ layer: 'pad', midi: 60, time: 0.06, dur: 2, gain: 0.2 });
-    expect(engine.steals).toEqual({ bed: 0, motif: 2, accent: 0 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 2, accent: 0, boss: 0 });
     expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }, { start: 3, end: 4, data: 'm' }], (d) => d === 'm', 0)).toBe(1);
     expect(oldestPreferred([{ start: 1, end: 2, data: 'b' }], (d) => d === 'm', 0)).toBe(0);
   });
@@ -289,7 +289,7 @@ describe('voice budget (v2 fixes)', () => {
     engine.playVoice({ time: 0.03, dur: 0.25, midi: 69, fromMidi: null, gain: 0.05, timbre: tb }, 'accent');
     expect(engine.voiceCount).toBe(16);
     engine.playVoice({ time: 0.05, dur: 1, midi: 60, fromMidi: null, gain: 0.05, timbre: tb });
-    expect(engine.steals).toEqual({ bed: 0, motif: 0, accent: 1 });
+    expect(engine.steals).toEqual({ bed: 0, motif: 0, accent: 1, boss: 0 });
     expect(ctx.oscs[accentStart]?.stops).toHaveLength(2);
   });
 
