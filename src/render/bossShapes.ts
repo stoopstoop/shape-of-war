@@ -9,6 +9,9 @@ import {
   BOSS_BROOD,
   BOSS_COUNT,
   BOSS_OPEN_STEPS,
+  BOSS_EMBER,
+  BOSS_GRAVITAS,
+  BOSS_MIRAGE,
   BOSS_RIM_ALPHA,
   BOSS_SPINDLE,
   BOSS_WARDEN,
@@ -18,6 +21,7 @@ import {
   tierHaloMul,
   tierWeight,
 } from './bossLook';
+import { MIRAGE_ARC_HALF } from './bossTier2';
 import type { PaletteKey } from './neon';
 import type { ShapeLayer, ShapePrim, ShapeSpec } from './shapeSpecs';
 
@@ -28,9 +32,10 @@ export const BOSS_RIM = 1.18;
 
 /**
  * Body radius each spec is drawn at. The renderer scales a view by BossView.radius over this, so a
- * boss of any size keeps its silhouette. Wave A bosses have their own; later ids share 60.
+ * boss of any size keeps its silhouette. Waves A and B have their own (tier 2 match the BOSS_TABLE
+ * radii: Ember 44, Mirage 50, Gravitas 60); later ids share 60.
  */
-export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 60, 60, 60, 60, 60, 60, 60];
+export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 44, 50, 60, 60, 60, 60, 60];
 
 /** Pure: the body radius a boss index's specs are drawn at. */
 export function bossBodyR(id: number): number {
@@ -42,6 +47,9 @@ const CORE_FRAC: readonly (readonly [number, number])[] = [
   [0.16, 0.24],
   [0.2, 0.28],
   [0.12, 0.17],
+  [0.13, 0.2],
+  [0.16, 0.26],
+  [0.14, 0.22],
 ];
 const CORE_FRAC_GENERIC: readonly [number, number] = [0.16, 0.24];
 
@@ -82,6 +90,13 @@ function lerp(a: number, b: number, t: number): number {
 
 function polar(r: number, a: number): [number, number] {
   return [r2(Math.cos(a) * r), r2(Math.sin(a) * r)];
+}
+
+/** Open polyline along a circle arc of radius r from a0 to a1 (radians), n segments. */
+function arc(r: number, a0: number, a1: number, n: number): ShapePrim {
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) pts.push(...polar(r, a0 + ((a1 - a0) * i) / n));
+  return { t: 'line', pts };
 }
 
 /** Closed outline of n points at radius rad(theta). */
@@ -209,7 +224,129 @@ function spindleSpec(o: number): ShapeSpec {
   };
 }
 
-/** Side count of the placeholder outline for the bosses after wave A (waves B and C replace them). */
+/** Ember nose length as a multiple of the body radius: the arrowhead points past the rim. */
+export const EMBER_NOSE = 1.3;
+
+/** Pure: Ember arrowhead outline for body radius R, nose on +x (the facing), a notched tail. */
+export function emberArrow(R: number): ShapePrim {
+  return {
+    t: 'poly',
+    pts: [r2(EMBER_NOSE * R), 0, r2(-0.8 * R), r2(0.85 * R), r2(-0.35 * R), 0, r2(-0.8 * R), r2(-0.85 * R)],
+  };
+}
+
+/**
+ * Ember (orange, tier 2): an arrowhead with an inner chevron that fills as it opens (hittable only
+ * resting or stunned). The view turns with the facing, so the nose points along the dash. The flame
+ * and spark trails, the wind up lane and the Mine pulse are render effects (renderer.ts).
+ */
+function emberSpec(o: number): ShapeSpec {
+  const id = BOSS_EMBER;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  const chevron: ShapePrim = { t: 'poly', pts: [r2(0.6 * R), 0, r2(-0.38 * R), r2(0.42 * R), r2(-0.12 * R), 0, r2(-0.38 * R), r2(-0.42 * R)] };
+  return {
+    tint: null,
+    radius: r2(Math.max(R * BOSS_RIM, EMBER_NOSE * R)),
+    layers: [
+      layer([emberArrow(R)], w, { colour: c, fill: lerp(0.1, 0.16, o), haloMul: hm }),
+      layer([chevron], w * 0.7, { colour: c, fill: lerp(0.05, 0.4, o), haloMul: hm }),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Mirage shield ring radius as a multiple of the body radius. */
+export const MIRAGE_SHIELD = 1.0;
+
+/**
+ * Pure: Mirage shield ring with its open arc centred on +x (the view turns it to the arc angle), at
+ * the full 70 degree opening. The renderer draws the closing (entrance, phase change) and the bright
+ * window over it on the sprite layer, so one prebuilt ring serves every state.
+ */
+export function mirageShield(R: number): ShapePrim {
+  const g = MIRAGE_ARC_HALF;
+  return arc(r2(MIRAGE_SHIELD * R), g, Math.PI * 2 - g, 40);
+}
+
+/** Pure: the two arc lip ticks at the gap edges of the shield, across the ring. */
+export function mirageLips(R: number): ShapePrim[] {
+  const g = MIRAGE_ARC_HALF;
+  const r0 = 0.84 * R;
+  const r1 = 1.12 * R;
+  return [
+    { t: 'line', pts: [...polar(r0, g), ...polar(r1, g)] },
+    { t: 'line', pts: [...polar(r0, -g), ...polar(r1, -g)] },
+  ];
+}
+
+/**
+ * Mirage (magenta, tier 2): a shield ring with a 70 degree open arc (shots count only through it),
+ * bright lips at the arc edges, a diamond lens inside and the white core.
+ */
+function mirageSpec(o: number): ShapeSpec {
+  const id = BOSS_MIRAGE;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  return {
+    tint: null,
+    radius: r2(R * BOSS_RIM),
+    layers: [
+      layer([mirageShield(R)], w, { colour: c, haloMul: hm }),
+      layer(mirageLips(R), w * 0.8, { colour: c, haloMul: hm }),
+      layer([{ t: 'regularPoly', r: r2(0.55 * R), sides: 4, rot: 0 }], w * 0.7, { colour: c, fill: lerp(0.06, 0.28, o), haloMul: hm }),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Gravitas ring radii as multiples of the body radius: outer, middle (three arcs), inner, core. */
+export const GRAVITAS_RINGS: readonly [number, number, number, number] = [0.95, 0.7, 0.48, 0.3];
+
+/** Pure: the middle ring of Gravitas, three arcs of 100 degrees with 20 degree gaps. */
+export function gravitasMiddle(R: number): ShapePrim[] {
+  const r = r2(GRAVITAS_RINGS[1] * R);
+  const out: ShapePrim[] = [];
+  for (let k = 0; k < 3; k++) {
+    const a0 = (k * 2 * Math.PI) / 3 + (10 * Math.PI) / 180;
+    out.push(arc(r, a0, a0 + (100 * Math.PI) / 180, 12));
+  }
+  return out;
+}
+
+/**
+ * Gravitas (violet, tier 2): a filled core inside three concentric rings (the middle one in three
+ * arcs, so its turn reads), a white core that burns once the anchors are gone. The anchors are
+ * BossPart entities; the faint lines joining them and the lattice pull are render effects.
+ */
+function gravitasSpec(o: number): ShapeSpec {
+  const id = BOSS_GRAVITAS;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  const [r0, , r2i, rc] = GRAVITAS_RINGS;
+  return {
+    tint: null,
+    radius: r2(R * BOSS_RIM),
+    layers: [
+      layer([{ t: 'circle', r: r2(r0 * R) }], w, { colour: c, fill: 0.05, haloMul: hm }),
+      layer(gravitasMiddle(R), w * 0.8, { colour: c, alpha: 0.85, haloMul: hm }),
+      layer([{ t: 'circle', r: r2(r2i * R) }], w * 0.7, { colour: c, haloMul: hm }),
+      layer([{ t: 'circle', r: r2(rc * R) }], w * 0.6, { colour: c, fill: lerp(0.5, 0.85, o), haloMul: hm }),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Side count of the placeholder outline for the bosses after wave B (wave C replaces them). */
 const GENERIC_SIDES: readonly number[] = [6, 6, 4, 3, 10, 8, 4, 5, 7, 6];
 
 /**
@@ -242,6 +379,9 @@ export function buildBossSpec(id: number, step: number): ShapeSpec {
   if (b === BOSS_WARDEN) return wardenSpec(o);
   if (b === BOSS_BROOD) return broodSpec(o);
   if (b === BOSS_SPINDLE) return spindleSpec(o);
+  if (b === BOSS_EMBER) return emberSpec(o);
+  if (b === BOSS_MIRAGE) return mirageSpec(o);
+  if (b === BOSS_GRAVITAS) return gravitasSpec(o);
   return genericSpec(b, o);
 }
 

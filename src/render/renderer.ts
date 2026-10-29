@@ -284,7 +284,29 @@ import {
   TIER_BULLET_KEY,
   type EntranceRing,
 } from './bossLook';
-import { bossBodyR, bossCoreFrac, PART_POD, partR, partType } from './bossShapes';
+import { bossBodyR, bossCoreFrac, EMBER_NOSE, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, partR, partType } from './bossShapes';
+// V3 wave B: tier 2 boss effects (Ember lane and trails, Mirage arc, afterimage and landing flash,
+// Gravitas tethers and lattice pull, the Mine pulse). Pure helpers and planners, render only.
+import {
+  afterimageAlpha,
+  afterimageScale,
+  BOSS_EMBER,
+  BOSS_GRAVITAS,
+  BOSS_MIRAGE,
+  EMBER_LANE_LEN,
+  emberDashing,
+  emberFlameRate,
+  emberLaneAlpha,
+  emberSparkRate,
+  GRAVITAS_LATTICE_R,
+  gravitasLatticeAccel,
+  landingSparks,
+  mineGlow,
+  minePulse,
+  mirageArcOpenness,
+  warpJumped,
+} from './bossTier2';
+import { planAnchorTethers, planEmberLane, planMirageArc, TETHER_ANCHORS_MAX } from './bossTier2Fx';
 import {
   ADD_HUE_MIX,
   addGlow,
@@ -329,7 +351,7 @@ import { createSpriteBuf, fxHalo, resetSpriteBuf, type FxHalo } from './fxSprite
 import { createFxSpriteLayer, makeBossFxAtlas } from './fxSpriteLayer';
 import { createEnemyBulletLayer } from './enemyBullets';
 import type { EnemyBulletFrame, EnemyBulletsLike } from './enemyBulletFx';
-import { HAZARD_PULL, HAZARD_SPRITE_CAP, planEntranceRing, planHazard, type HazardInput } from './hazardFx';
+import { HAZARD_LANE, HAZARD_PULL, HAZARD_SPRITE_CAP, planEntranceRing, planHazard, type HazardInput } from './hazardFx';
 import { BOSS_PULL_ACCEL, KICK_BOSS_DOWN, KICK_BOSS_PHASE } from './lattice/kicks';
 import { HEAT_BOSS } from './lattice/heat';
 import { RIPPLE_BOSS } from './fx';
@@ -937,6 +959,29 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let turboPrevActive: string | null = null;
   let turboPrevTimer = 0;
   const entrance: EntranceRing = { r: 0, alpha: 0 };
+  // V3 wave B tier 2 state. Drawn boss facing and scale; the last drawn position (NaN when none) for
+  // the warp test; the Ember lane and drawn speed; lane hazards seen this frame (a sim lane replaces
+  // the render lane); the Mirage afterimage spot, age and slot; anchor positions this frame and the
+  // anchor count of the last frame (the lattice pull reads it before the parts are drawn).
+  let bossDrawRot = 0;
+  let bossDrawScale = 1;
+  let bossLastX = Number.NaN;
+  let bossLastY = Number.NaN;
+  let bossSpeed = 0;
+  let laneHazards = 0;
+  let ghostX = 0;
+  let ghostY = 0;
+  let ghostRot = 0;
+  let ghostScale = 1;
+  let ghostAge = Number.POSITIVE_INFINITY;
+  let ghostSlot = -1;
+  let ghostView: Graphics | null = null;
+  const anchorX = new Float32Array(TETHER_ANCHORS_MAX);
+  const anchorY = new Float32Array(TETHER_ANCHORS_MAX);
+  let anchorCount = 0;
+  let anchorsLast = 3;
+  const emberFlameEm: Emitter = { acc: 0 };
+  const emberSparkEm: Emitter = { acc: 0 };
   const halo: FxHalo = { alpha: 0, width: 0 };
   const hazardIn: HazardInput = { type: 0, x: 0, y: 0, rot: 0, radius: 0, vx: 0, vy: 0, age: 0, tier: 1, tint: 0xffffff, timeSec: 0 };
   const bulletTints: number[] = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff];
@@ -1266,6 +1311,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const k = viewKind[i] ?? -1;
         if (v && k >= 0) v.context = contextForSlot(k);
       }
+      // Wave B: the Mirage afterimage shares a boss context, so it follows the new neon too.
+      if (ghostView && ghostSlot >= 0) ghostView.context = contextForSlot(ghostSlot);
       retiredContexts = retiredContexts.concat(old);
       redrawWalls(r);
     },
@@ -1544,7 +1591,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossPhaseAge += dt;
     bossEdgeAge += dt;
     addCount = 0;
+    ghostAge += dt;
+    laneHazards = 0;
+    anchorsLast = anchorCount;
+    anchorCount = 0;
     if (!bossView.active) {
+      bossLastX = Number.NaN;
+      bossLastY = Number.NaN;
+      bossSpeed = 0;
+      emberFlameEm.acc = 0;
+      emberSparkEm.acc = 0;
       bossOpen = 0;
       exposed = false;
       exposeAge = 0;
@@ -1647,19 +1703,126 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     h.tint = palette[bossColourOf(bossIdx)];
     h.timeSec = timeSec;
     planHazard(h, hazardBuf, halo);
-    // A pull dimples the lattice like a well (Gravitas, wave B uses it).
+    if (h.type === HAZARD_LANE) laneHazards++;
+    // A pull dimples the lattice like a well. Gravitas pulls from its own position instead (the
+    // entity pass), so its pull hazard adds no second force.
     const sim = lattice.sim;
-    if (h.type === HAZARD_PULL && sim && wellsSeen < MAX_WELLS) {
+    const gravitasPulls = bossView.active && bossIdx === BOSS_GRAVITAS;
+    if (h.type === HAZARD_PULL && !gravitasPulls && sim && wellsSeen < MAX_WELLS) {
       addForce(sim, h.x, h.y, h.radius, BOSS_PULL_ACCEL);
       wellsSeen++;
     }
   }
 
+  /**
+   * Wave B: tier 2 sprite effects after the entity pass, on the hazard layer (one pooled geometry):
+   * the Ember wind up lane (unless the sim drew a lane hazard this frame), the Mirage open arc and
+   * window, and the faint Gravitas anchor tethers. All follow the body alpha (entrance, dying).
+   */
+  function planTier2(timeSec: number): void {
+    const tint = palette[bossColourOf(bossIdx)];
+    const bx = bossDrawX + bossShake.x;
+    const by = bossDrawY + bossShake.y;
+    const body = bossBodyAlpha(bossView.mode, bossView.modeT);
+    if (bossIdx === BOSS_EMBER) {
+      const la = laneHazards > 0 ? 0 : emberLaneAlpha(bossView.mode, bossView.modeT, bossSpeed) * body;
+      if (la <= 0) return;
+      const dx = Math.cos(bossDrawRot);
+      const dy = Math.sin(bossDrawRot);
+      const from = EMBER_NOSE * bossBodyR(bossIdx) * bossDrawScale;
+      const len = rayWallDistance(features, bx, by, dx, dy, EMBER_LANE_LEN);
+      if (len > from) planEmberLane(hazardBuf, bx + dx * from, by + dy * from, bossDrawRot, len - from, la, tint, halo);
+    } else if (bossIdx === BOSS_MIRAGE) {
+      const r = MIRAGE_SHIELD * bossBodyR(bossIdx) * bossDrawScale;
+      const open = mirageArcOpenness(bossView.mode, bossView.modeT);
+      planMirageArc(hazardBuf, bx, by, r, bossDrawRot, open, bossDrawScale, tint, mixRgb(tint, 0xffffff, 0.6), body, timeSec, halo);
+    } else if (bossIdx === BOSS_GRAVITAS) {
+      planAnchorTethers(hazardBuf, anchorX, anchorY, anchorCount, bx, by, timeSec, tint, halo);
+    }
+  }
+
+  /**
+   * Wave B: tier 2 effects of the boss body in the entity pass. (x, y) is the drawn centre before the
+   * exposed shake, rot the drawn facing. Ember sheds its flame (and dash sparks), Mirage leaves an
+   * afterimage and a landing flash on a warp, Gravitas pulls the lattice from its position through
+   * the well channel. Trails and sparks are off on Low; the lattice is off where it is off.
+   */
+  function bossTier2Body(w: World, i: number, x: number, y: number, rot: number, scale: number, dt: number): void {
+    const lx = bossLastX;
+    const ly = bossLastY;
+    bossLastX = x;
+    bossLastY = y;
+    bossDrawRot = rot;
+    bossDrawScale = scale;
+    const vx = ((w.x[i] ?? 0) - (w.prevX[i] ?? 0)) / SIM_DT;
+    const vy = ((w.y[i] ?? 0) - (w.prevY[i] ?? 0)) / SIM_DT;
+    const jumped = Number.isFinite(lx) && Number.isFinite(ly) && warpJumped(x - lx, y - ly);
+    // A warp is one sim step: its speed is not a dash.
+    bossSpeed = jumped || warpJumped(vx * SIM_DT, vy * SIM_DT) ? 0 : Math.hypot(vx, vy);
+    const t = getEffectsTier();
+    const tint = palette[bossColourOf(bossIdx)];
+    if (bossIdx === BOSS_EMBER) {
+      const dashing = emberDashing(bossSpeed);
+      const R = bossBodyR(bossIdx) * scale;
+      const dx = Math.cos(rot);
+      const dy = Math.sin(rot);
+      // Flame from the notched tail, blown back along the facing; hot sparks along the dash.
+      const flame = emberFlameRate(bossView.mode, dashing, t);
+      if (flame > 0) emitEnemyTrail(emberFlameEm, flame, x - dx * R * 0.4, y - dy * R * 0.4, dx * 300, dy * 300, ENEMY_TRAIL_SWIRL, mixRgb(tint, palette.yellow, 0.35), dt);
+      else emberFlameEm.acc = 0;
+      const spark = emberSparkRate(dashing, t);
+      if (spark > 0) emitEnemyTrail(emberSparkEm, spark, x, y, vx, vy, ENEMY_TRAIL_CHARGER, mixRgb(tint, 0xffffff, 0.45), dt);
+      else emberSparkEm.acc = 0;
+    } else if (bossIdx === BOSS_MIRAGE && jumped) {
+      // Ghost at the old spot (off on Low through afterimageAlpha) and a landing flash at the new one.
+      ghostX = lx;
+      ghostY = ly;
+      ghostRot = rot;
+      ghostScale = scale;
+      ghostAge = 0;
+      const R = bossBodyR(bossIdx) * scale;
+      addPulse(pulsePool, PULSE_RING, x, y, 0, R * 0.6, R * 2.4, 0.4, mixRgb(tint, 0xffffff, 0.4), 1);
+      const n = landingSparks(t);
+      if (n > 0) burstSmall(x, y, tint, n, 120, 360, 0.35);
+    } else if (bossIdx === BOSS_GRAVITAS && lattice.sim && wellsSeen < MAX_WELLS) {
+      const accel = gravitasLatticeAccel(anchorsLast, bossView.mode, bossView.modeT);
+      if (accel < 0) {
+        addForce(lattice.sim, x, y, GRAVITAS_LATTICE_R, accel);
+        wellsSeen++;
+      }
+    }
+  }
+
+  /** Wave B: the Mirage afterimage, one pooled view sharing the boss context (no Graphics.clear). */
+  function drawGhost(): void {
+    const a = bossView.active && bossIdx === BOSS_MIRAGE ? afterimageAlpha(ghostAge, getEffectsTier()) : 0;
+    if (a <= 0) {
+      if (ghostView && ghostView.visible) ghostView.visible = false;
+      return;
+    }
+    const slot = bossSlot(bossIdx, 0);
+    if (!ghostView) {
+      ghostView = new Graphics(contextForSlot(slot));
+      ghostView.label = 'bossGhost';
+      ghostSlot = slot;
+    } else if (ghostSlot !== slot) {
+      ghostView.context = contextForSlot(slot);
+      ghostSlot = slot;
+    }
+    if (ghostView.parent !== entities) entities.addChildAt(ghostView, 0);
+    ghostView.visible = true;
+    ghostView.position.set(ghostX, ghostY);
+    ghostView.rotation = ghostRot;
+    ghostView.scale.set(ghostScale * afterimageScale(ghostAge));
+    ghostView.alpha = a;
+  }
+
   /** Entrance telegraph ring while the boss enters, then sync the hazard layer. */
-  function drawHazards(): void {
+  function drawHazards(timeSec: number): void {
     if (bossView.active) {
       entranceRing(bossView.mode, bossView.modeT, bossView.radius, entrance);
       if (entrance.alpha > 0) planEntranceRing(hazardBuf, bossDrawX, bossDrawY, entrance.r, entrance.alpha, palette[bossColourOf(bossIdx)], bossTier, halo);
+      planTier2(timeSec);
     }
     if (hazardBuf.count > 0 || hazardLayer.shown > 0) hazardLayer.sync(hazardBuf);
     stats.hazardSprites = hazardBuf.count;
@@ -2241,8 +2404,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       let x = interp(w.prevX[i] ?? 0, w.x[i] ?? 0, alpha);
       let y = interp(w.prevY[i] ?? 0, w.y[i] ?? 0, alpha);
-      if (kind === KIND_NUM.blink) {
-        // A Blink jump is one sim step: never draw it sliding across the arena.
+      if (kind === KIND_NUM.blink || isBoss) {
+        // A Blink jump (and a Mirage warp) is one sim step: never draw it sliding across the arena.
         const jx = (w.x[i] ?? 0) - (w.prevX[i] ?? 0);
         const jy = (w.y[i] ?? 0) - (w.prevY[i] ?? 0);
         if (jx * jx + jy * jy > BLINK_SNAP_U * BLINK_SNAP_U) {
@@ -2300,10 +2463,24 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const phaseEvent = bossPhaseAge < PHASE_FLASH_SEC ? 1 - bossPhaseAge / PHASE_FLASH_SEC : 0;
         const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
         ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
+        if (bossView.active) bossTier2Body(w, i, bossDrawX, bossDrawY, ev.rot, scale, dt);
       } else if (isPart) {
         // Parts (pods, anchors, turrets) shake with the body, so the whole boss moves as one.
         ev.x += bossShake.x;
         ev.y += bossShake.y;
+        // Wave B: Gravitas anchors are joined by faint lines (planTier2 reads these positions).
+        if (partType(w.a[i] ?? 0) === PART_ANCHOR && anchorCount < TETHER_ANCHORS_MAX) {
+          anchorX[anchorCount] = ev.x;
+          anchorY[anchorCount] = ev.y;
+          anchorCount++;
+        }
+      }
+      if (kind === KIND_NUM.mine && !teleNow && bossView.active && bossIdx === BOSS_EMBER) {
+        // Wave B: while Ember lives its Mines pulse (scale and glow; off on Low).
+        const p = minePulse(timeSec, hash01(i), getEffectsTier());
+        ev.scaleX *= p;
+        ev.scaleY *= p;
+        ev.glowMul *= mineGlow(p);
       }
       if (isAdd) {
         const p = addAngryPulse(timeSec, hash01(i));
@@ -2445,7 +2622,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     fxHalo(currentRender, bloomOn, halo);
     resetSpriteBuf(hazardBuf);
     drawEntities(w, a, nowSec, fxDt);
-    drawHazards();
+    drawHazards(nowSec);
+    drawGhost();
     drawBossCue();
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
@@ -2550,6 +2728,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossShake.x = 0;
     bossShake.y = 0;
     addCount = 0;
+    // Wave B tier 2 state.
+    bossLastX = Number.NaN;
+    bossLastY = Number.NaN;
+    bossSpeed = 0;
+    ghostAge = Number.POSITIVE_INFINITY;
+    if (ghostView) ghostView.visible = false;
+    anchorCount = 0;
+    anchorsLast = 3;
+    emberFlameEm.acc = 0;
+    emberSparkEm.acc = 0;
     turboK = 0;
     turboPrevActive = null;
     turboPrevTimer = 0;
