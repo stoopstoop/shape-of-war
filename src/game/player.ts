@@ -2,6 +2,7 @@
 // in Forge's ship.ts; this module decides when the ship dies and comes back.
 import { bus } from '../core/events';
 import { bossOnBomb, bossOnShipDeath } from './bosses/core';
+import { clearEnemyBullets } from './enemyBullets';
 import { resetWell } from './enemies/gravitywell';
 import { clearGeoms } from './geoms';
 import { removeEntity } from './remove';
@@ -37,6 +38,7 @@ export function killShip(w: World): void {
     removeEntity(w, id); // enemies, telegraphs, segments and the drone
   }
   bossOnShipDeath(w);
+  clearEnemyBullets(w); // boss rule 6: every enemy bullet, charging or flying
   clearGeoms(w);
   resetWeapon(w); // docs/11 SPEC 3.5 rule 4: death returns to spread
   deactivateShip(w);
@@ -61,6 +63,7 @@ export function triggerBomb(w: World): boolean {
     else if (isHostile(k) || k === Kind.Slime) removeEntity(w, id); // v2 kinds, Mines and every Slime too
   }
   bossOnBomb(w); // V3 boss rule 7: hazards cleared, the boss staggered, no damage
+  clearEnemyBullets(w); // and every enemy bullet, charging or flying, with no score
   g.pointFx.x = w.x[0] ?? 0;
   g.pointFx.y = w.y[0] ?? 0;
   bus.emit('fx:bomb', g.pointFx);

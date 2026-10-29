@@ -31,6 +31,7 @@ import {
   pullSpeed,
   wrapPi,
 } from './kit';
+import { cancelVolley, stepVolleyLaunch } from './shots';
 import { armState, bossOf, type BossState } from './state';
 import {
   BOSS_DAMAGE,
@@ -259,6 +260,7 @@ export function stepBossSchedule(w: World, dt: number): void {
     bs.modeT += dt;
   }
   stepExposed(bs, dt);
+  stepVolleyLaunch(w, bs); // fx:bossShot at launch (shooters only; no op with no volley charging)
   emitBossHud(w, bs, dt, false);
 }
 
@@ -534,6 +536,7 @@ export function bossOnBomb(w: World): void {
   const bs = bossOf(w);
   if (bs === null) return;
   clearHazards(w);
+  cancelVolley(bs); // the bomb clears the bullets too (player.ts)
   if (bossHittable(w) > 0) bs.stagger = STAGGER_SEC;
 }
 
@@ -545,6 +548,7 @@ export function bossOnShipDeath(w: World): void {
   const bs = bossOf(w);
   if (bs === null || bs.status !== 'alive') return;
   clearHazards(w);
+  cancelVolley(bs); // killShip clears the bullets too
   bs.stagger = 0;
   bs.phaseT = 0;
   bs.retry = 0;
@@ -557,6 +561,7 @@ function defeatBoss(w: World, bs: BossState, id: number): void {
   const y = w.y[id] ?? 0;
   clearHazards(w);
   clearParts(w, bs);
+  cancelVolley(bs);
   bs.viewMode = BossMode.Dying;
   emitBossHud(w, bs, 0, true);
   removeEntity(w, id);

@@ -270,22 +270,43 @@ export const GRAVITAS = {
 
 export interface ShotRow {
   pattern: 'pellet' | 'fan' | 'turret';
-  /** Bullet speed, u/s (clamped to ENEMY_BULLET_SPEED_MAX by the pool). */
+  /** Bullet speed, u/s (clamped to ENEMY_BULLET_SPEED_MAX by the pool, phase speed ups included). */
   speed: number;
+  /** Seconds between volleys (pellet, turret). 0 for a fan, which fires once per open floor dash. */
   every: number;
   everyP2: number;
+  /** Bullets per volley (at most SHOT_VOLLEY_MAX). Optional so a row without it fires one. */
+  count?: number;
+  /** Angle between neighbours in a fan, degrees (at least 12). */
+  spreadDeg?: number;
   /** Spindle's trade: arm rate with the pellet on. */
   armRate?: number;
+  /** Ember's trade: rest after an open floor dash, s (the fan launches inside it). */
+  restSec?: number;
 }
 
 /**
- * The three shooters (docs/13 "Boss projectiles"). Wave A only carries Spindle's row so its trade
- * (slower arms) sits beside the shot it pays for. The pellet itself is fired from wave B. Cut 5
- * empties these rows, which also reverts the trade.
+ * The three shooters (docs/13 "Boss projectiles"). Each row holds the shot and the trade it pays
+ * (Spindle's slower arms, Ember's longer rest after an open floor dash). Cut 5 empties these rows,
+ * which removes the shots and reverts the trades; every other attack stays. Bastion's row arrives
+ * with Bastion in wave C.
  */
 export const BOSS_SHOTS: Readonly<Partial<Record<BossId, ShotRow>>> = {
-  spindle: { pattern: 'pellet', speed: 180, every: 3.0, everyP2: 3.6, armRate: 0.4 },
+  spindle: { pattern: 'pellet', speed: 180, every: 3.0, everyP2: 3.6, count: 1, armRate: 0.4 },
+  ember: { pattern: 'fan', speed: 210, every: 0, everyP2: 0, count: 3, spreadDeg: 14, restSec: 1.8 },
 };
+
+/** A volley is at most this many bullets (docs/13 boss projectiles rule 2). */
+export const SHOT_VOLLEY_MAX = 5;
+/** Neighbours in a fan are at least this far apart, degrees (rule 6). */
+export const SHOT_SPREAD_MIN_DEG = 12;
+/** A shot due with the ship nearer than ENEMY_BULLET_MIN_RANGE waits this long and rechecks (rule 6). */
+export const SHOT_RECHECK_SEC = 0.3;
+
+/** Ember's rest after an open floor dash: the fan row's trade when the row exists, else the base rest. */
+export function emberFanRest(): number {
+  return BOSS_SHOTS.ember?.restSec ?? EMBER.restSec;
+}
 
 /** Spindle's arm rate: the shot row's trade when the row exists, else the base rate. */
 export function spindleArmRate(): number {

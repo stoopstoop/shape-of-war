@@ -5,9 +5,13 @@
 // touched a wall ends in a 2 s stun (a third wall stuns at once); a dash that ends in open floor
 // ends in a 1.2 s rest. It is hittable only stunned or resting. Each phase is 15 percent faster:
 // dash speed times 1.15^(phase - 1), wind up, dash and rest times divided by it (the wind up never
-// under the telegraph). Scratch: n0 move state, t3 state seconds left, dir dash heading, n1
-// bounces used, t1 1 when this dash touched a wall, t0 dash distance since the last Mine, n2
-// marker id.
+// under the telegraph). Fan (BOSS_SHOTS.ember, docs/13 boss projectiles): after a dash that ends
+// in open floor the rest grows to 1.8 s and three bullets 14 deg apart, the middle one at its
+// target, charge from the rest start and launch 0.8 s in. The fan waits and rechecks every 0.3 s
+// while the ship is within 300 u of the muzzle, and is skipped if it could no longer launch inside
+// the rest. A wall hit stuns with no fan. Scratch: n0 move state, t3 state seconds left, dir dash
+// heading, n1 bounces used, t1 1 when this dash touched a wall, t0 dash distance since the last
+// Mine, n2 marker id, t2 1 while this rest still owes its fan, shotWait the fan recheck.
 import { confine, createConfineResult } from '../arena';
 import { dropMine } from '../enemies/mine';
 import { removeEntity } from '../remove';
@@ -15,8 +19,9 @@ import { angleBetween, targetOf, turnToward } from '../steer';
 import { Kind, type World } from '../world';
 import { spawnLaneMarker } from './core';
 import { hazardTelegraph, phaseSpeedUp, reflectHeading } from './kit';
+import { fireVolley } from './shots';
 import type { BossState } from './state';
-import { EMBER } from './table';
+import { BOSS_SHOTS, EMBER, emberFanRest, SHOT_RECHECK_SEC } from './table';
 import { BossMode, type BossDef } from './types';
 
 /** Move states (BossState.n0). */
@@ -95,13 +100,41 @@ function startWindup(bs: BossState, extra: number): void {
   setMove(bs, EmberMove.Windup, extra + windupFor(bs.phase, bs.row.tier));
 }
 
-/** Called when a dash ends. wall: the dash touched a wall. The fan item hooks the rest here. */
+/** Called when a dash ends. wall: the dash touched a wall (stun, no fan); else rest, with the fan if its row exists. */
 function endDash(w: World, id: number, bs: BossState, wall: boolean): void {
+  bs.shotWait = 0;
   if (wall) {
+    bs.t2 = 0;
     setMove(bs, EmberMove.Stun, EMBER.stunSec);
     return;
   }
-  setMove(bs, EmberMove.Rest, restFor(bs.phase, EMBER.restSec));
+  const fan = BOSS_SHOTS.ember !== undefined;
+  bs.t2 = fan ? 1 : 0;
+  setMove(bs, EmberMove.Rest, restFor(bs.phase, fan ? emberFanRest() : EMBER.restSec));
+}
+
+/** The fan owed by this rest: fire it once the ship is out of range, while it can still launch inside the rest. */
+function stepFan(w: World, id: number, bs: BossState, dt: number, adt: number): void {
+  if (bs.t2 !== 1) return;
+  const row = BOSS_SHOTS.ember;
+  if (row === undefined) {
+    bs.t2 = 0;
+    return;
+  }
+  if (bs.shotWait > 0) {
+    bs.shotWait = bs.shotWait - dt > 0 ? bs.shotWait - dt : 0;
+    if (bs.shotWait > 0) return;
+  }
+  const rate = dt > 0 ? adt / dt : 1;
+  if (bs.t3 / rate < hazardTelegraph(bs.row.tier)) {
+    bs.t2 = 0; // too late to launch inside the rest: no fan this time
+    return;
+  }
+  if (!fireVolley(w, id, bs, row, speedFor(bs.phase))) {
+    bs.shotWait = SHOT_RECHECK_SEC;
+    return;
+  }
+  bs.t2 = 0;
 }
 
 function windup(w: World, id: number, bs: BossState, dt: number, adt: number): void {
@@ -163,12 +196,15 @@ export function reset(w: World, id: number, bs: BossState, first: boolean): void
   bs.n1 = 0;
   bs.t1 = 0;
   bs.t0 = 0;
+  bs.t2 = 0;
+  bs.shotWait = 0;
   bs.dir = w.rot[id] ?? 0;
   startWindup(bs, first ? EMBER.firstDash : 0);
   setWindow(bs);
 }
 
 export function step(w: World, id: number, bs: BossState, dt: number, adt: number): void {
+  const prev = bs.n0;
   switch (bs.n0) {
     case EmberMove.Windup:
       windup(w, id, bs, dt, adt);
@@ -181,9 +217,12 @@ export function step(w: World, id: number, bs: BossState, dt: number, adt: numbe
       if (bs.t3 <= 0) startWindup(bs, 0);
       break;
     default:
+      stepFan(w, id, bs, dt, adt);
       bs.t3 -= adt;
       if (bs.t3 <= 0) startWindup(bs, 0);
   }
+  // The fan charges from the start of the rest: the step the dash ends in open floor.
+  if (prev === EmberMove.Dash && bs.n0 === EmberMove.Rest) stepFan(w, id, bs, dt, adt);
   setWindow(bs);
 }
 
