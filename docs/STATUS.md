@@ -2,7 +2,7 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: v2.0.0 tagged at 13b7d96 (GE pass). v2.1 running: Forge: move-symmetry (V-A5), Chorus: melody (V-D5), Thumbs: button-reach, Scribe: v3-plan draft (docs/12). Cap $12 per run since 03:18Z. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Wave: v2.0.0 tagged at 13b7d96 (GE pass). v2.1 running: Forge: move-symmetry (V-A5), Chorus: melody (V-D5), Thumbs: button-reach, Scribe: v3-plan draft (docs/12). Cap $12 per run since 03:18Z. Player guide first edition merged locally at c322576 (another session; docs only; carried by the next push). GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
 - Open gate: G2.1 (v2.1 retest: symmetry, melody, button reach) after the v2.1 runs merge. Old GE text: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
@@ -40,6 +40,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Spend so far about $148 of $192 (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
+- v2.1 candidates from the player guide canon audit (.agents/runs/0203-scribe-player-guide/handoff.md, 17 conflicts, unverified on device): B10 invulnerability blink not drawn; B11 geom blink not drawn; B12 seven sfx cues never played; B13 results screen missing the Space physics level (docs/11 3.6); B14 HUD weapon label hues differ from pickup hues. Owners to confirm: Glow (B10, B11, B14), Chorus or Ledger (B12), Ledger (B13).
 - B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
 - B5: closed (G4 pass).
 - B6, B7, B8: closed (G4 and retests pass).
