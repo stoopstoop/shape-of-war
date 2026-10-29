@@ -1,0 +1,510 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+<rect width="1536" height="1024" fill="#000000"/>
+<g transform="translate(0.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="18.00,0.00 -9.00,10.00 -4.00,0.00 -9.00,-10.00"/>
+    </g>
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="18.00,0.00 -9.00,10.00 -4.00,0.00 -9.00,-10.00"/>
+    </g>
+    <g fill="none" stroke="#ffffff" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="18.00,0.00 -9.00,10.00 -4.00,0.00 -9.00,-10.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#ffffff" font-family="sans-serif" font-size="13" text-anchor="middle">Ship</text>
+</g>
+<g transform="translate(256.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#347de5" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-14.00" y="-14.00" width="28.00" height="28.00"/>
+    </g>
+    <g fill="none" stroke="#347de5" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-14.00" y="-14.00" width="28.00" height="28.00"/>
+    </g>
+    <g fill="none" stroke="#347de5" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-14.00" y="-14.00" width="28.00" height="28.00"/>
+    </g>
+    <g fill="none" stroke="#347de5" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 14.00,0.00 0.00,14.00 -14.00,0.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#347de5" font-family="sans-serif" font-size="13" text-anchor="middle">Grunt</text>
+</g>
+<g transform="translate(512.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#a64ae8" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-13.00,-13.00 13.00,13.00 13.00,-13.00 -13.00,13.00"/>
+    </g>
+    <g fill="none" stroke="#a64ae8" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-13.00,-13.00 13.00,13.00 13.00,-13.00 -13.00,13.00"/>
+    </g>
+    <g fill="none" stroke="#a64ae8" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-13.00,-13.00 13.00,13.00 13.00,-13.00 -13.00,13.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#a64ae8" font-family="sans-serif" font-size="13" text-anchor="middle">Wanderer</text>
+</g>
+<g transform="translate(768.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#1de22d" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 14.00,0.00 0.00,14.00 -14.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#1de22d" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 14.00,0.00 0.00,14.00 -14.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#1de22d" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 14.00,0.00 0.00,14.00 -14.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#1de22d" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-5.00" y="-5.00" width="10.00" height="10.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#1de22d" font-family="sans-serif" font-size="13" text-anchor="middle">Weaver</text>
+</g>
+<g transform="translate(1024.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#e84ace" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,0.00 20.00,0.00 0.00,14.00"/>
+      <polygon points="0.00,0.00 0.00,20.00 -14.00,0.00"/>
+      <polygon points="0.00,0.00 -20.00,0.00 0.00,-14.00"/>
+      <polygon points="0.00,0.00 0.00,-20.00 14.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#e84ace" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,0.00 20.00,0.00 0.00,14.00"/>
+      <polygon points="0.00,0.00 0.00,20.00 -14.00,0.00"/>
+      <polygon points="0.00,0.00 -20.00,0.00 0.00,-14.00"/>
+      <polygon points="0.00,0.00 0.00,-20.00 14.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#e84ace" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,0.00 20.00,0.00 0.00,14.00"/>
+      <polygon points="0.00,0.00 0.00,20.00 -14.00,0.00"/>
+      <polygon points="0.00,0.00 -20.00,0.00 0.00,-14.00"/>
+      <polygon points="0.00,0.00 0.00,-20.00 14.00,0.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#e84ace" font-family="sans-serif" font-size="13" text-anchor="middle">Pinwheel</text>
+</g>
+<g transform="translate(1280.00 0.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#e58634" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="10.00,0.00 -8.00,7.00 -4.00,0.00 -8.00,-7.00"/>
+    </g>
+    <g fill="none" stroke="#e58634" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="10.00,0.00 -8.00,7.00 -4.00,0.00 -8.00,-7.00"/>
+    </g>
+    <g fill="none" stroke="#e58634" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="10.00,0.00 -8.00,7.00 -4.00,0.00 -8.00,-7.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#e58634" font-family="sans-serif" font-size="13" text-anchor="middle">Dart</text>
+</g>
+<g transform="translate(0.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#34d6e5" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-13.00 -11.26,-6.50 -11.26,6.50 0.00,13.00 11.26,6.50 11.26,-6.50"/>
+    </g>
+    <g fill="none" stroke="#34d6e5" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-13.00 -11.26,-6.50 -11.26,6.50 0.00,13.00 11.26,6.50 11.26,-6.50"/>
+    </g>
+    <g fill="none" stroke="#34d6e5" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-13.00 -11.26,-6.50 -11.26,6.50 0.00,13.00 11.26,6.50 11.26,-6.50"/>
+    </g>
+    <g fill="#34d6e5" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="3.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#34d6e5" font-family="sans-serif" font-size="13" text-anchor="middle">Snake Head</text>
+</g>
+<g transform="translate(256.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#34d6e5" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+    <g fill="none" stroke="#34d6e5" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+    <g fill="none" stroke="#34d6e5" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#34d6e5" font-family="sans-serif" font-size="13" text-anchor="middle">Snake Body</text>
+</g>
+<g transform="translate(512.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#e53442" stroke-opacity="0.19" stroke-width="15.75" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="24.00"/>
+    </g>
+    <g fill="none" stroke="#e53442" stroke-opacity="0.44" stroke-width="7.20" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="24.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="9.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="9.00"/>
+    </g>
+    <g fill="none" stroke="#e53442" stroke-opacity="1.00" stroke-width="5.04" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="24.00"/>
+    </g>
+    <g fill="none" stroke="#e53442" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="17.00"/>
+    </g>
+    <g fill="#f2f2f2" fill-opacity="0.85" stroke="none">
+      <circle cx="0.00" cy="0.00" r="9.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="9.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#e53442" font-family="sans-serif" font-size="13" text-anchor="middle">Gravity Well</text>
+</g>
+<g transform="translate(768.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#e5d634" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="9.18,-22.17 -9.18,-22.17 -22.17,-9.18 -22.17,9.18 -9.18,22.17 9.18,22.17 22.17,9.18 22.17,-9.18"/>
+    </g>
+    <g fill="none" stroke="#e5d634" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="9.18,-22.17 -9.18,-22.17 -22.17,-9.18 -22.17,9.18 -9.18,22.17 9.18,22.17 22.17,9.18 22.17,-9.18"/>
+    </g>
+    <g fill="none" stroke="#e5d634" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="9.18,-22.17 -9.18,-22.17 -22.17,-9.18 -22.17,9.18 -9.18,22.17 9.18,22.17 22.17,9.18 22.17,-9.18"/>
+    </g>
+    <g fill="none" stroke="#e5d634" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-9.00" y="-9.00" width="18.00" height="18.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#e5d634" font-family="sans-serif" font-size="13" text-anchor="middle">Spawner</text>
+</g>
+<g transform="translate(1024.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#8ce84a" stroke-opacity="0.19" stroke-width="7.88" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-6.00 6.00,0.00 0.00,6.00 -6.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#8ce84a" stroke-opacity="0.44" stroke-width="3.60" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-6.00 6.00,0.00 0.00,6.00 -6.00,0.00"/>
+    </g>
+    <g fill="#8ce84a" fill-opacity="0.35" stroke="none">
+      <polygon points="0.00,-6.00 6.00,0.00 0.00,6.00 -6.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#8ce84a" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-6.00 6.00,0.00 0.00,6.00 -6.00,0.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#8ce84a" font-family="sans-serif" font-size="13" text-anchor="middle">Geom</text>
+</g>
+<g transform="translate(1280.00 256.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="8.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="-5.00,0.00 5.00,0.00"/>
+      <polyline points="0.00,-5.00 0.00,5.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#f2f2f2" font-family="sans-serif" font-size="13" text-anchor="middle">Drone</text>
+</g>
+<g transform="translate(0.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="#f2f2f2" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="2.50"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#f2f2f2" font-family="sans-serif" font-size="13" text-anchor="middle">Weapon Pickup</text>
+</g>
+<g transform="translate(256.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#99ddff" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#99ddff" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#99ddff" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#99ddff" stroke-opacity="1.00" stroke-width="3.02" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="-6.00,-3.00 6.00,-3.00"/>
+      <polyline points="-6.00,3.00 6.00,3.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#99ddff" font-family="sans-serif" font-size="13" text-anchor="middle">Weapon Pickup (Rapid)</text>
+</g>
+<g transform="translate(512.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#b08fff" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#b08fff" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#b08fff" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#b08fff" stroke-opacity="1.00" stroke-width="3.02" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="-7.00,0.00 7.00,0.00"/>
+      <polyline points="2.00,-4.00 7.00,0.00 2.00,4.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#b08fff" font-family="sans-serif" font-size="13" text-anchor="middle">Weapon Pickup (Pierce)</text>
+</g>
+<g transform="translate(768.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#70ffa7" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#70ffa7" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#70ffa7" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-14.00 -13.31,-4.33 -8.23,11.33 8.23,11.33 13.31,-4.33"/>
+    </g>
+    <g fill="none" stroke="#70ffa7" stroke-opacity="1.00" stroke-width="2.69" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="5.50"/>
+    </g>
+    <g fill="#70ffa7" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="2.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#70ffa7" font-family="sans-serif" font-size="13" text-anchor="middle">Weapon Pickup (Orbit)</text>
+</g>
+<g transform="translate(1024.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#eb5732" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="15.00,0.00 1.00,-12.00 1.00,-5.00 -14.00,-5.00 -14.00,5.00 1.00,5.00 1.00,12.00"/>
+    </g>
+    <g fill="none" stroke="#eb5732" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="15.00,0.00 1.00,-12.00 1.00,-5.00 -14.00,-5.00 -14.00,5.00 1.00,5.00 1.00,12.00"/>
+    </g>
+    <g fill="none" stroke="#eb5732" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="15.00,0.00 1.00,-12.00 1.00,-5.00 -14.00,-5.00 -14.00,5.00 1.00,5.00 1.00,12.00"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#eb5732" font-family="sans-serif" font-size="13" text-anchor="middle">Charger</text>
+</g>
+<g transform="translate(1280.00 512.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#4f4ae8" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+    </g>
+    <g fill="none" stroke="#4f4ae8" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="21.00" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="9.60" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="9.50,-16.45 16.00,-27.71"/>
+      <polyline points="9.50,16.45 16.00,27.71"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="9.50,-16.45 16.00,-27.71"/>
+      <polyline points="9.50,16.45 16.00,27.71"/>
+    </g>
+    <g fill="none" stroke="#4f4ae8" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="6.72" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+    </g>
+    <g fill="#f2f2f2" fill-opacity="0.38" stroke="none">
+      <polygon points="14.50,-25.11 17.65,-23.01 20.51,-20.51 23.01,-17.65 25.11,-14.50 26.79,-11.10 28.01,-7.51 28.75,-3.79 29.00,0.00 28.75,3.79 28.01,7.51 26.79,11.10 25.11,14.50 23.01,17.65 20.51,20.51 17.65,23.01 14.50,25.11 10.50,18.19 12.78,16.66 14.85,14.85 16.66,12.78 18.19,10.50 19.40,8.04 20.28,5.44 20.82,2.74 21.00,0.00 20.82,-2.74 20.28,-5.44 19.40,-8.04 18.19,-10.50 16.66,-12.78 14.85,-14.85 12.78,-16.66 10.50,-18.19"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="2.02" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="14.50,-25.11 17.65,-23.01 20.51,-20.51 23.01,-17.65 25.11,-14.50 26.79,-11.10 28.01,-7.51 28.75,-3.79 29.00,0.00 28.75,3.79 28.01,7.51 26.79,11.10 25.11,14.50 23.01,17.65 20.51,20.51 17.65,23.01 14.50,25.11 10.50,18.19 12.78,16.66 14.85,14.85 16.66,12.78 18.19,10.50 19.40,8.04 20.28,5.44 20.82,2.74 21.00,0.00 20.82,-2.74 20.28,-5.44 19.40,-8.04 18.19,-10.50 16.66,-12.78 14.85,-14.85 12.78,-16.66 10.50,-18.19"/>
+    </g>
+    <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="9.50,-16.45 16.00,-27.71"/>
+      <polyline points="9.50,16.45 16.00,27.71"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#4f4ae8" font-family="sans-serif" font-size="13" text-anchor="middle">Bulwark</text>
+</g>
+<g transform="translate(0.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 6.50,11.26 4.45,12.22 2.26,12.80 0.00,13.00 -2.26,12.80 -4.45,12.22 -6.50,11.26 -8.36,9.96 -9.96,8.36 -11.26,6.50 -12.22,4.45 -12.80,2.26 -13.00,0.00 -12.80,-2.26 -12.22,-4.45 -11.26,-6.50 -9.96,-8.36 -8.36,-9.96 -6.50,-11.26 -4.45,-12.22 -2.26,-12.80 0.00,-13.00 2.26,-12.80 4.45,-12.22 6.50,-11.26 8.36,-9.96"/>
+    </g>
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 6.50,11.26 4.45,12.22 2.26,12.80 0.00,13.00 -2.26,12.80 -4.45,12.22 -6.50,11.26 -8.36,9.96 -9.96,8.36 -11.26,6.50 -12.22,4.45 -12.80,2.26 -13.00,0.00 -12.80,-2.26 -12.22,-4.45 -11.26,-6.50 -9.96,-8.36 -8.36,-9.96 -6.50,-11.26 -4.45,-12.22 -2.26,-12.80 0.00,-13.00 2.26,-12.80 4.45,-12.22 6.50,-11.26 8.36,-9.96"/>
+    </g>
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 10.93,13.02"/>
+      <polyline points="8.36,-9.96 10.93,-13.02"/>
+    </g>
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 10.93,13.02"/>
+      <polyline points="8.36,-9.96 10.93,-13.02"/>
+    </g>
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 6.50,11.26 4.45,12.22 2.26,12.80 0.00,13.00 -2.26,12.80 -4.45,12.22 -6.50,11.26 -8.36,9.96 -9.96,8.36 -11.26,6.50 -12.22,4.45 -12.80,2.26 -13.00,0.00 -12.80,-2.26 -12.22,-4.45 -11.26,-6.50 -9.96,-8.36 -8.36,-9.96 -6.50,-11.26 -4.45,-12.22 -2.26,-12.80 0.00,-13.00 2.26,-12.80 4.45,-12.22 6.50,-11.26 8.36,-9.96"/>
+    </g>
+    <g fill="none" stroke="#ea3e8e" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="8.36,9.96 10.93,13.02"/>
+      <polyline points="8.36,-9.96 10.93,-13.02"/>
+    </g>
+    <g fill="#ea3e8e" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="2.50"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#ea3e8e" font-family="sans-serif" font-size="13" text-anchor="middle">Blink</text>
+</g>
+<g transform="translate(256.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#26e3aa" stroke-opacity="0.19" stroke-width="11.55" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="1.50,0.00 1.72,0.49 1.77,1.10 1.59,1.76 1.17,2.40 0.51,2.91 -0.34,3.23 -1.33,3.28 -2.36,3.02 -3.34,2.42 -4.15,1.51 -4.70,0.33 -4.89,-1.04 -4.67,-2.48 -4.02,-3.88 -2.94,-5.09 -1.49,-5.98 0.23,-6.45 2.09,-6.42 3.94,-5.84 5.62,-4.71 6.97,-3.10 7.84,-1.10 8.13,1.14 7.77,3.46 6.73,5.65 5.08,7.53 2.90,8.92 0.34,9.66 -2.41,9.66 -5.13,8.88 -7.58,7.32 -9.57,5.09 -10.88,2.31 -11.39,-0.80 -11.00,-4.00 -9.71,-7.05"/>
+    </g>
+    <g fill="none" stroke="#26e3aa" stroke-opacity="0.44" stroke-width="5.28" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="1.50,0.00 1.72,0.49 1.77,1.10 1.59,1.76 1.17,2.40 0.51,2.91 -0.34,3.23 -1.33,3.28 -2.36,3.02 -3.34,2.42 -4.15,1.51 -4.70,0.33 -4.89,-1.04 -4.67,-2.48 -4.02,-3.88 -2.94,-5.09 -1.49,-5.98 0.23,-6.45 2.09,-6.42 3.94,-5.84 5.62,-4.71 6.97,-3.10 7.84,-1.10 8.13,1.14 7.77,3.46 6.73,5.65 5.08,7.53 2.90,8.92 0.34,9.66 -2.41,9.66 -5.13,8.88 -7.58,7.32 -9.57,5.09 -10.88,2.31 -11.39,-0.80 -11.00,-4.00 -9.71,-7.05"/>
+    </g>
+    <g fill="none" stroke="#26e3aa" stroke-opacity="1.00" stroke-width="3.70" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="1.50,0.00 1.72,0.49 1.77,1.10 1.59,1.76 1.17,2.40 0.51,2.91 -0.34,3.23 -1.33,3.28 -2.36,3.02 -3.34,2.42 -4.15,1.51 -4.70,0.33 -4.89,-1.04 -4.67,-2.48 -4.02,-3.88 -2.94,-5.09 -1.49,-5.98 0.23,-6.45 2.09,-6.42 3.94,-5.84 5.62,-4.71 6.97,-3.10 7.84,-1.10 8.13,1.14 7.77,3.46 6.73,5.65 5.08,7.53 2.90,8.92 0.34,9.66 -2.41,9.66 -5.13,8.88 -7.58,7.32 -9.57,5.09 -10.88,2.31 -11.39,-0.80 -11.00,-4.00 -9.71,-7.05"/>
+    </g>
+    <g fill="#26e3aa" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="1.80"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#26e3aa" font-family="sans-serif" font-size="13" text-anchor="middle">Swirl</text>
+</g>
+<g transform="translate(512.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#b1e21d" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.00,0.00 8.00,13.86 -8.00,13.86 -13.10,5.00 -5.00,0.00 -13.10,-5.00 -8.00,-13.86 8.00,-13.86"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.00,0.00 8.00,13.86 -8.00,13.86 -13.10,5.00 -5.00,0.00 -13.10,-5.00 -8.00,-13.86 8.00,-13.86"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.00,0.00 8.00,13.86 -8.00,13.86 -13.10,5.00 -5.00,0.00 -13.10,-5.00 -8.00,-13.86 8.00,-13.86"/>
+    </g>
+    <g fill="#b1e21d" fill-opacity="0.60" stroke="none">
+      <polygon points="1.00,0.00 4.50,-3.50 8.00,0.00 4.50,3.50"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="1.00" stroke-width="2.35" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="1.00,0.00 4.50,-3.50 8.00,0.00 4.50,3.50"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#b1e21d" font-family="sans-serif" font-size="13" text-anchor="middle">Sower</text>
+</g>
+<g transform="translate(768.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#b1e21d" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-9.00 9.00,0.00 0.00,9.00 -9.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-9.00 9.00,0.00 0.00,9.00 -9.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="0.00,-9.00 9.00,0.00 0.00,9.00 -9.00,0.00"/>
+    </g>
+    <g fill="none" stroke="#b1e21d" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="2.50,2.50 8.00,8.00"/>
+      <polyline points="-2.50,2.50 -8.00,8.00"/>
+      <polyline points="2.50,-2.50 8.00,-8.00"/>
+      <polyline points="-2.50,-2.50 -8.00,-8.00"/>
+    </g>
+    <g fill="#b1e21d" fill-opacity="1.00" stroke="none">
+      <circle cx="0.00" cy="0.00" r="2.20"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#b1e21d" font-family="sans-serif" font-size="13" text-anchor="middle">Mine</text>
+</g>
+<g transform="translate(1024.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#d34ae8" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.66,0.00 16.18,2.56 15.24,4.95 13.95,7.11 12.43,9.03 10.76,10.76 8.95,12.32 7.00,13.74 4.86,14.96 2.52,15.90 0.00,16.45 -2.61,16.50 -5.19,15.98 -7.59,14.90 -9.69,13.33 -11.37,11.37 -12.48,9.06 -12.76,6.50 -12.16,3.95 -11.19,1.77 -10.84,0.00 -11.59,-1.84 -12.85,-4.18 -13.56,-6.91 -13.17,-9.57 -11.82,-11.82 -9.85,-13.56 -7.53,-14.77 -5.03,-15.47 -2.49,-15.70 0.00,-15.55 2.39,-15.11 4.70,-14.46 6.94,-13.61 9.12,-12.55 11.21,-11.21 13.13,-9.54 14.75,-7.51 15.93,-5.18 16.59,-2.63"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.66,0.00 16.18,2.56 15.24,4.95 13.95,7.11 12.43,9.03 10.76,10.76 8.95,12.32 7.00,13.74 4.86,14.96 2.52,15.90 0.00,16.45 -2.61,16.50 -5.19,15.98 -7.59,14.90 -9.69,13.33 -11.37,11.37 -12.48,9.06 -12.76,6.50 -12.16,3.95 -11.19,1.77 -10.84,0.00 -11.59,-1.84 -12.85,-4.18 -13.56,-6.91 -13.17,-9.57 -11.82,-11.82 -9.85,-13.56 -7.53,-14.77 -5.03,-15.47 -2.49,-15.70 0.00,-15.55 2.39,-15.11 4.70,-14.46 6.94,-13.61 9.12,-12.55 11.21,-11.21 13.13,-9.54 14.75,-7.51 15.93,-5.18 16.59,-2.63"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="0.19" stroke-width="8.40" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-16.90,0.00 -17.40,1.53 -18.70,2.47 -20.30,2.47 -21.60,1.53 -22.10,0.00 -21.60,-1.53 -20.30,-2.47 -18.70,-2.47 -17.40,-1.53"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="0.44" stroke-width="3.84" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-16.90,0.00 -17.40,1.53 -18.70,2.47 -20.30,2.47 -21.60,1.53 -22.10,0.00 -21.60,-1.53 -20.30,-2.47 -18.70,-2.47 -17.40,-1.53"/>
+    </g>
+    <g fill="#d34ae8" fill-opacity="0.12" stroke="none">
+      <polygon points="16.66,0.00 16.18,2.56 15.24,4.95 13.95,7.11 12.43,9.03 10.76,10.76 8.95,12.32 7.00,13.74 4.86,14.96 2.52,15.90 0.00,16.45 -2.61,16.50 -5.19,15.98 -7.59,14.90 -9.69,13.33 -11.37,11.37 -12.48,9.06 -12.76,6.50 -12.16,3.95 -11.19,1.77 -10.84,0.00 -11.59,-1.84 -12.85,-4.18 -13.56,-6.91 -13.17,-9.57 -11.82,-11.82 -9.85,-13.56 -7.53,-14.77 -5.03,-15.47 -2.49,-15.70 0.00,-15.55 2.39,-15.11 4.70,-14.46 6.94,-13.61 9.12,-12.55 11.21,-11.21 13.13,-9.54 14.75,-7.51 15.93,-5.18 16.59,-2.63"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="16.66,0.00 16.18,2.56 15.24,4.95 13.95,7.11 12.43,9.03 10.76,10.76 8.95,12.32 7.00,13.74 4.86,14.96 2.52,15.90 0.00,16.45 -2.61,16.50 -5.19,15.98 -7.59,14.90 -9.69,13.33 -11.37,11.37 -12.48,9.06 -12.76,6.50 -12.16,3.95 -11.19,1.77 -10.84,0.00 -11.59,-1.84 -12.85,-4.18 -13.56,-6.91 -13.17,-9.57 -11.82,-11.82 -9.85,-13.56 -7.53,-14.77 -5.03,-15.47 -2.49,-15.70 0.00,-15.55 2.39,-15.11 4.70,-14.46 6.94,-13.61 9.12,-12.55 11.21,-11.21 13.13,-9.54 14.75,-7.51 15.93,-5.18 16.59,-2.63"/>
+    </g>
+    <g fill="#d34ae8" fill-opacity="0.70" stroke="none">
+      <polygon points="-16.90,0.00 -17.40,1.53 -18.70,2.47 -20.30,2.47 -21.60,1.53 -22.10,0.00 -21.60,-1.53 -20.30,-2.47 -18.70,-2.47 -17.40,-1.53"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="1.00" stroke-width="2.69" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="-16.90,0.00 -17.40,1.53 -18.70,2.47 -20.30,2.47 -21.60,1.53 -22.10,0.00 -21.60,-1.53 -20.30,-2.47 -18.70,-2.47 -17.40,-1.53"/>
+    </g>
+    <g fill="#d34ae8" fill-opacity="0.45" stroke="none">
+      <circle cx="0.00" cy="0.00" r="5.50"/>
+    </g>
+    <g fill="none" stroke="#d34ae8" stroke-opacity="0.60" stroke-width="1.68" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="0.00" cy="0.00" r="5.50"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#d34ae8" font-family="sans-serif" font-size="13" text-anchor="middle">Splime</text>
+</g>
+<g transform="translate(1280.00 768.00)">
+  <rect x="0.50" y="0.50" width="255" height="255" fill="none" stroke="#2c43ba" stroke-opacity="0.50"/>
+  <g transform="translate(128.00 120.00) scale(2.10)">
+    <g fill="none" stroke="#a72cba" stroke-opacity="0.13" stroke-width="11.55" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="35.62,0.00 36.04,4.06 36.09,8.24 35.67,12.48 34.70,16.71 33.22,20.87 31.26,24.93 28.88,28.88 26.07,32.69 22.80,36.29 19.02,39.50 14.73,42.10 10.00,43.83 5.02,44.52 0.00,44.09 -4.80,42.63 -9.22,40.38 -13.17,37.65 -16.73,34.74 -20.02,31.85 -23.19,29.07 -26.33,26.33 -29.43,23.47 -32.36,20.34 -34.94,16.82 -36.95,12.93 -38.29,8.74 -38.92,4.38 -38.93,0.00 -38.46,-4.33 -37.64,-8.59 -36.56,-12.79 -35.20,-16.95 -33.48,-21.04 -31.30,-24.96 -28.59,-28.59 -25.33,-31.77 -21.63,-34.42 -17.59,-36.54 -13.36,-38.19 -9.01,-39.49 -4.57,-40.54 0.00,-41.37 4.72,-41.87 9.56,-41.87 14.40,-41.14 19.03,-39.51 23.20,-36.92 26.68,-33.46 29.34,-29.34 31.20,-24.88 32.40,-20.36 33.18,-15.98 33.79,-11.82 34.38,-7.85 35.02,-3.95"/>
+    </g>
+    <g fill="none" stroke="#a72cba" stroke-opacity="0.31" stroke-width="5.28" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="35.62,0.00 36.04,4.06 36.09,8.24 35.67,12.48 34.70,16.71 33.22,20.87 31.26,24.93 28.88,28.88 26.07,32.69 22.80,36.29 19.02,39.50 14.73,42.10 10.00,43.83 5.02,44.52 0.00,44.09 -4.80,42.63 -9.22,40.38 -13.17,37.65 -16.73,34.74 -20.02,31.85 -23.19,29.07 -26.33,26.33 -29.43,23.47 -32.36,20.34 -34.94,16.82 -36.95,12.93 -38.29,8.74 -38.92,4.38 -38.93,0.00 -38.46,-4.33 -37.64,-8.59 -36.56,-12.79 -35.20,-16.95 -33.48,-21.04 -31.30,-24.96 -28.59,-28.59 -25.33,-31.77 -21.63,-34.42 -17.59,-36.54 -13.36,-38.19 -9.01,-39.49 -4.57,-40.54 0.00,-41.37 4.72,-41.87 9.56,-41.87 14.40,-41.14 19.03,-39.51 23.20,-36.92 26.68,-33.46 29.34,-29.34 31.20,-24.88 32.40,-20.36 33.18,-15.98 33.79,-11.82 34.38,-7.85 35.02,-3.95"/>
+    </g>
+    <g fill="#a72cba" fill-opacity="0.20" stroke="none">
+      <polygon points="35.62,0.00 36.04,4.06 36.09,8.24 35.67,12.48 34.70,16.71 33.22,20.87 31.26,24.93 28.88,28.88 26.07,32.69 22.80,36.29 19.02,39.50 14.73,42.10 10.00,43.83 5.02,44.52 0.00,44.09 -4.80,42.63 -9.22,40.38 -13.17,37.65 -16.73,34.74 -20.02,31.85 -23.19,29.07 -26.33,26.33 -29.43,23.47 -32.36,20.34 -34.94,16.82 -36.95,12.93 -38.29,8.74 -38.92,4.38 -38.93,0.00 -38.46,-4.33 -37.64,-8.59 -36.56,-12.79 -35.20,-16.95 -33.48,-21.04 -31.30,-24.96 -28.59,-28.59 -25.33,-31.77 -21.63,-34.42 -17.59,-36.54 -13.36,-38.19 -9.01,-39.49 -4.57,-40.54 0.00,-41.37 4.72,-41.87 9.56,-41.87 14.40,-41.14 19.03,-39.51 23.20,-36.92 26.68,-33.46 29.34,-29.34 31.20,-24.88 32.40,-20.36 33.18,-15.98 33.79,-11.82 34.38,-7.85 35.02,-3.95"/>
+    </g>
+    <g fill="none" stroke="#a72cba" stroke-opacity="0.70" stroke-width="3.70" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="35.62,0.00 36.04,4.06 36.09,8.24 35.67,12.48 34.70,16.71 33.22,20.87 31.26,24.93 28.88,28.88 26.07,32.69 22.80,36.29 19.02,39.50 14.73,42.10 10.00,43.83 5.02,44.52 0.00,44.09 -4.80,42.63 -9.22,40.38 -13.17,37.65 -16.73,34.74 -20.02,31.85 -23.19,29.07 -26.33,26.33 -29.43,23.47 -32.36,20.34 -34.94,16.82 -36.95,12.93 -38.29,8.74 -38.92,4.38 -38.93,0.00 -38.46,-4.33 -37.64,-8.59 -36.56,-12.79 -35.20,-16.95 -33.48,-21.04 -31.30,-24.96 -28.59,-28.59 -25.33,-31.77 -21.63,-34.42 -17.59,-36.54 -13.36,-38.19 -9.01,-39.49 -4.57,-40.54 0.00,-41.37 4.72,-41.87 9.56,-41.87 14.40,-41.14 19.03,-39.51 23.20,-36.92 26.68,-33.46 29.34,-29.34 31.20,-24.88 32.40,-20.36 33.18,-15.98 33.79,-11.82 34.38,-7.85 35.02,-3.95"/>
+    </g>
+    <g fill="none" stroke="#a72cba" stroke-opacity="0.30" stroke-width="2.02" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="22.08,0.00 22.34,2.52 22.38,5.11 22.11,7.74 21.52,10.36 20.59,12.94 19.38,15.46 17.91,17.91 16.16,20.27 14.14,22.50 11.79,24.49 9.13,26.10 6.20,27.18 3.11,27.60 0.00,27.33 -2.98,26.43 -5.71,25.04 -8.17,23.34 -10.37,21.54 -12.41,19.75 -14.38,18.03 -16.32,16.32 -18.25,14.55 -20.07,12.61 -21.66,10.43 -22.91,8.02 -23.74,5.42 -24.13,2.72 -24.13,0.00 -23.84,-2.69 -23.34,-5.33 -22.67,-7.93 -21.83,-10.51 -20.76,-13.04 -19.41,-15.48 -17.72,-17.72 -15.71,-19.70 -13.41,-21.34 -10.91,-22.65 -8.28,-23.68 -5.59,-24.48 -2.83,-25.14 0.00,-25.65 2.92,-25.96 5.92,-25.96 8.93,-25.51 11.80,-24.50 14.38,-22.89 16.54,-20.74 18.19,-18.19 19.34,-15.43 20.09,-12.62 20.57,-9.91 20.95,-7.33 21.32,-4.87 21.71,-2.45"/>
+    </g>
+  </g>
+  <text x="128.00" y="246.00" fill="#a72cba" font-family="sans-serif" font-size="13" text-anchor="middle">Slime</text>
+</g>
+</svg>
