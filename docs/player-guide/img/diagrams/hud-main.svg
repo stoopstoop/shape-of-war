@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 840" width="860" height="840" font-family="sans-serif">
+  <title>Shape of War HUD, main screen (10:9)</title>
+  <defs>
+    <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="9" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2"/>
+    </filter>
+  </defs>
+  <rect width="860" height="840" fill="#000"/>
+  <text x="30" y="36" fill="#cfe9f2" font-size="20">Main screen (10:9): HUD, right column layout. Example values. Schematic.</text>
+  <g transform="translate(30,60)">
+    <g filter="url(#rough)" stroke-linecap="round">
+      <rect x="0" y="0" width="800" height="720" rx="18" fill="none" stroke="#cfe9f2" stroke-width="2.5"/>
+      <line x1="8" y1="60" x2="792" y2="60" stroke="#5ac8ff" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="6 6"/>
+      <line x1="708" y1="60" x2="708" y2="712" stroke="#5ac8ff" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="6 6"/>
+      <rect x="24" y="84" width="660" height="612" rx="6" fill="none" stroke="#3d64ff" stroke-width="2"/>
+      <path d="M372 390 L354 400 L359 390 L354 380 Z" fill="none" stroke="#ffffff" stroke-width="2"/>
+      <rect x="240" y="8" width="320" height="20" fill="none" stroke="#cfe9f2" stroke-width="1.2"/>
+      <rect x="241" y="9" width="190" height="18" fill="#5ac8ff" fill-opacity="0.45" stroke="none"/>
+      <rect x="96" y="54" width="128" height="5" fill="none" stroke="#fb9460" stroke-width="1"/>
+      <rect x="96" y="54" width="40" height="5" fill="#fb9460" stroke="none"/>
+      <circle cx="754" cy="600" r="32" fill="#ffe75a" fill-opacity="0.45" stroke="#cfe9f2" stroke-width="2"/>
+      <circle cx="754" cy="672" r="36" fill="none" stroke="#cfe9f2" stroke-width="2"/>
+      <rect x="759.4" y="23.6" width="5.3" height="16.8" fill="#e6faff"/>
+      <rect x="771.3" y="23.6" width="5.3" height="16.8" fill="#e6faff"/>
+    </g>
+    <text x="24" y="32" fill="#e6faff" font-size="28" font-weight="600">12,450</text>
+    <text x="24" y="56" fill="#a6ff4d" font-size="18">x37</text>
+    <text x="96" y="50" fill="#fb9460" font-size="12" font-weight="600">PIERCE</text>
+    <text x="400" y="23" fill="#e6faff" font-size="14" text-anchor="middle">Survive 1:12</text>
+    <text x="400" y="47" fill="#e6faff" fill-opacity="0.8" font-size="14" text-anchor="middle">L7  Par 6,500  #a1b2c3d4</text>
+    <text x="720" y="24" fill="#e6faff" font-size="16" text-anchor="end">&#9650;&#9650;</text>
+    <text x="720" y="46" fill="#e6faff" font-size="14" text-anchor="end">&#9679;&#9679;&#9679;&#9679;</text>
+    <text x="754" y="514" fill="#fff07a" font-size="12" font-weight="600" text-anchor="middle">SUPER:</text>
+    <text x="754" y="529" fill="#fff07a" font-size="12" font-weight="600" text-anchor="middle">DETONATE</text>
+    <text x="754" y="545" fill="#e6faff" fill-opacity="0.7" font-size="10" text-anchor="middle">ready: tap</text>
+    <text x="754" y="558" fill="#e6faff" fill-opacity="0.7" font-size="10" text-anchor="middle">ring</text>
+    <text x="754" y="679" fill="#e6faff" font-size="20" text-anchor="middle">2</text>
+  </g>
+  <g stroke="#ffd85a" stroke-width="1.2">
+    <line x1="120" y1="149" x2="96" y2="96"/>
+    <line x1="170" y1="149" x2="72" y2="118"/>
+    <line x1="230" y1="149" x2="160" y2="118"/>
+    <line x1="400" y1="149" x2="400" y2="90"/>
+    <line x1="470" y1="149" x2="470" y2="112"/>
+    <line x1="630" y1="149" x2="728" y2="86"/>
+    <line x1="680" y1="149" x2="738" y2="108"/>
+    <line x1="770" y1="139" x2="796" y2="106"/>
+    <line x1="702" y1="580" x2="744" y2="580"/>
+    <line x1="702" y1="660" x2="752" y2="660"/>
+    <line x1="702" y1="732" x2="748" y2="732"/>
+  </g>
+  <g font-size="14" font-weight="700" text-anchor="middle">
+    <g transform="translate(120,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">1</text></g>
+    <g transform="translate(170,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">2</text></g>
+    <g transform="translate(230,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">3</text></g>
+    <g transform="translate(400,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">4</text></g>
+    <g transform="translate(470,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">5</text></g>
+    <g transform="translate(630,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">6</text></g>
+    <g transform="translate(680,160)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">7</text></g>
+    <g transform="translate(770,150)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">8</text></g>
+    <g transform="translate(690,580)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">9</text></g>
+    <g transform="translate(690,660)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">10</text></g>
+    <g transform="translate(690,732)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">11</text></g>
+    <g transform="translate(430,430)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">12</text></g>
+  </g>
+  <text x="30" y="808" fill="#cfe9f2" font-size="14">Top band 60 px, right column 92 px. In the bottom band layout the super and bomb rings sit at bottom centre</text>
+  <text x="30" y="826" fill="#cfe9f2" font-size="14">and the super label and hint sit to the left of the super ring. The weapon label and bar (3) show only while a pickup weapon is active.</text>
+</svg>
