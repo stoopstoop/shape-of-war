@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LevelResult } from '../../src/ui/flow';
 import { continueLabel, GAME_TITLE, SHOW_ENDLESS } from '../../src/ui/menu';
-import { badgeText, resultLines } from '../../src/ui/results';
+import { badgeText, createResultsScreen, physicsLine, resultLines } from '../../src/ui/results';
+import { asParent, installFakeDocument, type FakeEl } from './fakeDom';
 
 const base: LevelResult = {
   mode: 'adventure',
@@ -49,6 +52,46 @@ describe('Endless results', () => {
   it('adventure keeps stars and no badge', () => {
     expect(resultLines(base).badge).toBe('');
     expect(resultLines(base).stars).toBe('★★★');
+  });
+});
+
+describe('B13 Space physics on the results screen', () => {
+  it('shows the level in effect when the run ended, omitted when Off or absent', () => {
+    expect(physicsLine('medium')).toBe('Space physics: Medium');
+    expect(physicsLine('low')).toBe('Space physics: Low');
+    expect(physicsLine('high')).toBe('Space physics: High');
+    expect(physicsLine('off')).toBe('');
+    expect(physicsLine(undefined)).toBe('');
+  });
+
+  it('both modes carry the line and leave the other lines as they were', () => {
+    const a = resultLines({ ...base, space: 'medium' });
+    expect(a.physics).toBe('Space physics: Medium');
+    expect(a.detail).toBe(resultLines(base).detail);
+    expect(resultLines(base).physics).toBe('');
+    const e = resultLines({ ...base, mode: 'endless', success: false, seed: 5, space: 'high' });
+    expect(e.physics).toBe('Space physics: High');
+  });
+
+  describe('screen', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    const physicsEl = (root: FakeEl): FakeEl | undefined => root.all().find((e) => e.getAttribute('data-results') === 'physics');
+
+    it('draws the line under the detail and hides it when Off', () => {
+      const root = installFakeDocument();
+      const screen = createResultsScreen(asParent(root), { next: () => undefined, retry: () => undefined, menu: () => undefined });
+      screen.showResult({ ...base, space: 'medium' });
+      expect(physicsEl(root)?.textContent).toBe('Space physics: Medium');
+      expect(physicsEl(root)?.style.display).toBe('');
+      screen.showResult({ ...base, space: 'off' });
+      expect(physicsEl(root)?.textContent).toBe('');
+      expect(physicsEl(root)?.style.display).toBe('none');
+    });
+  });
+
+  it('main.ts fills the result from the settings model at game over, both modes', () => {
+    const src = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8');
+    expect(src.match(/space: settingsModel\.state\.spacePhysics/g)?.length).toBe(2);
   });
 });
 

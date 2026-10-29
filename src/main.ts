@@ -30,7 +30,8 @@ import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
-import { installAudio } from './audio/synth';
+import { installAudio, play as playCue } from './audio/synth';
+import { superChargeFraction } from './game/supers';
 import { setMusicVolume as setMusicEngineVolume, startMusic, stopMusic, wireMusic } from './audio/music';
 import { clearEntities, inlineRectLevel, Kind, liveEnemies, spawn, type World } from './game/world';
 
@@ -46,7 +47,8 @@ import { setEffectsTier } from './render/effects';
 import { applyNeon, currentNeon } from './render/neon';
 import { createRenderer, type GameRenderer, type StickCircleLike } from './render/renderer';
 import { attachTouch, type TouchHandle } from './input/touch';
-import { confine, createUiRoot } from './ui/dom';
+import { createCuePort, type SimSnapshot } from './ui/cueFlow';
+import { confine, createUiRoot, setTapSound } from './ui/dom';
 import { bootFlow, reduceFlow, simRunning, type FlowAction, type FlowState, type LevelResult } from './ui/flow';
 import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
 import { hudFrame, overlayPadding, type HudFrame } from './ui/hudFrame';
@@ -309,6 +311,19 @@ async function boot(): Promise<void> {
   let endCheck = true; // fallback objective check; the stress hook turns it off
   let lastHudMs = Number.NEGATIVE_INFINITY;
 
+  // B12: cues the bus never carried (levelComplete, levelFail, respawn, superReady, superActivate,
+  // uiTap). The bus 'sfx' payload is SfxName only, so these go straight to Glow's play(cue); it is
+  // silent until the first tap unlocks audio and respects the volume.
+  const cues = createCuePort(playCue);
+  setTapSound(() => cues.tap(performance.now()));
+  const simSnap: SimSnapshot = { shipActive: true, charge: 0 };
+  /** Read the world into the reused snapshot (no allocation per step). */
+  const readSim = (): SimSnapshot => {
+    simSnap.shipActive = world.ship.active;
+    simSnap.charge = superChargeFraction(world);
+    return simSnap;
+  };
+
   // V2-D music. musicCue (ui/musicFlow.ts) says when a run starts or ends; pause, resume, a hidden
   // tab and a fold reach the engine through the bus, so every pause and resume below goes out as
   // game:pause or game:resume and the flow follows from the bus handlers. Music never plays in menus.
@@ -383,6 +398,7 @@ async function boot(): Promise<void> {
     applyWeaponPickups(settingsModel.state.weaponPickups); // and the stored pickups choice
     hud.clearWeapon(); // a new world starts on spread: drop any indicator left from the last run
     endCheck = true;
+    cues.arm(readSim()); // the new world's charge is the baseline: a reset to 0 is not a super
     renderer?.setArena(level);
     sceneWorld = world;
     syncScene();
@@ -575,6 +591,7 @@ async function boot(): Promise<void> {
     else if (next.screen !== prev.screen) syncScene();
     if (!simRunning(next)) renderer?.setSticks([]);
     applyMusicCue(musicCue(prev, next)); // after startLevel, so a start reads the new level's seed
+    cues.flow(prev, next); // levelComplete or levelFail on entering results, once
     paintScreens();
   }
 
@@ -599,6 +616,7 @@ async function boot(): Promise<void> {
           hash: pick.hash,
           rank: rec.rank,
           seed: endlessSeed,
+          space: settingsModel.state.spacePhysics, // B13: the level in effect as the run ends
         },
       });
       return;
@@ -617,6 +635,7 @@ async function boot(): Promise<void> {
       best: rec.best,
       newBest: rec.newBest,
       hash: pick.hash,
+      space: settingsModel.state.spacePhysics, // B13: the level in effect as the run ends
     };
     dispatch({ type: 'over', result });
   };
@@ -647,6 +666,7 @@ async function boot(): Promise<void> {
         return;
       }
       stepGame(world, dt, input);
+      cues.sim(readSim()); // respawn, superReady, superActivate
       if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
         const score = scoreOf(world).score;
         const st = flow.mode === 'endless' ? 0 : stars(score, level.par);

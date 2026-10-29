@@ -80,6 +80,25 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text
   return e;
 }
 
+let tapSound: (() => void) | null = null;
+
+/**
+ * B12: called once per completed button tap, before the button's own handler. main.ts sets it to
+ * the uiTap cue (rate limited in ui/cueFlow.ts). Pass null to clear.
+ */
+export function setTapSound(fn: (() => void) | null): void {
+  tapSound = fn;
+}
+
+function playTapSound(): void {
+  if (tapSound === null) return;
+  try {
+    tapSound();
+  } catch {
+    // audio is optional; the tap still acts
+  }
+}
+
 /** A touch button: fires on pointerup when the press started on it. */
 export function button(label: string, onTap: () => void): HTMLButtonElement {
   const b = el('button', 'sow-btn', label);
@@ -94,6 +113,7 @@ export function button(label: string, onTap: () => void): HTMLButtonElement {
     e.preventDefault();
     if (armed !== e.pointerId) return;
     armed = -1;
+    playTapSound();
     onTap();
   });
   b.addEventListener('pointercancel', () => {
