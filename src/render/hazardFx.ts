@@ -3,6 +3,7 @@
 // lethal hazard first shows its tier telegraph as a thin dim form of the same geometry, then turns
 // bright and full width at lethal with a short flash. The planner writes sprite instances into a
 // SpriteBuf (fxSprites.ts): one pooled geometry, no allocation, no Graphics.clear per frame.
+import { hazardTelegraph } from '../game/bosses/kit';
 import { tierOf, tierWeight } from './bossLook';
 import { clampNum } from './color';
 import { F_BAR, pushArc, pushBand, pushLine, pushSprite, type FxHalo, type SpriteBuf } from './fxSprites';
@@ -20,9 +21,9 @@ export const HAZARD_PULL = 4;
  */
 export const HAZARD_TELEGRAPH_SEC: Readonly<Record<1 | 2 | 3 | 4, number>> = { 1: 1.0, 2: 0.8, 3: 0.6, 4: 0.6 };
 
-/** Pure: telegraph seconds for a tier. */
+/** Pure: telegraph seconds for a tier, read from the sim's table (glue after wave A merged). */
 export function hazardTelegraphSec(tier: number): number {
-  return HAZARD_TELEGRAPH_SEC[tierOf(tier)];
+  return hazardTelegraph(tierOf(tier));
 }
 
 /** Telegraph alpha ramps from TELE_A0 to TELE_A1 over the telegraph; lethal is 1. */

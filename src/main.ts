@@ -29,6 +29,9 @@ import {
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { readBoss, type BossView } from './game/bosses/view';
+import { armBossFromSpec } from './game/bosses/index';
+import { bossTierOf } from './levelgen/boss';
+import type { BossId } from './levelgen/leveldef';
 import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio, play as playCue } from './audio/synth';
@@ -406,6 +409,10 @@ async function boot(): Promise<void> {
     }
     hud.setSuper(level.superType);
     resetScore(world);
+    // Temporary debug hook (docs/12 shared rule 8): ?boss=<id> forces that boss on this level at 10 s.
+    const forcedBoss = new URLSearchParams(window.location.search).get('boss');
+    const forcedTier = forcedBoss === null ? null : bossTierOf(forcedBoss);
+    if (forcedBoss !== null && forcedTier !== null) armBossFromSpec(world, { id: forcedBoss as BossId, tier: forcedTier, atSec: 10, hpMul: 1 }, 10);
     applySpacePhysics(settingsModel.state.spacePhysics); // new world: push the stored level to it
     applyWeaponPickups(settingsModel.state.weaponPickups); // and the stored pickups choice
     hud.clearWeapon(); // a new world starts on spread: drop any indicator left from the last run
