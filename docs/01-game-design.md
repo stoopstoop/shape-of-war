@@ -100,7 +100,7 @@ Touch only. No keyboard, mouse or gamepad handlers.
 | Spawn offset | 16 u ahead of ship centre |
 | Pierce | None |
 | Gravity | Pulled by gravity wells (section 6.7) |
-| Cap | 300 live player bullets; oldest removed first |
+| Cap | 512 live player bullets; a new shot at the cap is dropped (shipped behaviour, v1.0.0) |
 
 ### 4.3 Bombs
 
@@ -149,7 +149,7 @@ One super type per level from `LevelDef.superType`. Charge requires 60 geoms. Ch
 | Lifetime | 4.0 s, blink at 8 Hz during the last 1.0 s |
 | Spawn | At the kill position, initial velocity 120 u/s outward at evenly spaced angles, drag 2.5 per second |
 | Gravity | Not pulled by wells |
-| Live cap | 400; when exceeded, oldest geom removed |
+| Live cap | 280; when exceeded, oldest geom removed (shipped behaviour, v1.0.0) |
 
 Geoms dropped per kill: Grunt 1, Wanderer 1, Weaver 2, Pinwheel 1, Dart 1, Snake head 4, Spawner 3, Gravity well (shot down) 5. Snake body segments drop nothing.
 

@@ -6,12 +6,13 @@ import { describe, expect, it } from 'vitest';
 import type { WeaponKind } from '../../src/core/events';
 import { weaponColour } from '../../src/ui/hud';
 import { weaponHue, type WeaponHueFn } from '../../src/ui/weaponHue';
+import { weaponHue as paletteHue } from '../../src/render/neon';
 
 const KINDS: readonly WeaponKind[] = ['spread', 'rapid', 'pierce', 'orbit'];
 
 describe('weaponHue adapter', () => {
   it('keeps the current palette hues until the glue swap', () => {
-    expect(KINDS.map(weaponHue)).toEqual([185, 165, 20, 295]);
+    expect(KINDS.map(weaponHue)).toEqual(KINDS.map(paletteHue)); // one source: src/render/neon
   });
 
   it('has the type Glow exports', () => {
@@ -23,11 +24,11 @@ describe('weaponHue adapter', () => {
     for (const k of KINDS) expect(weaponColour(k)).toBe(`hsl(${weaponHue(k)}, 95%, 68%)`);
   });
 
-  it('hud.ts holds no hue constants of its own and the glue TODO is in place', () => {
+  it('hud.ts holds no hue constants of its own and the adapter reads the render palette', () => {
     const hud = readFileSync(fileURLToPath(new URL('../../src/ui/hud.ts', import.meta.url)), 'utf8');
     expect(hud).not.toMatch(/WEAPON_HUES/);
     expect(hud).not.toMatch(/\b(165|295)\b/);
     const adapter = readFileSync(fileURLToPath(new URL('../../src/ui/weaponHue.ts', import.meta.url)), 'utf8');
-    expect(adapter).toContain('TODO Fable glue: replace with weaponHue from src/render/neon');
+    expect(adapter).toContain("from '../render/neon'");
   });
 });
