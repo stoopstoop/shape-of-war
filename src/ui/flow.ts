@@ -4,6 +4,7 @@
 // 'boot' is the "Tap to start" screen (B7); its tap is also the fullscreen and audio unlock
 // gesture. The level intro card and the Endless "Ready" text run inside 'playing' with the sim
 // held by the intro gate in ui/intro.ts.
+import type { SpaceLevelSetting } from '../core/settings';
 export type ScreenId = 'boot' | 'menu' | 'levels' | 'playing' | 'paused' | 'results' | 'settings';
 export type Mode = 'adventure' | 'endless';
 
@@ -21,6 +22,8 @@ export interface LevelResult {
   rank?: number;
   /** Endless: the endless seed, shown so a run can be reproduced. */
   seed?: number;
+  /** Space physics level in effect when the run ended (docs/11 SPEC 3.6). Absent reads as off. */
+  space?: SpaceLevelSetting;
 }
 
 export interface FlowState {

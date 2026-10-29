@@ -9,6 +9,7 @@ import { el } from './dom';
 import { formatInt, iconRun } from './format';
 import { aspectClass, type AspectClass, type HudBox, type HudFrame } from './hudFrame';
 import type { ObjectiveProgress } from './objective';
+import { weaponHue } from './weaponHue';
 
 export { aspectClass, type AspectClass };
 
@@ -121,12 +122,9 @@ export const WEAPON_NAMES: Readonly<Record<WeaponKind, string>> = {
   orbit: 'ORBIT',
 };
 
-/** HSL hue per weapon, the same hues as the rapid, pierce and orbit palette entries in render/neon.ts. */
-const WEAPON_HUES: Readonly<Record<WeaponKind, number>> = { spread: 185, rapid: 165, pierce: 20, orbit: 295 };
-
-/** Pure: CSS colour for a weapon's label and bar. */
+/** Pure: CSS colour for a weapon's label and bar. The hue comes from weaponHue (B14). */
 export function weaponColour(kind: WeaponKind): string {
-  return `hsl(${WEAPON_HUES[kind]}, 95%, 68%)`;
+  return `hsl(${weaponHue(kind)}, 95%, 68%)`;
 }
 
 /**
