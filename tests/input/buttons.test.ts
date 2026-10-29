@@ -11,33 +11,34 @@ const INSETS: Insets = { top: 10, right: 48, bottom: 20, left: 32 };
 describe('layoutButtons', () => {
   it('21:9 without insets', () => {
     const r = layoutButtons(COVER.w, COVER.h, ZERO_INSETS);
-    // Bomb: centre x 480, visual bottom 16 px above bottom, centre y 412 - 16 - 32 = 364.
-    expect(r.bomb).toEqual({ x: 436, y: 320, w: 88, h: 88 });
+    // Bomb: centre x 960 - 56 = 904 (bottom right, v2.1 reach), visual bottom 16 px above
+    // bottom, centre y 412 - 16 - 32 = 364.
+    expect(r.bomb).toEqual({ x: 860, y: 320, w: 88, h: 88 });
     // Super: 12 px gap above bomb visual, centre y 364 - 32 - 12 - 28 = 292.
-    expect(r.super).toEqual({ x: 442, y: 254, w: 76, h: 76 });
+    expect(r.super).toEqual({ x: 866, y: 254, w: 76, h: 76 });
     // Pause: visual 40 square 12 px inside top right, centre (960 - 32, 32).
     expect(r.pause).toEqual({ x: 900, y: 4, w: 56, h: 56 });
   });
 
   it('21:9 with insets', () => {
     const r = layoutButtons(COVER.w, COVER.h, INSETS);
-    // Centre x of the safe rect: 32 + (960 - 80) / 2 = 472.
-    expect(r.bomb).toEqual({ x: 428, y: 300, w: 88, h: 88 });
-    expect(r.super).toEqual({ x: 434, y: 234, w: 76, h: 76 });
+    // Centre x 56 in from the safe right edge: 960 - 48 - 56 = 856.
+    expect(r.bomb).toEqual({ x: 812, y: 300, w: 88, h: 88 });
+    expect(r.super).toEqual({ x: 818, y: 234, w: 76, h: 76 });
     expect(r.pause).toEqual({ x: 852, y: 14, w: 56, h: 56 });
   });
 
   it('10:9 without insets', () => {
     const r = layoutButtons(MAIN.w, MAIN.h, ZERO_INSETS);
-    expect(r.bomb).toEqual({ x: 376, y: 664, w: 88, h: 88 });
-    expect(r.super).toEqual({ x: 382, y: 598, w: 76, h: 76 });
+    expect(r.bomb).toEqual({ x: 740, y: 664, w: 88, h: 88 });
+    expect(r.super).toEqual({ x: 746, y: 598, w: 76, h: 76 });
     expect(r.pause).toEqual({ x: 780, y: 4, w: 56, h: 56 });
   });
 
   it('10:9 with insets', () => {
     const r = layoutButtons(MAIN.w, MAIN.h, INSETS);
-    expect(r.bomb).toEqual({ x: 368, y: 644, w: 88, h: 88 });
-    expect(r.super).toEqual({ x: 374, y: 578, w: 76, h: 76 });
+    expect(r.bomb).toEqual({ x: 692, y: 644, w: 88, h: 88 });
+    expect(r.super).toEqual({ x: 698, y: 578, w: 76, h: 76 });
     expect(r.pause).toEqual({ x: 732, y: 14, w: 56, h: 56 });
   });
 

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { createLoop, type LoopClock } from '../../src/core/loop';
 import { SHIP_SPEED, stepShip } from '../../src/game/ship';
 import { createWorld, inlineRectLevel } from '../../src/game/world';
-import { BOMB_HIT, hitButton } from '../../src/input/buttons';
+import { hitButton } from '../../src/input/buttons';
 import { createInputState, createModel, pointerDown, pointerMove, pollModel, reanchorModel, syncSticks } from '../../src/input/model';
 import type { TouchModel } from '../../src/input/model';
 import { DEAD_ZONE, STICK_RADIUS, stickVector } from '../../src/input/stick';
@@ -116,9 +116,9 @@ describe('B9: reanchor and HUD routing do not shrink deflection', () => {
       expect(mag(syncSticks(m, st).move)).toBeCloseTo(1, 9);
     });
 
-    it(`${scr.name}: no button hit area in the left half outside the bottom centre bomb strip`, () => {
+    it(`${scr.name}: no button hit area anywhere in the left half (bomb and super sit bottom right)`, () => {
       const f = hudFrame(scr.cssW, scr.cssH, ZERO, ARENA.w, ARENA.h);
-      const maxX = scr.cssW / 2 - BOMB_HIT / 2;
+      const maxX = scr.cssW / 2;
       for (let x = 30; x < maxX; x += 10) {
         for (let y = 0; y <= scr.cssH; y += 10) expect(hitButton(f.buttons, x, y)).toBeNull();
       }

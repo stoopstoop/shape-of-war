@@ -3,6 +3,7 @@ export type * from './types';
 export { attachTouch } from './touch';
 export type { TouchHandle, TouchOptions } from './touch';
 export { layoutButtons, hitButton, ZERO_INSETS } from './buttons';
+export { aimRestZone, reachGap, ringClearance } from './reach';
 export { stickVector, STICK_RADIUS, DEAD_ZONE, KNOB_RADIUS } from './stick';
 export {
   createModel,

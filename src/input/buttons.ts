@@ -21,9 +21,30 @@ export function rectCentre(r: Rect): { x: number; y: number } {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
 
-/** Hit rects: bomb bottom centre, super above bomb, pause top right, inside the safe area. */
+/** Bomb and super stack centre, CSS px left of the right edge of the button area (v2.1 reach). */
+export const STACK_RIGHT = 56;
+
+/**
+ * Pure: centre x of the bomb and super stack. The stack hugs the bottom right corner, STACK_RIGHT
+ * in from the right edge of the button area, but never pokes out of the area on either side (a
+ * narrow HUD column clamps it so both hit circles stay inside the column).
+ */
+export function stackCentreX(cssW: number, insets: Insets): number {
+  const right = cssW - insets.right;
+  const half = Math.max(BOMB_HIT, SUPER_HIT) / 2;
+  const lo = insets.left + half;
+  const hi = right - half;
+  return Math.max(lo, Math.min(hi, right - STACK_RIGHT));
+}
+
+/**
+ * Hit rects inside the button area (canvas minus `insets`): bomb in the bottom right corner, super
+ * stacked above it, pause top right. The stack sits down and right of the aim rest zone (reach.ts)
+ * so the right thumb reaches both with a short roll. Heights are unchanged from v2.0, so the HUD
+ * band maths in src/ui/hudFrame.ts gives the same numbers.
+ */
 export function layoutButtons(cssW: number, cssH: number, insets: Insets): ButtonRects {
-  const cx = insets.left + (cssW - insets.left - insets.right) / 2;
+  const cx = stackCentreX(cssW, insets);
   const bombCy = cssH - insets.bottom - BOMB_BOTTOM_GAP - BOMB_VISUAL / 2;
   const superCy = bombCy - BOMB_VISUAL / 2 - SUPER_GAP - SUPER_VISUAL / 2;
   const pauseCx = cssW - insets.right - PAUSE_INSET - PAUSE_VISUAL / 2;
