@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<rect width="256" height="256" fill="#000000"/>
+<g transform="translate(128.00 120.00) scale(2.10)">
+  <g fill="none" stroke="#4f4ae8" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+  </g>
+  <g fill="none" stroke="#4f4ae8" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="21.00" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="9.60" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="13.13" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="9.50,-16.45 16.00,-27.71"/>
+    <polyline points="9.50,16.45 16.00,27.71"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="6.00" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="9.50,-16.45 16.00,-27.71"/>
+    <polyline points="9.50,16.45 16.00,27.71"/>
+  </g>
+  <g fill="none" stroke="#4f4ae8" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="-12.00" y="-12.00" width="24.00" height="24.00"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="6.72" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="13.00,-22.52 15.28,-21.03 17.40,-19.32 19.32,-17.40 21.03,-15.28 22.52,-13.00 23.75,-10.58 24.73,-8.03 25.43,-5.41 25.86,-2.72 26.00,0.00 25.86,2.72 25.43,5.41 24.73,8.03 23.75,10.58 22.52,13.00 21.03,15.28 19.32,17.40 17.40,19.32 15.28,21.03 13.00,22.52"/>
+  </g>
+  <g fill="#f2f2f2" fill-opacity="0.38" stroke="none">
+    <polygon points="14.50,-25.11 17.65,-23.01 20.51,-20.51 23.01,-17.65 25.11,-14.50 26.79,-11.10 28.01,-7.51 28.75,-3.79 29.00,0.00 28.75,3.79 28.01,7.51 26.79,11.10 25.11,14.50 23.01,17.65 20.51,20.51 17.65,23.01 14.50,25.11 10.50,18.19 12.78,16.66 14.85,14.85 16.66,12.78 18.19,10.50 19.40,8.04 20.28,5.44 20.82,2.74 21.00,0.00 20.82,-2.74 20.28,-5.44 19.40,-8.04 18.19,-10.50 16.66,-12.78 14.85,-14.85 12.78,-16.66 10.50,-18.19"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="2.02" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="14.50,-25.11 17.65,-23.01 20.51,-20.51 23.01,-17.65 25.11,-14.50 26.79,-11.10 28.01,-7.51 28.75,-3.79 29.00,0.00 28.75,3.79 28.01,7.51 26.79,11.10 25.11,14.50 23.01,17.65 20.51,20.51 17.65,23.01 14.50,25.11 10.50,18.19 12.78,16.66 14.85,14.85 16.66,12.78 18.19,10.50 19.40,8.04 20.28,5.44 20.82,2.74 21.00,0.00 20.82,-2.74 20.28,-5.44 19.40,-8.04 18.19,-10.50 16.66,-12.78 14.85,-14.85 12.78,-16.66 10.50,-18.19"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="4.20" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="9.50,-16.45 16.00,-27.71"/>
+    <polyline points="9.50,16.45 16.00,27.71"/>
+  </g>
+</g>
+<text x="128.00" y="246.00" fill="#4f4ae8" font-family="sans-serif" font-size="13" text-anchor="middle">Bulwark</text>
+</svg>

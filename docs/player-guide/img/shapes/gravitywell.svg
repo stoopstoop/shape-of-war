@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<rect width="256" height="256" fill="#000000"/>
+<g transform="translate(128.00 120.00) scale(2.10)">
+  <g fill="none" stroke="#e53442" stroke-opacity="0.19" stroke-width="15.75" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="24.00"/>
+  </g>
+  <g fill="none" stroke="#e53442" stroke-opacity="0.44" stroke-width="7.20" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="24.00"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.19" stroke-width="10.50" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="9.00"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="0.44" stroke-width="4.80" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="9.00"/>
+  </g>
+  <g fill="none" stroke="#e53442" stroke-opacity="1.00" stroke-width="5.04" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="24.00"/>
+  </g>
+  <g fill="none" stroke="#e53442" stroke-opacity="1.00" stroke-width="2.52" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="17.00"/>
+  </g>
+  <g fill="#f2f2f2" fill-opacity="0.85" stroke="none">
+    <circle cx="0.00" cy="0.00" r="9.00"/>
+  </g>
+  <g fill="none" stroke="#f2f2f2" stroke-opacity="1.00" stroke-width="3.36" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="0.00" cy="0.00" r="9.00"/>
+  </g>
+</g>
+<text x="128.00" y="246.00" fill="#e53442" font-family="sans-serif" font-size="13" text-anchor="middle">Gravity Well</text>
+</svg>
