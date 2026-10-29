@@ -32,7 +32,7 @@ import { readBoss, type BossView } from './game/bosses/view';
 import { armBossFromSpec } from './game/bosses/index';
 import { bossTierOf } from './levelgen/boss';
 import type { BossId } from './levelgen/leveldef';
-import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
+import { createEndlessGame, createGame, gameState, objectiveClock, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio, play as playCue } from './audio/synth';
 import { superChargeFraction } from './game/supers';
@@ -152,7 +152,7 @@ function simNumber(w: World, key: 'lives' | 'bombs' | 'superCharge'): number | n
 
 function snapshotOf(w: World): ObjectiveSnapshot {
   const s = scoreOf(w);
-  return { elapsedSec: w.time, score: s.score, kills: s.kills, lives: simNumber(w, 'lives') };
+  return { elapsedSec: objectiveClock(w), score: s.score, kills: s.kills, lives: simNumber(w, 'lives') }; // B16: the objective reads the wave clock, not w.time
 }
 
 /**

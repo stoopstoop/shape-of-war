@@ -125,7 +125,7 @@ function botInput(w: World, tick: number): InputState {
   input.move.x = mx;
   input.move.y = my;
   input.bomb = tick % 1500 === 1499;
-  input.superPressed = tick % 900 === 899;
+  input.superPressed = false; // Turbo now changes the ship speed, so a super in the bot would desync the replay path
   return input;
 }
 
