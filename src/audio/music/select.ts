@@ -5,9 +5,14 @@
 // handed only that seed, so selection inverts the finaliser to recover k = runSeed + levelIndex
 // and picks from k. No glue change is needed and nothing outside src/audio is imported.
 //
-// The pick is (k + 2 * b(k)) mod N, with b(k) a hashed bit of k. Two consecutive levels have k
-// and k + 1, so their picks differ by 1 + 2 * (b(k + 1) - b(k)), which is -1, 1 or 3: never a
-// multiple of N for N >= 4. Every tune is reachable and a run seed shifts the whole sequence.
+// The pick (v2.1 tune wiring, B20) is a shuffle bag over blocks of N consecutive keys. The tunes
+// split into two halves, A (the first floor(N / 2)) and B (the rest). In every block the first
+// |A| keys play A and the last |B| keys play B, each half in an order shuffled by a hash of the
+// block number (high bits of hash01, so no modulo bias). So inside a block every tune plays once,
+// and across a block line the last keys (B) and the first keys (A) never share a tune. Any three
+// consecutive levels therefore play three different tunes, consecutive levels always differ, and
+// a run hears every tune once every N levels. The older rule, (k + 2 * b(k)) mod N, kept
+// consecutive levels apart but often went back to the same tune two levels later (3, 2, 3).
 //
 // Endless: the tune rotates every ENDLESS_ROTATE_SEGMENTS segments of play, by the same rule
 // with k = endless level seed + block, so consecutive blocks differ too.
@@ -34,12 +39,40 @@ export function unfmix32(h: number): number {
   return x >>> 0;
 }
 
-/** Pure: the tune index for a selection key (any integer, taken as unsigned 32 bit). */
+/** Pure: a hashed integer in [0, n) from the high bits of hash01 (no modulo bias). */
+function pickBelow(n: number, a: number, b: number): number {
+  return Math.min(n - 1, Math.floor(hash01(a, b) * n));
+}
+
+/**
+ * Pure: the entry at position `pos` of a Fisher and Yates shuffle of 0 to m - 1, driven by the
+ * stateless hash of `block`. Same block, same order.
+ */
+export function shuffledAt(m: number, block: number, salt: number, pos: number): number {
+  const order = Array.from({ length: m }, (_, i) => i);
+  for (let i = m - 1; i > 0; i--) {
+    const j = pickBelow(i + 1, block, salt + i);
+    const t = order[i] ?? i;
+    order[i] = order[j] ?? j;
+    order[j] = t;
+  }
+  return order[pos] ?? 0;
+}
+
+/**
+ * Pure: the tune index for a selection key (any integer, taken as unsigned 32 bit). With four or
+ * more tunes, any three consecutive keys give three different tunes (the shuffle bag above);
+ * fewer tunes fall back to k mod N, which still keeps consecutive keys apart for N of 2 or 3.
+ */
 export function tuneIndexForKey(key: number, count: number = TUNES.length): number {
   const k = key >>> 0;
   const n = Math.max(1, Math.trunc(count));
-  const b = hash01(k, SALT_PICK) < 0.5 ? 0 : 1;
-  return (((k % n) + 2 * b) % n + n) % n;
+  if (n < 4) return k % n;
+  const block = Math.floor(k / n);
+  const pos = k - block * n;
+  const half = Math.floor(n / 2);
+  if (pos < half) return shuffledAt(half, block, SALT_PICK, pos);
+  return half + shuffledAt(n - half, block, SALT_PICK + 0x100, pos - half);
 }
 
 /** Pure: the tune index of an Adventure level from its run seed and level index. */
