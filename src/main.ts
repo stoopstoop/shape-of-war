@@ -28,6 +28,7 @@ import {
 } from './core/settings';
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
 import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
+import { readBoss, type BossView } from './game/bosses/view';
 import { createEndlessGame, createGame, gameState, setWeaponPickups, stepGame } from './game/game';
 import { setShipSpace } from './game/ship';
 import { installAudio, play as playCue } from './audio/synth';
@@ -54,11 +55,12 @@ import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
 import { hudFrame, overlayPadding, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
 import { resolveAudio } from './ui/audioPort';
-import { endlessLevel, endlessLine } from './ui/endless';
+import { bossBonusFor } from './ui/boss';
+import { endlessLabel, endlessLevel, endlessLine } from './ui/endless';
 import { createLevelSelect } from './ui/levelSelect';
 import { continueLabel, createMenuScreen } from './ui/menu';
 import { createPreviewWorld, previewRect, stepPreview } from './ui/preview';
-import { goalMet, objectiveProgress, objectiveStatus, type ObjectiveSnapshot } from './ui/objective';
+import { fallbackStatus, levelSuccess, objectiveProgress, type ObjectiveSnapshot } from './ui/objective';
 import { createPauseScreen } from './ui/pause';
 import { musicCue, type MusicCue } from './ui/musicFlow';
 import { createBootScreen } from './ui/boot';
@@ -357,6 +359,15 @@ async function boot(): Promise<void> {
     if (seed === null || musicLive || flow.screen !== 'playing') return;
     musicLive = tryMusic(() => startMusic(seed));
   };
+  // V3-A boss HUD. The boss bar itself listens to the bus inside the HUD. Here: whether a boss
+  // lives (the objective label and the Endless label), and whether this run's boss died (the
+  // results line). One reused view, so nothing allocates per call.
+  const bossRead: BossView = { active: false, id: 0, mode: 0, phase: 0, hp: 0, maxHp: 0, modeT: 0, x: 0, y: 0, rot: 0, radius: 0 };
+  const bossAlive = (): boolean => readBoss(world, bossRead).active;
+  let bossDown = false;
+  bus.on('sim:bossDown', () => {
+    bossDown = true;
+  });
   const requestPause = (): void => {
     if (flow.screen === 'playing') bus.emit('game:pause');
   };
@@ -372,9 +383,10 @@ async function boot(): Promise<void> {
     void s;
     if (flow.mode === 'endless') {
       hud.setLine(endlessLine(endlessSeed, world.time));
-      hud.setObjective({ label: 'Endless', fraction: 0 });
+      hud.setObjective({ label: endlessLabel(bossAlive()), fraction: 0 }); // "Boss" while one lives
     } else {
-      hud.setObjective(objectiveProgress(level.objective, snapshotOf(world)));
+      // Reads "Defeat the boss" while the level holds for a living boss (docs/13 boss rule 9).
+      hud.setObjective(objectiveProgress(level.objective, snapshotOf(world), bossAlive()));
     }
   };
 
@@ -397,6 +409,8 @@ async function boot(): Promise<void> {
     applySpacePhysics(settingsModel.state.spacePhysics); // new world: push the stored level to it
     applyWeaponPickups(settingsModel.state.weaponPickups); // and the stored pickups choice
     hud.clearWeapon(); // a new world starts on spread: drop any indicator left from the last run
+    hud.clearBoss(); // and has no boss yet: drop a bar left from the last run
+    bossDown = false;
     endCheck = true;
     cues.arm(readSim()); // the new world's charge is the baseline: a reset to 0 is not a super
     renderer?.setArena(level);
@@ -621,7 +635,9 @@ async function boot(): Promise<void> {
       });
       return;
     }
-    const success = goalMet(level.objective, snapshotOf(world));
+    // A boss level takes the sim's own verdict: its target can be met and the level then lost while
+    // it holds for the boss. Every other level infers success from the target, as since v1.
+    const success = levelSuccess(level.objective, snapshotOf(world), gameState(world).outcome, level.boss !== undefined);
     // A typed seed is a session only run: no unlocks and no Adventure table entries.
     const rec = customSeed ? { best: p.score, newBest: false } : recordAdventureScore(index, p.score, p.stars);
     if (!customSeed && success) unlockLevel(unlockAfter(loadUnlocked(), index, success));
@@ -637,6 +653,7 @@ async function boot(): Promise<void> {
       hash: pick.hash,
       space: settingsModel.state.spacePhysics, // B13: the level in effect as the run ends
     };
+    if (success && bossDown) result.bossBonus = bossBonusFor(level.par); // the results "Boss defeated" line
     dispatch({ type: 'over', result });
   };
 
@@ -667,7 +684,8 @@ async function boot(): Promise<void> {
       }
       stepGame(world, dt, input);
       cues.sim(readSim()); // respawn, superReady, superActivate
-      if (endCheck && objectiveStatus(level.objective, snapshotOf(world)) !== 'running') {
+      // Fallback end check. On a boss level the sim alone decides a win: it holds for the boss.
+      if (endCheck && fallbackStatus(level.objective, snapshotOf(world), level.boss !== undefined) !== 'running') {
         const score = scoreOf(world).score;
         const st = flow.mode === 'endless' ? 0 : stars(score, level.par);
         bus.emit('game:over', { score, stars: st, levelIndex: flow.levelIndex, mode: flow.mode });

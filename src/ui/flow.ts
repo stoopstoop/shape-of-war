@@ -24,6 +24,8 @@ export interface LevelResult {
   seed?: number;
   /** Space physics level in effect when the run ended (docs/11 SPEC 3.6). Absent reads as off. */
   space?: SpaceLevelSetting;
+  /** V3: set only on a win where the level's boss died. The flat bonus the kill paid (docs/13 SPEC 3.6). */
+  bossBonus?: number;
 }
 
 export interface FlowState {

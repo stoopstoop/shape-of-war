@@ -1,10 +1,24 @@
 // HUD (docs/01 section 9). DOM overlay anchored to screen edges plus safe area insets, never to
 // the arena. Numbers come from 'hud:score' (main.ts emits it at most every 100 ms); objective
 // progress and the level line are set directly by main.ts at the same cadence. The weapon
-// indicator (V2-B) comes from 'hud:weapon' and is throttled here to the same 100 ms.
+// indicator (V2-B) comes from 'hud:weapon' and is throttled here to the same 100 ms. The boss bar
+// (V3-A) comes from 'hud:boss' with the same throttle, appears on 'sim:bossEnter' and goes on
+// 'sim:bossDown'. Like the rest of the HUD it is plain divs inside a pointer-events: none root.
 import type { Bus, Events, WeaponKind } from '../core/events';
 import type { Insets, Rect } from '../input/types';
-import type { SuperKind } from '../levelgen/leveldef';
+import type { BossId, SuperKind } from '../levelgen/leveldef';
+import {
+  BOSS_GATE_START,
+  BOSS_MAX_PIPS,
+  bossColour,
+  bossFill,
+  bossGate,
+  bossView,
+  enterPayload,
+  type BossGate,
+  type HudBoss,
+  type PipState,
+} from './boss';
 import { el } from './dom';
 import { formatInt, iconRun } from './format';
 import { aspectClass, type AspectClass, type HudBox, type HudFrame } from './hudFrame';
@@ -12,6 +26,7 @@ import type { ObjectiveProgress } from './objective';
 import { weaponHue } from './weaponHue';
 
 export { aspectClass, type AspectClass };
+export { BOSS_NAMES, BOSS_TIER } from './boss';
 
 export interface HudLayout {
   band: number;
@@ -198,12 +213,18 @@ export interface Hud {
   setWeapon(p: HudWeapon): void;
   /** Hide the weapon indicator and forget the throttle: a new world starts on spread. */
   clearWeapon(): void;
+  /** Draw the boss bar for a hud:boss payload now, with no throttle. An undrawable payload hides it. */
+  setBoss(p: HudBoss): void;
+  /** Hide the boss bar and forget the throttle: a new world has no boss. */
+  clearBoss(): void;
+  /** True while the boss bar is up. */
+  bossShown(): boolean;
   /**
    * Re-anchor on resize, fold, unfold and arena change from the pure HUD frame. `buttons` is
    * false when there is no touch input (renderer failed), which hides the rings and pause.
    */
   layout(frame: HudFrame, buttons: boolean): void;
-  /** Subscribe to 'hud:score' and 'hud:weapon'. Returns the unsubscribe function for both. */
+  /** Subscribe to 'hud:score', 'hud:weapon', 'hud:boss', 'sim:bossEnter' and 'sim:bossDown'. Returns one unsubscribe function. */
   listen(bus: Bus): () => void;
 }
 
@@ -249,6 +270,54 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
   weaponBar.setAttribute('data-hud', 'weapon-bar');
   weaponFill.setAttribute('data-hud', 'weapon-fill');
   let gate: WeaponGate = { ...WEAPON_GATE_START };
+  // Boss bar (V3-A): name and phase pips on one row, a thick hit point bar under it. Hidden until a
+  // boss enters. Plain divs like the weapon indicator, so it adds no pointer target.
+  const bossNameEl = el('div', 'sow-hud-item', '');
+  bossNameEl.style.fontWeight = '700';
+  bossNameEl.style.display = 'none';
+  bossNameEl.setAttribute('data-hud', 'boss-name');
+  const bossPipsEl = el('div', 'sow-hud-item');
+  bossPipsEl.style.display = 'none';
+  bossPipsEl.style.alignItems = 'center';
+  bossPipsEl.style.justifyContent = 'flex-end';
+  bossPipsEl.style.gap = '4px';
+  bossPipsEl.setAttribute('data-hud', 'boss-pips');
+  const bossPipEls: HTMLDivElement[] = [];
+  for (let i = 0; i < BOSS_MAX_PIPS; i++) {
+    const pip = el('div');
+    pip.style.boxSizing = 'border-box';
+    pip.style.borderRadius = '50%';
+    pip.style.display = 'none';
+    bossPipEls.push(pip);
+    bossPipsEl.append(pip);
+  }
+  const bossBarEl = el('div', 'sow-hud-bar');
+  bossBarEl.style.boxSizing = 'border-box';
+  bossBarEl.style.display = 'none';
+  bossBarEl.style.background = 'rgba(2, 4, 12, 0.55)';
+  bossBarEl.setAttribute('data-hud', 'boss-bar');
+  const bossFillEl = el('div', 'sow-hud-fill');
+  bossFillEl.setAttribute('data-hud', 'boss-fill');
+  bossBarEl.append(bossFillEl);
+  let bossGateState: BossGate = { ...BOSS_GATE_START };
+  let bossUp = false;
+  /** Set by sim:bossDown, cleared by the next sim:bossEnter, a living hud:boss or clearBoss. */
+  let bossDownSeen = false;
+  let frameCls: AspectClass | null = null;
+  const paintPips = (id: BossId, states: readonly PipState[]): void => {
+    const solid = bossColour(id);
+    const faint = bossColour(id, 0.45);
+    for (let i = 0; i < bossPipEls.length; i++) {
+      const pip = bossPipEls[i];
+      if (pip === undefined) continue;
+      const st = states[i];
+      pip.style.display = st === undefined ? 'none' : 'block';
+      if (st === undefined) continue;
+      pip.style.border = `1px solid ${st === 'done' ? faint : solid}`;
+      pip.style.background = st === 'current' ? solid : st === 'done' ? faint : 'transparent';
+      pip.style.boxShadow = st === 'current' ? `0 0 6px ${solid}` : '';
+    }
+  };
   const bar = el('div', 'sow-hud-bar');
   const fill = el('div', 'sow-hud-fill');
   const objLabel = el('div', 'sow-hud-item', '');
@@ -264,8 +333,12 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
   superName.style.fontWeight = '600';
   const superTip = el('div', 'sow-hud-item', superHint(0));
   superTip.style.opacity = '0.7';
-  root.append(bar, objLabel, score, mult, weaponBar, weaponLabel, par, lives, bombs, pause, bombRing, superRing, superName, superTip);
+  root.append(bar, objLabel, score, mult, weaponBar, weaponLabel, par, bossBarEl, bossNameEl, bossPipsEl, lives, bombs, pause, bombRing, superRing, superName, superTip);
   parent.append(root);
+  // On main the boss bar takes the level line's slot, so the line steps aside while a boss lives.
+  const syncPar = (): void => {
+    par.style.display = bossUp && frameCls === 'main' ? 'none' : '';
+  };
   pause.style.cssText += ';display:flex;gap:22%;justify-content:center;align-items:center';
   const bars = [el('div'), el('div')];
   for (const b of bars) {
@@ -308,6 +381,34 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       weaponLabel.style.display = 'none';
       weaponBar.style.display = 'none';
     },
+    setBoss(p) {
+      const v = bossView(p);
+      bossUp = v.visible;
+      syncPar();
+      bossNameEl.style.display = v.visible ? '' : 'none';
+      bossBarEl.style.display = v.visible ? '' : 'none';
+      bossPipsEl.style.display = v.visible && v.pips.length > 0 ? 'flex' : 'none';
+      if (!v.visible) return;
+      const fillStyle = bossFill(p.id, now());
+      bossNameEl.textContent = v.name;
+      bossNameEl.style.color = bossColour(p.id);
+      bossNameEl.style.textShadow = `0 0 6px ${bossColour(p.id, 0.8)}`; // tier glow, not the shared cyan one
+      bossBarEl.style.borderColor = bossColour(p.id, 0.7);
+      bossFillEl.style.background = fillStyle.background;
+      bossFillEl.style.boxShadow = fillStyle.glow;
+      bossFillEl.style.width = `${Math.round(v.fraction * 1000) / 10}%`;
+      paintPips(p.id, v.pips);
+    },
+    clearBoss() {
+      bossGateState = { ...BOSS_GATE_START };
+      bossDownSeen = false;
+      bossUp = false;
+      bossNameEl.style.display = 'none';
+      bossBarEl.style.display = 'none';
+      bossPipsEl.style.display = 'none';
+      syncPar();
+    },
+    bossShown: () => bossUp,
     setLevel(levelIndex, parScore, hash) {
       par.textContent = levelLine(levelIndex, parScore, hash);
     },
@@ -331,6 +432,16 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
       setBox(objLabel, B.objLabel, true);
       setBox(par, B.par, true);
       par.style.opacity = '0.8';
+      setBox(bossNameEl, B.bossName, true);
+      setBox(bossPipsEl, B.bossPips, false);
+      setBox(bossBarEl, B.bossBar, false);
+      const pipD = Math.max(6, Math.min(10, B.bossPips.h - 6));
+      for (const pip of bossPipEls) {
+        pip.style.width = `${pipD}px`;
+        pip.style.height = `${pipD}px`;
+      }
+      frameCls = frame.cls;
+      syncPar();
       setBox(superName, B.superLabel, true);
       setBox(superTip, B.superHint, true);
       place(pause, frame.buttons.pause, frame.pauseIcon);
@@ -346,9 +457,33 @@ export function createHud(parent: HTMLElement, now: () => number = () => perform
         gate = g.gate;
         if (g.draw) hud.setWeapon(p);
       });
+      const offBoss = bus.on('hud:boss', (p) => {
+        if (bossDownSeen) {
+          // The boss already died: a late payload with no hit points left must not bring the bar back.
+          if (!(p.hp > 0)) return;
+          bossDownSeen = false;
+        }
+        const g = bossGate(bossGateState, p, now());
+        bossGateState = g.gate;
+        if (g.draw) hud.setBoss(p);
+      });
+      const offEnter = bus.on('sim:bossEnter', (p) => {
+        bossDownSeen = false;
+        if (bossGateState.id === p.id) return; // a hud:boss already drew this boss: do not reset its bar
+        const e = enterPayload(p.id);
+        bossGateState = bossGate(bossGateState, e, now()).gate;
+        hud.setBoss(e);
+      });
+      const offDown = bus.on('sim:bossDown', () => {
+        hud.clearBoss();
+        bossDownSeen = true;
+      });
       return () => {
         offScore();
         offWeapon();
+        offBoss();
+        offEnter();
+        offDown();
       };
     },
   };

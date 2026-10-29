@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateEndless, generateEndlessSegment } from '../../src/levelgen/generator';
 import { createGame, stepGame } from '../../src/game/game';
-import { ENDLESS_LOOP, ENDLESS_SEGMENTS, endlessLevel, endlessLine } from '../../src/ui/endless';
+import { ENDLESS_BOSS_LABEL, ENDLESS_LABEL, ENDLESS_LOOP, ENDLESS_SEGMENTS, endlessLabel, endlessLevel, endlessLine } from '../../src/ui/endless';
 
 const gen = { generateEndless, generateEndlessSegment };
 
@@ -56,5 +56,17 @@ describe('Endless adapter', () => {
   it('HUD line', () => {
     expect(endlessLine(42, 270.9)).toBe('Endless  Seed 42  4:30');
     expect(endlessLine(1, -3)).toBe('Endless  Seed 1  0:00');
+  });
+
+  // V3-A (docs/13 section 9): the wave label reads "Boss" while an Endless boss lives.
+  it('the label reads "Boss" while a boss lives and "Endless" otherwise', () => {
+    expect(ENDLESS_LABEL).toBe('Endless');
+    expect(ENDLESS_BOSS_LABEL).toBe('Boss');
+    expect(endlessLabel(true)).toBe('Boss');
+    expect(endlessLabel(false)).toBe('Endless');
+  });
+
+  it('the label flips back when the boss goes, so one run walks Endless, Boss, Endless', () => {
+    expect([false, true, true, false].map(endlessLabel)).toEqual(['Endless', 'Boss', 'Boss', 'Endless']);
   });
 });
