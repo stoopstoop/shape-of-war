@@ -1,10 +1,13 @@
 // Boss registry and wiring (docs/12 wave V3-A). bossDefOf is keyed by BossId; ids without a built
-// behaviour return null and arm nothing (tier 2 to 4 arrive in waves B and C), so such a level
+// behaviour return null and arm nothing (tiers 3 and 4 arrive in wave C), so such a level
 // plays as before. The lookup is a switch, not a module level table, so the import cycle through
 // endless.ts and spawner.ts never reads a def before its module has run.
 import type { BossId, BossSpec } from '../../levelgen/leveldef';
 import { Kind, registerBehaviour, type World } from '../world';
 import * as brood from './brood';
+import * as ember from './ember';
+import * as gravitas from './gravitas';
+import * as mirage from './mirage';
 import { armBoss, stepBossEntity, stepHazard, stepPart } from './core';
 import * as spindle from './spindle';
 import type { BossDef } from './types';
@@ -28,6 +31,12 @@ export function bossDefOf(id: BossId): BossDef | null {
       return brood.def;
     case 'spindle':
       return spindle.def;
+    case 'ember':
+      return ember.def;
+    case 'mirage':
+      return mirage.def;
+    case 'gravitas':
+      return gravitas.def;
     default:
       return null;
   }

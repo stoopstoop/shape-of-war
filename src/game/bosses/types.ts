@@ -52,4 +52,9 @@ export interface BossDef {
   onPhase(w: World, id: number, bs: BossState, phase: number): void;
   /** Distance from the arena centre where the entrance slide ends, given the wall distance d. */
   entryHome(d: number): number;
+  /**
+   * Optional: true when a hit landing at (hx, hy) gets through while the window is open (Mirage's
+   * shield arc). Absent means every hit in the window counts. Detonate skips it.
+   */
+  gate?(w: World, id: number, bs: BossState, hx: number, hy: number): boolean;
 }

@@ -122,11 +122,12 @@ function hurt(w: World, id: number, n: number, hx: number, hy: number): boolean 
 
 /**
  * Drone shot or Ram damage on any target: a boss or a boss part takes bossAmount tenths of a hit
- * (BOSS_DAMAGE), anything else n hits. Returns true if the target died.
+ * (BOSS_DAMAGE), anything else n hits. (hx, hy) is where the hit lands on a boss (Mirage's shield
+ * arc reads it); it defaults to the target centre. Returns true if the target died.
  */
-export function damageAny(w: World, id: number, n: number, bossAmount: number): boolean {
+export function damageAny(w: World, id: number, n: number, bossAmount: number, hx: number = w.x[id] ?? 0, hy: number = w.y[id] ?? 0): boolean {
   const k = w.kind[id] ?? 0;
-  if (k === Kind.Boss) return damageBoss(w, bossAmount, w.x[id] ?? 0, w.y[id] ?? 0);
+  if (k === Kind.Boss) return damageBoss(w, bossAmount, hx, hy);
   if (k === Kind.BossPart) return damageBossPart(w, id, bossAmount, w.x[id] ?? 0, w.y[id] ?? 0);
   return damage(w, id, n);
 }

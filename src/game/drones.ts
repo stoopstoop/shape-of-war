@@ -116,7 +116,7 @@ function stepRam(w: World, id: number, dt: number): void {
     } else {
       const left = moveToward(w, id, w.x[t] ?? 0, w.y[t] ?? 0, RAM_CHARGE, dt);
       if (left <= def.radius + (w.radius[t] ?? 0)) {
-        damageAny(w, t, RAM_DAMAGE, BOSS_DAMAGE.ram);
+        damageAny(w, t, RAM_DAMAGE, BOSS_DAMAGE.ram, w.x[id] ?? 0, w.y[id] ?? 0); // lands on the drone's side
         g.dronePhase = 2;
         g.droneCooldown = RAM_COOLDOWN;
       }

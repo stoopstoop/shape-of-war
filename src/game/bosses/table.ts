@@ -66,8 +66,11 @@ export const ENRAGE_RATE = 1.3;
 export const WAVE_BUDGET_WITH_BOSS = 0.6;
 /** A lethal hazard that would overlap the ship waits this long and rechecks (fairness rule 5). */
 export const HAZARD_RECHECK_SEC = 0.3;
-/** Live caps (fairness rule 5). */
-export const MAX_HAZARDS = 6;
+/**
+ * Live caps (fairness rule 5). Hazards: 8, Fable's ruling on draft flag 2 (docs/13 "Fable rulings",
+ * "Live hazard cap is 8 (lane bursts)"), so Mirage's eight lane burst fits. Tier 1 holds at most 3.
+ */
+export const MAX_HAZARDS = 8;
 export const MAX_ADDS = 8;
 export const MAX_PARTS = 4;
 /** hud:boss throttle, s. */
@@ -181,6 +184,88 @@ export const SPINDLE = {
   /** Arm rate without the pellet trade. The shot row below overrides it. */
   armRate: 0.5,
   reverseEvery: 5,
+} as const;
+
+/**
+ * Ember (tier 2, orange, level 20; roster row 4). Wind up with a lane marker, dash, bounce off up
+ * to two walls, a Mine every 120 u along the dash. Hittable only stunned or resting. Each phase is
+ * speedUp faster: speeds times speedUp^(phase - 1), timings divided by it, and the wind up never
+ * shorter than the tier telegraph.
+ */
+export const EMBER = {
+  windupSec: 0.9,
+  dashSpeed: 760,
+  dashSec: 0.6,
+  /** Wall bounces per dash. A dash that touched a wall ends in a stun; a third wall stuns at once. */
+  bounces: 2,
+  stunSec: 2.0,
+  restSec: 1.2,
+  /** Turn rate while winding up, before the heading locks (when the marker shows). */
+  turnRate: 240 * DEG,
+  /** First wind up this long after the entrance ends. */
+  firstDash: 1.0,
+  /** A Mine every this many u of dash (the Mine rules: 6 per owner, 24 in total). */
+  mineEvery: 120,
+  speedUp: 1.15,
+  /** Marker half width (lane cap 30 u); the body is wider, the marker shows the line. */
+  markerHalfWidth: 30,
+  entryHome: 0.5,
+} as const;
+
+/**
+ * Mirage (tier 2, magenta, level 25; roster row 5). Warps to a point 200 to 300 u from its target,
+ * a ring marks the spot markSec early, then eight lanes radiate from the landing point. Its shield
+ * ring blocks every shot except through an open arc that turns at arcRate (w.rot of the boss is
+ * the arc centre).
+ */
+export const MIRAGE = {
+  warpEvery: 3.0,
+  warpEveryP2: 2.5,
+  warpEveryP3: 2.0,
+  markSec: 0.5,
+  warpMin: 200,
+  warpMax: 300,
+  /** Candidate landing points tried per warp (deterministic, from hash01). */
+  warpTries: 8,
+  /** A landing waits while the ship is within the body radius plus this pad of the spot. */
+  landPad: 40,
+  lanes: 8,
+  /** Lanes sit this far off the ship's bearing, so the ship starts midway between two of them. */
+  laneOffsetDeg: 22.5,
+  laneLength: 600,
+  laneHalfWidth: 22,
+  arcDeg: 70,
+  arcRate: 1.5,
+  /** First warp marker this long after the entrance ends. */
+  firstWarp: 1.5,
+  entryHome: 0.5,
+} as const;
+
+/**
+ * Gravitas (tier 2, violet, level 30; roster row 6). Seeks at 45 u/s with a pull around it. Three
+ * anchors gate all damage; each lost anchor weakens the pull by a third. A collapsing ring with a
+ * 60 deg gap facing the ship every 5, 4 then 3 s.
+ */
+export const GRAVITAS = {
+  seekSpeed: 45,
+  anchors: 3,
+  /** 6 HP in tenths of a hit. */
+  anchorHp: 60,
+  anchorRadius: 14,
+  anchorOrbit: 140,
+  anchorSpin: 0.6,
+  ringEvery: 5,
+  ringEveryP2: 4,
+  ringEveryP3: 3,
+  /** First ring this long after the entrance ends. */
+  firstRing: 2.5,
+  gapDeg: 60,
+  /** The ring starts this far out and collapses onto the body at ringCollapse u/s. */
+  ringStart: 480,
+  ringCollapse: 220,
+  pullRadius: 300,
+  pullMax: 100,
+  entryHome: 0.45,
 } as const;
 
 export interface ShotRow {
