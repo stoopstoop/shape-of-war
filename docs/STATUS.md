@@ -2,8 +2,8 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: V2-E merged at 8896202 (chorus 599b8a7, proctor 21b8ec1, glow 8896202), deploy success. GE pending on device (Ryan offline until about 06:00 Dubai 2026-10-29). Backlog merged at 4b82f6a (foundry-gen-perf $2.38, swarm-fx-events $1.30, scribe-v2e-handoff $1.09, glue). Hit sounds merged at 019c06d (chorus-hit-sounds $3.00, glow-shield-spark $2.12), deploy success. GE build: 019c06d. Dispatcher idle, waiting for Ryan. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
-- Open gate: GE on build 019c06d: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
+- Wave: v2.0.0 tagged at 13b7d96 (GE pass). v2.1 running: Forge: move-symmetry (V-A5), Chorus: melody (V-D5), Thumbs: button-reach, Scribe: v3-plan draft (docs/12). Cap $12 per run since 03:18Z. GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Open gate: G2.1 (v2.1 retest: symmetry, melody, button reach) after the v2.1 runs merge. Old GE text: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
 ## Gate log
@@ -14,6 +14,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 | G2 | 2:50 | pass | level_start=ok enemies_spawn=ok results_screen=ok; bloom path kept (60 fps both screens) |
 | G3 | 6:35 | pass | build=5bef4ae crisp=yes/yes L2 unlock=yes differs=yes endless=yes table=yes slider=yes persisted=yes audio=yes/yes/yes vibrate=yes offline=yes scores=yes fps=60/60 |
 | G5 (v1.1) | 25:55 | pass | e231b6d: main_cross 2 s, cover_cross 2 s, main=same, overlap none, label clip no; level 16 wells_feel ok, escape yes, drift none |
+| GE (v2) | 42:40 | pass with P2s | 13b7d96: V2-G4 all ok except V-D5 (music melodic contribution inconsistent, fail) and V-A5 note (moving right drifts more and reacts slower than left); fps low 55/52, standard 59/59, high 60/60, cover 59, main 59; trails 4, map 4, particles 3, intensity 4, glitch none, kill notes, hit ticks, deflect ok |
 | GD (v2) | 35:50 | pass | 6f11afb: fps low 50/59, standard 59/59, high 59; grid 4, trails 2, particles 3, map 2; music layers ok, intensity 3, some glitches, pause and fold ok, zero ok |
 | GC (v2) | 33:30 | pass | fb25216: charger 4, bulwark 4, splime 5, swirl, blink, sower all read and countered, hashes match seed 42 pins, blink fair under Medium physics, slime ok at 50 percent, fps_main 60 |
 | GB (v2) | 28:45 | pass | 1612a53: pickup, rapid, pierce, orbit, death reset, toggle, drift orbit all ok; fps_main 60 |
