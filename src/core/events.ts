@@ -83,6 +83,10 @@ export interface Events {
   'sim:bossPhase': { id: BossId; phase: number; phases: number };
   /** Swarm (A) to Chorus, Glow and Ledger: the boss died at (x, y). */
   'sim:bossDown': { id: BossId; x: number; y: number };
+  /** Swarm to Glow and Chorus: the boss core started (true) or stopped (false) taking damage; on change only. */
+  'sim:bossExposed': { id: BossId; exposed: boolean };
+  /** Swarm to Glow and Chorus: Turbo started (active true, at the ship) or ended. */
+  'fx:turbo': { active: boolean; x: number; y: number };
   /** Swarm (A) to Ledger: at most every 100 ms and on change. */
   'hud:boss': { id: BossId; hp: number; maxHp: number; phase: number; phases: number; mode: number };
   /** Swarm (B) to Chorus and Glow: once per volley at launch. */
