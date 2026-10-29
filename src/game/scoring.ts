@@ -16,7 +16,8 @@ export interface ScoreState {
 }
 
 export type GameEvent =
-  | { type: 'kill'; kind: Kind }
+  /** bonus: unmultiplied points added on top of the kill (the boss kill bonus). */
+  | { type: 'kill'; kind: Kind; bonus?: number }
   | { type: 'geom'; count?: number }
   | { type: 'death' }
   | { type: 'reset' };
@@ -96,13 +97,19 @@ export function killPoints(kind: Kind, multiplier: number): number {
   return baseValue(kind) * multiplier;
 }
 
+/** Pure: a kill bonus as whole non negative points (absent, negative or not finite gives 0). */
+export function bonusPoints(bonus: number | undefined): number {
+  if (bonus === undefined || !(bonus > 0) || !Number.isFinite(bonus)) return 0;
+  return Math.floor(bonus);
+}
+
 /** Pure reducer. Returns a new state; the input is never mutated. */
 export function reduceScore(s: Readonly<ScoreState>, e: GameEvent): ScoreState {
   switch (e.type) {
     case 'kill':
       return {
         ...s,
-        score: s.score + killPoints(e.kind, s.multiplier),
+        score: s.score + killPoints(e.kind, s.multiplier) + bonusPoints(e.bonus),
         kills: s.kills + (countsAsKill(e.kind) ? 1 : 0),
       };
     case 'geom': {
@@ -146,10 +153,15 @@ function apply(w: World, e: GameEvent): ScoreState {
   return next;
 }
 
-/** Score a kill at the current multiplier. Returns the points awarded. */
-export function awardKill(w: World, kind: Kind): number {
-  const before = scoreOf(w).score;
-  return apply(w, { type: 'kill', kind }).score - before;
+/**
+ * Score a kill at the current multiplier, plus an unmultiplied bonus (the boss kill bonus, through
+ * Swarm's ScoringPort). Returns the kill points only, without the bonus: the sim adds the bonus
+ * to its own score itself.
+ */
+export function awardKill(w: World, kind: Kind, bonus = 0): number {
+  const points = killPoints(kind, scoreOf(w).multiplier);
+  apply(w, bonus > 0 ? { type: 'kill', kind, bonus } : { type: 'kill', kind });
+  return points;
 }
 
 /** Geom pickup: multiplier +1 per geom, capped. Returns the new multiplier. */

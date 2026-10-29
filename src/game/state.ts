@@ -19,8 +19,12 @@ export type GameMode = 'adventure' | 'endless';
 
 /** Scoring hooks. Ledger's scoring.ts plugs in here (see setScoring in game.ts). */
 export interface ScoringPort {
-  /** Points for a scored kill at the current multiplier. Swarm adds the result to state.score. */
-  awardKill(w: World, kind: Kind): number;
+  /**
+   * Points for a scored kill at the current multiplier. Swarm adds the result to state.score.
+   * bonus (the boss kill bonus, unmultiplied, 0 or absent otherwise) is for the port's own score:
+   * it is not part of the return, Swarm adds it to state.score itself. A port may ignore it.
+   */
+  awardKill(w: World, kind: Kind, bonus?: number): number;
   /** One geom collected. Default raises state.multiplier by 1, capped at 999. */
   collectGeom(w: World): void;
   /** Ship died. Default resets state.multiplier to 1. */

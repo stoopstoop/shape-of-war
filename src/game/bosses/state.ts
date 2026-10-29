@@ -87,6 +87,8 @@ export interface BossState {
   budgetAcc: number;
   /** Bonus awarded on the kill, 0 before. */
   bonus: number;
+  /** True once the boss died through the boss rules (defeatBoss), not a removal outside them. */
+  slain: boolean;
 
   hudTimer: number;
   hudHp: number;
@@ -154,6 +156,7 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     hzMarker: new Uint8Array(cap),
     budgetAcc: 0,
     bonus: 0,
+    slain: false,
     hudTimer: 0,
     hudHp: -1,
     hudPhase: -1,
@@ -212,6 +215,7 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.addKind.fill(0);
   s.budgetAcc = 0;
   s.bonus = 0;
+  s.slain = false;
   s.hudTimer = 0;
   s.hudHp = -1;
   s.hudPhase = -1;

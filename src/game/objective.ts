@@ -2,7 +2,7 @@
 // Timers read the wave clock, which pauses during the respawn delay.
 import { bus } from '../core/events';
 import type { ObjectiveDef } from '../levelgen/leveldef';
-import { bossPending, setBossHold } from './bosses/core';
+import { bossPending, bossSlain, setBossHold } from './bosses/core';
 import { gs, type GameMode, type Outcome } from './state';
 import type { World } from './world';
 
@@ -14,10 +14,14 @@ export interface ObjectiveInput {
   lives: number;
   clock: number;
   /**
-   * V3 boss rule 9: true while the level's boss is scheduled or alive. A success then holds the
-   * level (running) until the boss dies. Absent or false: the v2 rules, unchanged.
+   * V3 boss rule 9: true while the level's boss is scheduled or alive. The boss is the objective
+   * (DECISIONS, option 1): the level runs until the boss dies or the last life is lost, and the
+   * regular objective counts for score only. A success meanwhile holds the level (waves stop, the
+   * boss enrages). Absent or false with bossDown absent or false: the v2 rules, unchanged.
    */
   bossPending?: boolean;
+  /** True once the level's boss died through the boss rules: an Adventure level is won at once. */
+  bossDown?: boolean;
 }
 
 /** Pure: the objective's success test alone (no lives, no boss). Endless never succeeds. */
@@ -37,22 +41,24 @@ export function objectiveMet(s: ObjectiveInput): boolean {
 /** Pure: outcome for the given counters. */
 export function evaluateObjective(s: ObjectiveInput): Outcome {
   if (s.mode === 'endless') return s.lives <= 0 ? 'lost' : 'running';
+  // Boss levels (DECISIONS, option 1): the boss kill wins at once, like a destroy objective's last
+  // kill it takes precedence over a death on the same step. Until then only losing every life ends
+  // the level; the regular objective neither wins nor fails it.
+  if (s.bossDown === true) return 'won';
+  if (s.bossPending === true) return s.lives <= 0 ? 'lost' : 'running';
   const o = s.objective;
-  const hold = s.bossPending === true;
   switch (o.kind) {
     case 'scoreInTime':
       // Runs the full timer so the final score can climb past par and earn stars.
       // Reaching target early does not end the level; the verdict comes at the time limit.
       if (s.lives <= 0) return 'lost';
       if (s.clock < o.timeLimitSec) return 'running';
-      if (s.score < o.target) return 'lost';
-      return hold ? 'running' : 'won';
+      return s.score < o.target ? 'lost' : 'won';
     case 'survive':
       if (s.lives <= 0) return 'lost';
-      if (s.clock < o.durationSec) return 'running';
-      return hold ? 'running' : 'won';
+      return s.clock < o.durationSec ? 'running' : 'won';
     case 'destroy':
-      if (s.kills >= o.count && !hold) return 'won';
+      if (s.kills >= o.count) return 'won';
       return s.lives <= 0 ? 'lost' : 'running';
   }
 }
@@ -73,6 +79,7 @@ const scratch: ObjectiveInput = {
   lives: 0,
   clock: 0,
   bossPending: false,
+  bossDown: false,
 };
 
 /** Update the outcome; emits 'game:over' exactly once when the level ends. Stars are 0 on failure and in Endless. */
@@ -86,6 +93,7 @@ export function stepObjective(w: World): Outcome {
     scratch.lives = g.lives;
     scratch.clock = g.waveClock;
     scratch.bossPending = bossPending(w);
+    scratch.bossDown = bossSlain(w);
     g.outcome = evaluateObjective(scratch);
     // Boss rule 9: a success while the boss is pending holds the level (waves stop, it enrages).
     if (scratch.bossPending && g.outcome === 'running' && objectiveMet(scratch)) setBossHold(w);
