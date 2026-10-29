@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1110 590" width="1110" height="590" font-family="sans-serif">
+  <title>Shape of War HUD, cover screen (21:9)</title>
+  <defs>
+    <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="5" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2"/>
+    </filter>
+  </defs>
+  <rect width="1110" height="590" fill="#000"/>
+  <text x="30" y="36" fill="#cfe9f2" font-size="20">Cover screen (21:9): HUD. Example values. Schematic, 1 unit = 1 CSS px.</text>
+  <g transform="translate(30,60)">
+    <g filter="url(#rough)" stroke-linecap="round">
+      <rect x="0" y="0" width="1050" height="450" rx="18" fill="none" stroke="#cfe9f2" stroke-width="2.5"/>
+      <line x1="160" y1="8" x2="160" y2="442" stroke="#5ac8ff" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="6 6"/>
+      <line x1="938" y1="8" x2="938" y2="442" stroke="#5ac8ff" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="6 6"/>
+      <rect x="190" y="30" width="718" height="390" rx="6" fill="none" stroke="#3d64ff" stroke-width="2"/>
+      <path d="M549 235 L531 245 L536 235 L531 225 Z" fill="none" stroke="#ffffff" stroke-width="2"/>
+      <rect x="16" y="58" width="136" height="12" fill="none" stroke="#cfe9f2" stroke-width="1.2"/>
+      <rect x="17" y="59" width="52" height="10" fill="#5ac8ff" fill-opacity="0.7" stroke="none"/>
+      <rect x="76" y="47" width="76" height="5" fill="none" stroke="#60fbd4" stroke-width="1"/>
+      <rect x="76" y="47" width="49" height="5" fill="#60fbd4" stroke="none"/>
+      <circle cx="994" cy="330" r="28" fill="none" stroke="#cfe9f2" stroke-width="2"/>
+      <path d="M994 302 A28 28 0 1 1 966 330 L994 330 Z" fill="#ffe75a" fill-opacity="0.45" stroke="none"/>
+      <circle cx="994" cy="402" r="32" fill="none" stroke="#cfe9f2" stroke-width="2"/>
+      <rect x="1011" y="22" width="4.4" height="14" fill="#e6faff"/>
+      <rect x="1021" y="22" width="4.4" height="14" fill="#e6faff"/>
+    </g>
+    <text x="16" y="28" fill="#e6faff" font-size="20" font-weight="600">12,450</text>
+    <text x="16" y="46" fill="#a6ff4d" font-size="14">x37</text>
+    <text x="76" y="43" fill="#60fbd4" font-size="10" font-weight="600">RAPID</text>
+    <text x="16" y="84" fill="#e6faff" font-size="11">Destroy 23 / 60</text>
+    <text x="16" y="118" fill="#e6faff" fill-opacity="0.8" font-size="11">L7  Par 6,500</text>
+    <text x="16" y="132" fill="#e6faff" fill-opacity="0.8" font-size="11">#a1b2c3d4</text>
+    <text x="1038" y="77" fill="#e6faff" font-size="12" text-anchor="end">&#9650;&#9650;&#9650;</text>
+    <text x="1038" y="93" fill="#e6faff" font-size="10" text-anchor="end">&#9679;&#9679;&#9679;</text>
+    <text x="992" y="274" fill="#fff07a" font-size="11" font-weight="600" text-anchor="middle">SUPER: TURBO</text>
+    <text x="992" y="287" fill="#e6faff" fill-opacity="0.7" font-size="9" text-anchor="middle">charges with geoms</text>
+    <text x="994" y="409" fill="#e6faff" font-size="20" text-anchor="middle">3</text>
+  </g>
+  <g stroke="#ffd85a" stroke-width="1.2">
+    <line x1="218" y1="78" x2="112" y2="80"/>
+    <line x1="218" y1="101" x2="80" y2="101"/>
+    <line x1="218" y1="124" x2="140" y2="104"/>
+    <line x1="218" y1="147" x2="184" y2="124"/>
+    <line x1="218" y1="170" x2="146" y2="141"/>
+    <line x1="218" y1="193" x2="140" y2="182"/>
+    <line x1="912" y1="124" x2="1000" y2="133"/>
+    <line x1="912" y1="152" x2="1010" y2="150"/>
+    <line x1="990" y1="92" x2="1036" y2="92"/>
+    <line x1="912" y1="336" x2="980" y2="336"/>
+    <line x1="912" y1="390" x2="996" y2="390"/>
+    <line x1="912" y1="462" x2="992" y2="462"/>
+  </g>
+  <g font-size="14" font-weight="700" text-anchor="middle">
+    <g transform="translate(230,78)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">1</text></g>
+    <g transform="translate(230,101)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">2</text></g>
+    <g transform="translate(230,124)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">3</text></g>
+    <g transform="translate(230,147)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">4</text></g>
+    <g transform="translate(230,170)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">5</text></g>
+    <g transform="translate(230,193)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">6</text></g>
+    <g transform="translate(900,124)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">7</text></g>
+    <g transform="translate(900,152)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">8</text></g>
+    <g transform="translate(978,92)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">9</text></g>
+    <g transform="translate(900,336)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">10</text></g>
+    <g transform="translate(900,390)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">11</text></g>
+    <g transform="translate(900,462)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">12</text></g>
+    <g transform="translate(610,270)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">13</text></g>
+  </g>
+  <text x="30" y="560" fill="#cfe9f2" font-size="14">Left column 160 px, right column 112 px. The arena is fitted in the space between, so no HUD item covers it.</text>
+  <text x="30" y="578" fill="#cfe9f2" font-size="14">The weapon label and bar (3) show only while a pickup weapon is active.</text>
+</svg>
