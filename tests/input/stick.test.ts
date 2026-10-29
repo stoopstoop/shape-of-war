@@ -66,11 +66,13 @@ describe('DPR independence', () => {
     expect(outs[0]?.px).toBe(LEFT.x + 90);
   });
 
-  it('caps knob travel at 120 CSS px regardless of drag length', () => {
+  it('caps knob travel at 120 CSS px from the centre regardless of drag length', () => {
     const m = createModel(W, H);
     pointerDown(m, 1, LEFT.x, LEFT.y);
     pointerMove(m, 1, LEFT.x + 500, LEFT.y);
-    expect(m.move.px).toBe(LEFT.x + 120);
+    // The centre follows, so the knob sits under the finger, 120 px from the centre.
+    expect(m.move.px).toBe(LEFT.x + 500);
+    expect(m.move.px - m.move.ox).toBe(STICK_RADIUS);
     expect(m.move.x).toBeCloseTo(1);
   });
 });

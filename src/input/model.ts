@@ -63,8 +63,8 @@ export function pointerDown(m: TouchModel, id: number, x: number, y: number): Do
 }
 
 export function pointerMove(m: TouchModel, id: number, x: number, y: number): void {
-  if (id === m.move.id) updateTrack(m.move, x, y);
-  else if (id === m.aim.id) updateTrack(m.aim, x, y);
+  if (id === m.move.id) updateTrack(m.move, x, y, m.cssW, m.cssH);
+  else if (id === m.aim.id) updateTrack(m.aim, x, y, m.cssW, m.cssH);
 }
 
 /** Frees only whatever this pointer owned. Safe to call twice (up then lostpointercapture). */
