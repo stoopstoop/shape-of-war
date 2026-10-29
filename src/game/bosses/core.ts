@@ -252,6 +252,7 @@ export function stepBossSchedule(w: World, dt: number): void {
   } else {
     bs.modeT += dt;
   }
+  stepExposed(bs, dt);
   emitBossHud(w, bs, dt, false);
 }
 
@@ -350,7 +351,7 @@ export function stepHazard(w: World, id: number, dt: number): void {
 
 /** True when the hazard at id is past its telegraph and its geometry covers the point (px, py). */
 export function hazardLethalAt(w: World, bs: BossState, id: number, px: number, py: number): boolean {
-  if ((w.t[id] ?? 0) < (bs.hzTele[id] ?? 0)) return false;
+  if (bs.hzMarker[id] === 1 || (w.t[id] ?? 0) < (bs.hzTele[id] ?? 0)) return false;
   return hazardHits(w.a[id] ?? -1, px, py, SHIP_RADIUS, w.x[id] ?? 0, w.y[id] ?? 0, w.rot[id] ?? 0, w.radius[id] ?? 0, w.vx[id] ?? 0, w.vy[id] ?? 0);
 }
 
@@ -421,9 +422,38 @@ export function bossDamageForStyle(style: number): number {
   return BOSS_DAMAGE.spread;
 }
 
-/** True when the core takes damage now: the def's window, or a bomb stagger. */
+/**
+ * True when the core takes damage now: the def's counter window only. A bomb stagger never opens
+ * a closed core (G3A ruling on docs/13 boss rule 7, "stays vulnerable" read as "keeps the
+ * vulnerability it had"): the def does not step while staggered, so an open window stays open and
+ * a closed one stays closed, and the bomb itself deals no damage.
+ */
 export function bossOpen(bs: BossState): boolean {
-  return bs.open || bs.stagger > 0;
+  return bs.open;
+}
+
+/** Pure: the exposed flag of the render and audio contract. */
+export function exposedOf(status: string, mode: BossMode, open: boolean): boolean {
+  return status === 'alive' && mode !== BossMode.Entering && open;
+}
+
+/** True while the boss core takes damage (render, audio and tests). False with no boss. */
+export function bossExposed(w: World): boolean {
+  const bs = bossOf(w);
+  return bs !== null && bs.exposed;
+}
+
+/** Track the exposed flag and emit 'sim:bossExposed' on change. */
+function stepExposed(bs: BossState, dt: number): void {
+  const ex = exposedOf(bs.status, bs.mode, bossOpen(bs));
+  if (ex === bs.exposed) {
+    bs.exposedT += dt;
+    return;
+  }
+  bs.exposed = ex;
+  bs.exposedT = 0;
+  bs.exposedEv.exposed = ex;
+  bus.emit('sim:bossExposed', bs.exposedEv);
 }
 
 /**
@@ -523,6 +553,9 @@ function defeatBoss(w: World, bs: BossState, id: number): void {
   removeEntity(w, id);
   bs.status = 'defeated';
   bs.id = -1;
+  bs.open = false;
+  bs.openLeft = -1;
+  stepExposed(bs, 0); // a dead core is not exposed: 'sim:bossExposed' false if it was open
   bs.bonus = bossBonus(w.level.par, g.mode, bs.row.tier);
   g.score += bs.bonus;
   g.kills++; // SPEC 3.6 rule 4: the boss counts 1 kill for a destroy objective
@@ -583,7 +616,38 @@ export function spawnHazard(
   bs.hzRate[id] = rate;
   bs.hzLife[id] = life;
   bs.hzFollow[id] = follow ? 1 : 0;
+  bs.hzMarker[id] = 0;
   return id;
+}
+
+/**
+ * A lane marker: the thin dim telegraph of a lane from (x, y) along rot, removed just before its
+ * telegraph ends, so it is never lethal and may cross the ship. It shows where a body charge will
+ * go (Brood). Glow draws it as any lane telegraph. Returns the id, or -1 at the cap or a full world.
+ */
+export function spawnLaneMarker(w: World, bs: BossState, x: number, y: number, rot: number, length: number, halfWidth: number): number {
+  if (countHazards(w) >= MAX_HAZARDS) return -1;
+  const id = spawn(w, Kind.BossHazard, x, y);
+  if (id < 0) return -1;
+  zeroExtras(w, id);
+  const tele = hazardTelegraph(bs.row.tier);
+  w.a[id] = HazardType.Lane;
+  w.rot[id] = rot;
+  w.radius[id] = clampLaneHalfWidth(halfWidth);
+  w.vx[id] = length;
+  w.vy[id] = 0;
+  w.hp[id] = 0;
+  bs.hzTele[id] = tele;
+  bs.hzRate[id] = 0;
+  bs.hzLife[id] = markerLife(tele);
+  bs.hzFollow[id] = 0;
+  bs.hzMarker[id] = 1;
+  return id;
+}
+
+/** Pure: a marker's life, a little short of its telegraph so it never reaches the lethal age. */
+export function markerLife(tele: number): number {
+  return tele > 0.02 ? tele - 0.01 : tele * 0.5;
 }
 
 /** Ring from radius r0 growing at growth u/s (negative collapses), gaps of half angle gapHalf from gapRot. */

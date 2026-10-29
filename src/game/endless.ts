@@ -45,7 +45,8 @@ export function startEndless(w: World, def: EndlessDef, source: SegmentSource, s
     source,
     segment: seg0.segment,
     next: null,
-    nextLifeAt: def.extraLifeEvery,
+    nextLifeAt: firstLifeAt(def.extraLifeEvery),
+    lifeGap: firstLifeAt(def.extraLifeEvery),
     nextBombAt: def.extraBombEvery,
   };
   loadSegment(w, seg0);
@@ -90,18 +91,52 @@ export interface Awards {
   lives: number;
   bombs: number;
   nextLifeAt: number;
+  /** Points from nextLifeAt to the threshold after it. */
+  lifeGap: number;
   nextBombAt: number;
 }
 
 /**
- * Pure: +1 life every extraLifeEvery points and +1 bomb every extraBombEvery points, capped at
- * maxLives and maxBombs. A threshold passed at the cap is still consumed.
+ * G3A ("extra lives are easily acquired, so getting hit is not a big concern"): the extra life
+ * schedule grows. The first life comes at LIFE_FIRST_MUL x extraLifeEvery and each gap after it
+ * is LIFE_GAP_GROWTH times the last. With the generator's 100,000: 200k, 600k, 1.4M, 3.0M, 6.2M,
+ * 12.6M, 25.4M, 51.0M (v2: every 100k). Only the award schedule changes: EndlessDef and its
+ * segments are untouched, so the v2 Endless goldens hold. Bombs keep their flat schedule.
+ */
+export const LIFE_FIRST_MUL = 2;
+export const LIFE_GAP_GROWTH = 2;
+
+/** Pure: the first extra life threshold for an extraLifeEvery. */
+export function firstLifeAt(every: number): number {
+  return every * LIFE_FIRST_MUL;
+}
+
+/** Pure: the first n extra life thresholds for an extraLifeEvery (tests, docs and the HUD). */
+export function lifeThresholds(every: number, n: number): number[] {
+  const out: number[] = [];
+  if (!(every > 0)) return out;
+  let at = firstLifeAt(every);
+  let gap = at;
+  for (let i = 0; i < n; i++) {
+    out.push(at);
+    gap *= LIFE_GAP_GROWTH;
+    at += gap;
+  }
+  return out;
+}
+
+/**
+ * Pure: +1 life at each threshold of the growing schedule (lifeThresholds) and +1 bomb every
+ * extraBombEvery points, capped at maxLives and maxBombs. A threshold passed at the cap is still
+ * consumed. a.nextLifeAt and a.lifeGap carry the schedule (startEndless seeds both with
+ * firstLifeAt).
  */
 export function applyAwards(score: number, def: Pick<EndlessDef, 'extraLifeEvery' | 'extraBombEvery' | 'maxLives' | 'maxBombs'>, a: Awards): Awards {
-  if (def.extraLifeEvery > 0) {
+  if (def.extraLifeEvery > 0 && a.lifeGap > 0) {
     while (score >= a.nextLifeAt) {
       if (a.lives < def.maxLives) a.lives++;
-      a.nextLifeAt += def.extraLifeEvery;
+      a.lifeGap *= LIFE_GAP_GROWTH;
+      a.nextLifeAt += a.lifeGap;
     }
   }
   if (def.extraBombEvery > 0) {
@@ -113,7 +148,7 @@ export function applyAwards(score: number, def: Pick<EndlessDef, 'extraLifeEvery
   return a;
 }
 
-const awards: Awards = { lives: 0, bombs: 0, nextLifeAt: 0, nextBombAt: 0 };
+const awards: Awards = { lives: 0, bombs: 0, nextLifeAt: 0, lifeGap: 0, nextBombAt: 0 };
 
 /** Endless extra lives and bombs from score. No op outside Endless or after the last life. */
 export function stepEndlessAwards(w: World): void {
@@ -124,11 +159,13 @@ export function stepEndlessAwards(w: World): void {
   awards.lives = g.lives;
   awards.bombs = g.bombs;
   awards.nextLifeAt = run.nextLifeAt;
+  awards.lifeGap = run.lifeGap;
   awards.nextBombAt = run.nextBombAt;
   applyAwards(g.score, run.def, awards);
   g.lives = awards.lives;
   g.bombs = awards.bombs;
   run.nextLifeAt = awards.nextLifeAt;
+  run.lifeGap = awards.lifeGap;
   run.nextBombAt = awards.nextBombAt;
 }
 

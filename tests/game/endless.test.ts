@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
-import { advanceSegments, applyAwards, endlessLevel, endlessWave, stepEndlessAwards } from '../../src/game/endless';
+import { advanceSegments, applyAwards, endlessLevel, endlessWave, firstLifeAt, LIFE_FIRST_MUL, LIFE_GAP_GROWTH, lifeThresholds, stepEndlessAwards } from '../../src/game/endless';
 import { killEnemy } from '../../src/game/combat';
 import { createEndlessGame, createGame, stepGame } from '../../src/game/game';
 import { collectGeom as simCollectGeom } from '../../src/game/geoms';
@@ -107,16 +107,45 @@ describe('endless level', () => {
 describe('endless lives and bombs', () => {
   const def = { extraLifeEvery: 100_000, extraBombEvery: 150_000, maxLives: 9, maxBombs: 9 };
 
-  it('adds a life every 100,000 and a bomb every 150,000 points', () => {
-    const a = applyAwards(310_000, def, { lives: 3, bombs: 3, nextLifeAt: 100_000, nextBombAt: 150_000 });
-    expect(a).toEqual({ lives: 6, bombs: 5, nextLifeAt: 400_000, nextBombAt: 450_000 });
+  // G3A: lives on a growing schedule (first at 2 x extraLifeEvery, each gap double the last),
+  // bombs unchanged at every 150,000.
+  const fresh = (lives: number, bombs: number): { lives: number; bombs: number; nextLifeAt: number; lifeGap: number; nextBombAt: number } => ({
+    lives,
+    bombs,
+    nextLifeAt: firstLifeAt(def.extraLifeEvery),
+    lifeGap: firstLifeAt(def.extraLifeEvery),
+    nextBombAt: 150_000,
+  });
+
+  it('the life thresholds are 200k, 600k, 1.4M, 3.0M, 6.2M, 12.6M, 25.4M, 51.0M (v2: every 100k)', () => {
+    expect(LIFE_FIRST_MUL).toBe(2);
+    expect(LIFE_GAP_GROWTH).toBe(2);
+    expect(lifeThresholds(100_000, 8)).toEqual([200_000, 600_000, 1_400_000, 3_000_000, 6_200_000, 12_600_000, 25_400_000, 51_000_000]);
+    expect(lifeThresholds(0, 3)).toEqual([]);
+  });
+
+  it('adds a life at each growing threshold and a bomb every 150,000 points', () => {
+    expect(applyAwards(199_999, def, fresh(3, 3))).toMatchObject({ lives: 3, nextLifeAt: 200_000 });
+    const a = applyAwards(610_000, def, fresh(3, 3));
+    expect(a).toEqual({ lives: 5, bombs: 7, nextLifeAt: 1_400_000, lifeGap: 800_000, nextBombAt: 750_000 });
+  });
+
+  it('matches lifeThresholds step by step', () => {
+    const a = fresh(0, 0);
+    const seen: number[] = [];
+    for (let s = 0; s <= 60_000_000; s += 50_000) {
+      const before = a.lives;
+      applyAwards(s, { ...def, maxLives: 99 }, a);
+      if (a.lives > before) seen.push(s);
+    }
+    expect(seen).toEqual(lifeThresholds(100_000, 8));
   });
 
   it('caps at 9 and still consumes thresholds', () => {
-    const a = applyAwards(1_000_000, def, { lives: 8, bombs: 9, nextLifeAt: 100_000, nextBombAt: 150_000 });
+    const a = applyAwards(1_000_000, def, { lives: 8, bombs: 9, nextLifeAt: 200_000, lifeGap: 200_000, nextBombAt: 150_000 });
     expect(a.lives).toBe(9);
     expect(a.bombs).toBe(9);
-    expect(a.nextLifeAt).toBe(1_100_000);
+    expect(a.nextLifeAt).toBe(1_400_000);
     expect(a.nextBombAt).toBe(1_050_000);
   });
 
@@ -124,13 +153,21 @@ describe('endless lives and bombs', () => {
     const w = endless(5);
     gs(w).score = 100_000;
     stepEndlessAwards(w);
-    expect(gs(w).lives).toBe(4);
-    expect(gs(w).bombs).toBe(3);
-    stepEndlessAwards(w);
-    expect(gs(w).lives).toBe(4);
+    expect(gs(w).lives).toBe(3); // v2 gave a life here
     gs(w).score = 150_000;
     stepEndlessAwards(w);
     expect(gs(w).bombs).toBe(4);
+    gs(w).score = 200_000;
+    stepEndlessAwards(w);
+    expect(gs(w).lives).toBe(4);
+    stepEndlessAwards(w);
+    expect(gs(w).lives).toBe(4);
+    gs(w).score = 599_999;
+    stepEndlessAwards(w);
+    expect(gs(w).lives).toBe(4);
+    gs(w).score = 600_000;
+    stepEndlessAwards(w);
+    expect(gs(w).lives).toBe(5);
   });
 });
 
@@ -226,7 +263,7 @@ describe('endless bonuses through the real sim with Ledger scoring wired', () =>
     expect(def.maxBombs).toBe(9);
   });
 
-  it('+1 life at 100,000, +1 bomb at 150,000, both reported on hud:score', () => {
+  it('+1 bomb at 150,000, +1 life at 200,000 (G3A), both reported on hud:score', () => {
     const w = ledgerEndless(5);
     const huds: { lives: number; bombs: number; multiplier: number }[] = [];
     bus.on('hud:score', (p) => huds.push({ lives: p.lives, bombs: p.bombs, multiplier: p.multiplier }));
@@ -235,15 +272,17 @@ describe('endless bonuses through the real sim with Ledger scoring wired', () =>
     expect(gs(w).multiplier).toBe(999);
     killGrunt(w); // 49,950
     killGrunt(w); // 99,900
-    stepGame(w, DT, idle());
-    expect(gs(w).lives).toBe(3);
-    killGrunt(w); // 149,850: past the first life threshold
+    killGrunt(w); // 149,850: past v2's first life, short of G3A's
     stepGame(w, DT, idle());
     expect(gs(w).score).toBe(149_850);
     expect(scoreOf(w).score).toBe(149_850);
-    expect(gs(w).lives).toBe(4);
+    expect(gs(w).lives).toBe(3);
     expect(gs(w).bombs).toBe(3);
-    killGrunt(w); // 199,800: past the first bomb threshold, short of the second life
+    killGrunt(w); // 199,800: past the first bomb threshold, short of the first life
+    stepGame(w, DT, idle());
+    expect(gs(w).lives).toBe(3);
+    expect(gs(w).bombs).toBe(4);
+    killGrunt(w); // 249,750: past the first life threshold
     for (let i = 0; i < 12; i++) stepGame(w, DT, idle());
     expect(gs(w).lives).toBe(4);
     expect(gs(w).bombs).toBe(4);
@@ -251,7 +290,7 @@ describe('endless bonuses through the real sim with Ledger scoring wired', () =>
     expect(last).toEqual({ lives: 4, bombs: 4, multiplier: 999 });
   });
 
-  it('caps lives and bombs at 9 however far the score runs', () => {
+  it('lives grow slowly however far the score runs; bombs still cap at 9', () => {
     const w = ledgerEndless(5);
     for (let i = 0; i < 998; i++) simCollectGeom(w, spawn(w, Kind.Geom, 0, 0));
     for (let i = 0; i < 60; i++) {
@@ -259,11 +298,12 @@ describe('endless bonuses through the real sim with Ledger scoring wired', () =>
       stepGame(w, DT, idle());
     }
     expect(gs(w).score).toBe(2_997_000);
-    expect(gs(w).lives).toBe(9);
+    expect(gs(w).lives).toBe(6); // 200k, 600k, 1.4M; v2 had reached the cap of 9
     expect(gs(w).bombs).toBe(9);
-    // Thresholds passed at the cap are consumed, so a lost life is not refunded at once.
+    // Thresholds passed at the cap are consumed, so a lost bomb is not refunded at once.
     const run = gs(w).endless;
     expect(run?.nextLifeAt).toBe(3_000_000);
+    expect(run?.lifeGap).toBe(1_600_000);
     expect(run?.nextBombAt).toBe(3_000_000);
   });
 

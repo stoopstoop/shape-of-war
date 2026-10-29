@@ -85,6 +85,16 @@ export function createEndlessGame(def: EndlessDef, source: SegmentSource, opts: 
   return w;
 }
 
+/**
+ * The clock the objective reads (survive and scoreInTime): the wave clock, which pauses during the
+ * respawn delay and while a boss level holds (docs/01 section 8, docs/13 boss rule 9). It is not
+ * w.time, which keeps running through both. HUD countdowns should read this so "0:00" and
+ * "Defeat the boss" show when the sim's own test passes, not seconds early.
+ */
+export function objectiveClock(w: World): number {
+  return gs(w).waveClock;
+}
+
 /** True while the entity is telegraphing (render: draw at 50 percent alpha, flashing). */
 export function isTelegraphing(w: World, id: number): boolean {
   return (gs(w).tele[id] ?? 0) > 0;

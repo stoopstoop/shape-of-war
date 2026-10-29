@@ -25,6 +25,16 @@ export interface BossView {
   /** Facing in radians. */
   rot: number;
   radius: number;
+  /**
+   * G3A addition: true while the core takes damage (the counter window, never a bomb stagger).
+   * Optional so existing literals compile; readBoss always writes it. Glow: colour change and
+   * blink; Chorus: the alert on 'sim:bossExposed'.
+   */
+  exposed?: boolean;
+  /** Seconds left in a timed exposed window, -1 for an open ended one (Spindle) or while closed. */
+  exposedLeft?: number;
+  /** Seconds spent in the current exposed state (blink phase). */
+  exposedT?: number;
 }
 
 /** Fill out from the boss of the world and return it. No allocation: out is the caller's object. */
@@ -46,10 +56,13 @@ export function readBoss(w: World, out: BossView): BossView {
   out.y = w.y[id] ?? 0;
   out.rot = w.rot[id] ?? 0;
   out.radius = w.radius[id] ?? 0;
+  out.exposed = bs.exposed;
+  out.exposedLeft = bs.exposed ? bs.openLeft : -1;
+  out.exposedT = bs.exposedT;
   return out;
 }
 
 /** A fresh BossView for a caller to keep and reuse (allocates once; call at setup, not per frame). */
 export function createBossView(): BossView {
-  return { active: false, id: 0, mode: 0, phase: 1, hp: 0, maxHp: 0, modeT: 0, x: 0, y: 0, rot: 0, radius: 0 };
+  return { active: false, id: 0, mode: 0, phase: 1, hp: 0, maxHp: 0, modeT: 0, x: 0, y: 0, rot: 0, radius: 0, exposed: false, exposedLeft: -1, exposedT: 0 };
 }

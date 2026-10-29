@@ -8,6 +8,8 @@ import {
   bossEnraged,
   bossHittable,
   damageBoss,
+  damageBossPart,
+  livePart,
   keepScheduledEntry,
   phaseFor,
   entryAngle,
@@ -95,11 +97,11 @@ describe('schedule and entrance', () => {
   it('hit points are tenths of a hit times hpMul, clamped to the Int16 range', () => {
     expect(maxHpFor(BOSS_TABLE.warden, 1)).toBe(3600);
     expect(maxHpFor(BOSS_TABLE.prism, 1)).toBe(10000);
-    expect(maxHpFor(BOSS_TABLE.spindle, 1.25)).toBe(5000);
+    expect(maxHpFor(BOSS_TABLE.spindle, 1.25)).toBe(6250); // 500 hits since G3A (400 before)
     expect(maxHpFor(BOSS_TABLE.prism, 9)).toBe(32767);
     const w = bossGame('spindle', { boss: { id: 'spindle', tier: 1, atSec: 0.1, hpMul: 1.5 } });
     const id = enter(w);
-    expect(w.hp[id]).toBe(6000);
+    expect(w.hp[id]).toBe(7500);
   });
 
   it('phases split hit points evenly', () => {
@@ -209,12 +211,46 @@ describe('bomb and Detonate', () => {
     expect(bs(w).stagger).toBe(0);
   });
 
-  it('a staggered boss takes damage even with its shell closed', () => {
+  // G3A ruling on boss rule 7 ("staggers ... stays vulnerable ... does no damage"): the stagger
+  // keeps the vulnerability the boss had. It never opens a closed core, so a bomb can never turn
+  // into damage, and an open window is frozen (not shortened) while the boss is staggered.
+  it('a bomb never opens a closed core: shots during the stagger are blocked', () => {
+    const blocked: boolean[] = [];
+    bus.on('fx:hit', (p) => blocked.push(p.blocked));
     const w = bossGame('warden');
     const id = enter(w);
     const hp0 = w.hp[id] ?? 0;
     expect(bs(w).open).toBe(false);
-    triggerBomb(w);
+    expect(triggerBomb(w)).toBe(true);
+    expect(w.hp[id]).toBe(hp0);
+    for (let i = 0; i < 120 * STAGGER_SEC - 2; i++) {
+      damageBoss(w, 10, 0, 0);
+      stepGame(w, DT, idle());
+    }
+    expect(bs(w).stagger).toBeGreaterThan(0);
+    expect(w.hp[id]).toBe(hp0);
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(blocked.every((b) => b)).toBe(true);
+  });
+
+  it('a bomb during an open window keeps it open, frozen for the stagger, and deals nothing itself', () => {
+    const w = bossGame('brood');
+    park(w, 0, 0);
+    const id = enter(w);
+    const s = bs(w);
+    for (let k = 0; k < 3; k++) {
+      const p = livePart(w, s, k);
+      if (p > 0) damageBossPart(w, p, 10, 0, 0);
+    }
+    stepGame(w, DT, idle());
+    expect(s.open).toBe(true);
+    const left = s.openLeft;
+    const hp0 = w.hp[id] ?? 0;
+    expect(triggerBomb(w)).toBe(true);
+    expect(w.hp[id]).toBe(hp0);
+    run(w, 1.0);
+    expect(s.open).toBe(true);
+    expect(s.openLeft).toBeCloseTo(left, 5);
     damageBoss(w, 10, 0, 0);
     expect(w.hp[id]).toBe(hp0 - 10);
   });
@@ -318,14 +354,14 @@ describe('death and reward', () => {
     bus.on('sim:bossPhase', (p) => phases.push({ ...p }));
     const w = bossGame('spindle');
     const id = enter(w);
-    damageBoss(w, 2000, 0, 0);
-    expect(w.hp[id]).toBe(2000);
+    damageBoss(w, 2500, 0, 0);
+    expect(w.hp[id]).toBe(2500);
     expect(phases).toHaveLength(0);
     damageBoss(w, 1, 0, 0);
     expect(phases).toEqual([{ id: 'spindle', phase: 2, phases: 2 }]);
     damageBoss(w, 10, 0, 0);
     expect(phases).toHaveLength(1);
-    expect(w.hp[id]).toBe(4000 - 2011);
+    expect(w.hp[id]).toBe(5000 - 2511);
   });
 });
 
@@ -338,7 +374,7 @@ describe('hud:boss', () => {
     run(w, 0.5);
     const n0 = huds.length;
     expect(n0).toBeGreaterThan(0);
-    expect(huds.at(-1)).toMatchObject({ id: 'spindle', maxHp: 4000, phases: 2 });
+    expect(huds.at(-1)).toMatchObject({ id: 'spindle', maxHp: 5000, phases: 2 });
     // Nothing changes: no emits.
     run(w, 1);
     expect(huds.length).toBe(n0);
@@ -421,7 +457,7 @@ describe('readBoss', () => {
     const out = createBossView();
     const r = readBoss(w, out);
     expect(r).toBe(out);
-    expect(out).toMatchObject({ active: true, id: 2, phase: 1, hp: 4000, maxHp: 4000, radius: BOSS_TABLE.spindle.radius });
+    expect(out).toMatchObject({ active: true, id: 2, phase: 1, hp: 5000, maxHp: 5000, radius: BOSS_TABLE.spindle.radius });
     expect(out.x).toBe(w.x[id]);
     expect(out.mode).toBe(BossMode.Attacking);
   });

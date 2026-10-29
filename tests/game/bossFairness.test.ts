@@ -89,6 +89,12 @@ describe('no lethal hazard is created on the ship', () => {
         t += DT;
         for (let h = 1; h < w.cap; h++) {
           if (w.alive[h] !== 1 || w.kind[h] !== Kind.BossHazard || (w.t[h] ?? 0) > DT * 1.5) continue;
+          // A marker (Brood's charge line) is telegraph only: removed before it could be lethal,
+          // so it may point at the ship. Its own test is in bossBrood.test.ts.
+          if (bs(w).hzMarker[h] === 1) {
+            expect(bs(w).hzLife[h] ?? 0).toBeLessThan(bs(w).hzTele[h] ?? 0);
+            continue;
+          }
           born++;
           const hit = hazardHits(w.a[h] ?? -1, w.x[0] ?? 0, w.y[0] ?? 0, SHIP_RADIUS, w.x[h] ?? 0, w.y[h] ?? 0, w.rot[h] ?? 0, w.radius[h] ?? 0, w.vx[h] ?? 0, w.vy[h] ?? 0);
           expect(hit).toBe(false);

@@ -26,6 +26,15 @@ export interface BossState {
   phase: number;
   /** The def's counter window: true while the core takes damage. */
   open: boolean;
+  /**
+   * Seconds left in the def's counter window, set by the def while open: above 0 for a timed
+   * window, -1 for a window with no end (Spindle) or while closed.
+   */
+  openLeft: number;
+  /** Render and audio contract: the core takes damage now (the def's window, past the entrance). */
+  exposed: boolean;
+  /** Seconds spent in the current exposed state. */
+  exposedT: number;
   /** Seconds since the entrance started (the slide runs for ENTRANCE_SEC). */
   enterT: number;
   /** Seconds since the entrance ended (enrage at 90). */
@@ -49,6 +58,8 @@ export interface BossState {
   t3: number;
   n0: number;
   n1: number;
+  /** Spare id scratch (Brood: its charge marker), -1 for none. */
+  n2: number;
   angle: number;
   dir: number;
   /** Fairness recheck countdown: a hazard that would overlap the ship waits 0.3 s. */
@@ -69,6 +80,8 @@ export interface BossState {
   hzLife: Float32Array;
   /** 1 when the hazard origin follows the boss body. */
   hzFollow: Uint8Array;
+  /** 1 for a marker: a telegraph only hazard, removed before it could turn lethal. */
+  hzMarker: Uint8Array;
 
   /** Wave thinning accumulator (boss rule 4). */
   budgetAcc: number;
@@ -83,6 +96,7 @@ export interface BossState {
   phaseEv: { id: BossId; phase: number; phases: number };
   downEv: { id: BossId; x: number; y: number };
   hudEv: { id: BossId; hp: number; maxHp: number; phase: number; phases: number; mode: number };
+  exposedEv: { id: BossId; exposed: boolean };
 }
 
 const states = new WeakMap<World, BossState>();
@@ -108,6 +122,9 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     modeT: 0,
     phase: 1,
     open: false,
+    openLeft: -1,
+    exposed: false,
+    exposedT: 0,
     enterT: 0,
     age: 0,
     hold: false,
@@ -123,6 +140,7 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     t3: 0,
     n0: -1,
     n1: 0,
+    n2: -1,
     angle: 0,
     dir: 1,
     retry: 0,
@@ -133,6 +151,7 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     hzRate: new Float32Array(cap),
     hzLife: new Float32Array(cap),
     hzFollow: new Uint8Array(cap),
+    hzMarker: new Uint8Array(cap),
     budgetAcc: 0,
     bonus: 0,
     hudTimer: 0,
@@ -143,6 +162,7 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     phaseEv: { id: spec.id, phase: 1, phases: row.phases },
     downEv: { id: spec.id, x: 0, y: 0 },
     hudEv: { id: spec.id, hp: 0, maxHp: 0, phase: 1, phases: row.phases, mode: 0 },
+    exposedEv: { id: spec.id, exposed: false },
   };
 }
 
@@ -169,6 +189,9 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.modeT = 0;
   s.phase = 1;
   s.open = false;
+  s.openLeft = -1;
+  s.exposed = false;
+  s.exposedT = 0;
   s.enterT = 0;
   s.age = 0;
   s.hold = false;
@@ -180,6 +203,7 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.t3 = 0;
   s.n0 = -1;
   s.n1 = 0;
+  s.n2 = -1;
   s.angle = 0;
   s.dir = 1;
   s.retry = 0;
@@ -199,5 +223,7 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.downEv.id = spec.id;
   s.hudEv.id = spec.id;
   s.hudEv.phases = row.phases;
+  s.exposedEv.id = spec.id;
+  s.exposedEv.exposed = false;
   return s;
 }

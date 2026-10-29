@@ -30,6 +30,7 @@ export function reset(w: World, id: number, bs: BossState, first: boolean): void
   bs.t2 = 0;
   bs.retry = 0;
   bs.open = false;
+  bs.openLeft = -1;
   bs.mode = BossMode.Guarded;
 }
 
@@ -77,6 +78,7 @@ export function step(w: World, id: number, bs: BossState, dt: number, adt: numbe
     if (bs.t0 >= every) fireRing(w, id, bs, every);
   }
   bs.open = bs.t2 > 0;
+  bs.openLeft = bs.open ? bs.t2 : -1;
   bs.mode = bs.open ? BossMode.Vulnerable : BossMode.Guarded;
 }
 

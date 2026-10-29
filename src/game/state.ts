@@ -75,6 +75,8 @@ export interface EndlessRun {
   /** Prefetched segment + 1, requested when the current segment starts. */
   next: EndlessSegmentDef | null;
   nextLifeAt: number;
+  /** Points between nextLifeAt and the threshold after it (grows LIFE_GAP_GROWTH per life). */
+  lifeGap: number;
   nextBombAt: number;
 }
 
@@ -173,6 +175,8 @@ export interface GameState {
   killFx: KillFx;
   hitFx: HitFx;
   pointFx: PointFx;
+  /** Reused fx:turbo payload. */
+  turboFx: { active: boolean; x: number; y: number };
   hudTimer: number;
   hud: HudPayload;
 }
@@ -303,6 +307,7 @@ function createState(w: World): GameState {
     killFx: { x: 0, y: 0, colour: 'white', kind: Kind.None, id: 0 },
     hitFx: { x: 0, y: 0, kind: Kind.None, id: 0, blocked: false },
     pointFx: { x: 0, y: 0 },
+    turboFx: { active: false, x: 0, y: 0 },
     hudTimer: 0,
     hud: { score: 0, multiplier: 1, lives: 0, bombs: 0, superCharge: 0 },
   };
