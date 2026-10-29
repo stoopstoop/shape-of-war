@@ -2,7 +2,7 @@ Kickoff: 2026-10-27T08:49:39Z
 Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Console credits ($192.49) expire 2026-10-29.
 
 ## Current position
-- Wave: v2.0.0 tagged at 13b7d96 (GE pass). v2.1 running: Forge: move-symmetry (V-A5), Chorus: melody (V-D5), Thumbs: button-reach, Scribe: v3-plan draft (docs/12). Cap $12 per run since 03:18Z. Player guide first edition merged locally at c322576 (another session; docs only; carried by the next push). GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
+- Wave: v2.0.0 tagged at 13b7d96 (GE pass). v2.1 merged at fe72c7b (forge-move-symmetry $1.14 tests only, thumbs-button-reach $1.42, chorus-melody $6.27, scribe-v3-plan $4.42 docs/12 draft not approved), deploy success. Running: Thumbs: stick-follow (the V-A5 cause: stick centre does not follow an overshooting thumb). Cap $12 per run since 03:18Z. Player guide first edition merged locally at c322576 (another session; docs only; carried by the next push). GD passed; Standard stays the default tier (D8); music default 50 in play only (D9). Then wave D (Glow: look, Chorus: wiring and motifs, Ledger: effects and music settings). v2 canon: docs/11-v2-spec-addendum.md (approved by Fable 26:30), docs/10-v2-plan.md
 - Open gate: G2.1 (v2.1 retest: symmetry, melody, button reach) after the v2.1 runs merge. Old GE text: docs/device-checklist.md V2-G4 paste-back (two lines) plus the Glow trails, map, particles and fps recheck (.agents/runs/0185 hand-off) and the Chorus listen (.agents/runs/0181 hand-off steps 1 to 6)
 - Clock: 23:05 at tag; deadline 2026-10-28T14:49Z met
 
@@ -37,7 +37,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - GC fixes: foundry-gc-triage ($1.31), glue d117d8e, tune e6d6b66, ci c82eb1e
 - v2 D: glow-lattice ($7.99), chorus-layers ($3.82), ledger-fx-music ($2.29); glue 4113528
 - v2 E: chorus-v2-fixes ($7.26), proctor-v2-harden ($8.03 capped, five commits kept), glow-v2-fixes ($8.04 capped, wip committed by Fable) plus glow-v2-fixes-finish ($1.13)
-- Spend so far about $148 of $192 (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
+- Spend so far about $172 of $192 (includes the player guide $10.04 from the other session) (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
 - v2.1 candidates from the player guide canon audit (.agents/runs/0203-scribe-player-guide/handoff.md, 17 conflicts, unverified on device): B10 invulnerability blink not drawn; B11 geom blink not drawn; B12 seven sfx cues never played; B13 results screen missing the Space physics level (docs/11 3.6); B14 HUD weapon label hues differ from pickup hues. Owners to confirm: Glow (B10, B11, B14), Chorus or Ledger (B12), Ledger (B13).
@@ -60,4 +60,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-GE on build 019c06d (deploy confirmed success). Ask Ryan first to restart the dispatcher with MAX_BUDGET_USD=12 (no job is running). Paste-back: the two V2-G4 lines from docs/device-checklist.md plus trails, map, particles ratings, fps_standard at ?stress=400 with a bomb and a super, music: kill notes ok or fail, hit ticks ok or fail, shield deflect sound and spark ok or fail, intensity 1 to 5, glitches none or some or bad. If fps_standard under 59: set AMBIENT_AMP to 0 in src/render/lattice/ambient.ts (glue), rebuild, recheck. On GE pass: tag v2.0.0, Scribe final STATUS and DECISIONS pass, then v3 planning (High tier default, 3D, curved surfaces per DECISIONS 27:10).
+Read .agents/runs/0209-thumbs-stick-follow; merge, push, read the deploy result; then gate G2.1 on device with every field spelled out: (1) symmetry: main screen, Medium physics, hold right 2 s then flip left, and hold left 2 s then flip right, same feel yes or no; (2) melody: start a level at music 50, do entrance phrases and kill notes now sound like part of the tune, 1 to 5; (3) button reach: bomb and super reachable with a short roll of the right thumb on both screens, yes or no, and no overlap with the stick; (4) fps_standard at ?stress=400. On pass: tag v2.1.0; then review docs/12-v3-plan.md with Ryan (bosses, weapon combining) and fix B10 to B14 as a small wave. Credits: about $20 left on the first pool; the second $200 is usable.
