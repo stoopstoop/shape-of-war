@@ -1,6 +1,6 @@
 # Shape of War player guide
 
-Describes main at 13b7d96a1a067c61bfbaf8887fa96eb4dde807c2 (version v2 untagged), written 2026-10-29.
+Describes main at 13b7d96a1a067c61bfbaf8887fa96eb4dde807c2 (version v2.0.0), written 2026-10-29.
 
 ## Changed in this version
 
@@ -848,4 +848,4 @@ The filter opens from 450 Hz on an empty arena to 5.5 kHz at full threat, and fu
 |---|---|---|---|
 | v1.0.0 (4fbdaf7) | 2026-10-28 | First release: Adventure and Endless; Grunt, Wanderer, Weaver, Pinwheel, Dart, Snake, Spawner and gravity wells; three drones and three supers; neon slider and settings; results and high scores; installable and offline. Device gate G4 passed | No guide yet |
 | v1.1.0 (e231b6d) | 2026-10-28 | Gravity well pull retuned (zero at the rim, up to 160 u/s at the core, fades fast on leaving). Main screen HUD bands measured so the arena is larger. Device gate G5 passed | No guide yet |
-| 13b7d96 (v2 untagged) | 2026-10-29 | v2: space physics; weapon pickups (rapid, pierce, orbit); Charger, Bulwark, Blink, Swirl, Sower and Splime, plus Mine and Slime; deforming grid, trails, wall effects and effects tiers; generative music with enemy layers, kill notes, hit ticks and the shield deflect sound and spark | First edition |
+| 13b7d96 (v2.0.0) | 2026-10-29 | v2: space physics; weapon pickups (rapid, pierce, orbit); Charger, Bulwark, Blink, Swirl, Sower and Splime, plus Mine and Slime; deforming grid, trails, wall effects and effects tiers; generative music with enemy layers, kill notes, hit ticks and the shield deflect sound and spark | First edition |

@@ -65,5 +65,5 @@
     <g transform="translate(430,430)"><circle r="11" fill="#000" stroke="#ffd85a" stroke-width="2"/><text y="5" fill="#ffd85a">12</text></g>
   </g>
   <text x="30" y="808" fill="#cfe9f2" font-size="14">Top band 60 px, right column 92 px. In the bottom band layout the super and bomb rings sit at bottom centre</text>
-  <text x="30" y="826" fill="#cfe9f2" font-size="14">and the super label and hint sit to the left of the super ring. The weapon label and bar (3) show only while a pickup weapon is active.</text>
+  <text x="30" y="826" fill="#cfe9f2" font-size="14">and the super label and hint sit left of the super ring. Label and bar (3) show only with a pickup weapon.</text>
 </svg>
