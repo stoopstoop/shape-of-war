@@ -52,7 +52,7 @@ Simulation runs at a fixed 120 Hz (dt = 1/120 s). All speeds below are in arena 
 - Origin at arena centre, +x right, +y down.
 - The whole arena is always visible. No camera scroll. Why: a fixed frame needs no camera code and keeps the ship always visible at both aspect ratios.
 - Scale: `scale = min(safeW / arenaW, safeH / arenaH)`, arena centred in the safe play rect, remaining space is letterbox (background colour plus grid fade).
-- Safe play rect = viewport minus `env(safe-area-inset-*)` minus the HUD top band (section 9).
+- Safe play rect = viewport minus `env(safe-area-inset-*)` minus the HUD columns or bands (section 9). The HUD sits outside the arena on both screens.
 - Bounds enforced by the generator validator: arena height 700 to 1100 u, width up to 1800 u, aspect W/H 1.0 to 1.8.
 - Ship spawn point is always (0, 0).
 
@@ -61,9 +61,9 @@ Simulation runs at a fixed 120 Hz (dt = 1/120 s). All speeds below are in arena 
 | Control | Rule |
 |---|---|
 | Move stick | First pointer down in the left half of the screen (and not on a button) sets the stick origin. Max radius 120 CSS px. Dead zone 12 percent of radius. Velocity = direction x 420 u/s x clamp((len minus dead zone) / (radius minus dead zone), 0, 1). |
-| Aim stick | First pointer down in the right half (not on a button). Max radius 120 CSS px. Dead zone 25 percent of radius. Past the dead zone, aim angle = stick angle and fire is held. Inside the dead zone, no fire. |
-| Stick visuals | Base ring 120 px radius at 25 percent alpha, knob 36 px radius at 60 percent alpha. Fade out 150 ms after release. |
-| Bomb button | Bottom centre. Tap fires a bomb if bombs > 0 and bomb cooldown elapsed. |
+| Aim stick | First pointer down in the right half (not on a button). Max radius 120 CSS px. Dead zone 12 percent of radius, the same as the move stick. Past the dead zone, aim angle = stick angle and fire is held. Inside the dead zone, no fire. |
+| Stick visuals | Knob only, no base ring: a filled white circle of 21.6 px radius (0.6 x the 36 px knob radius) at 30 percent alpha, at the clamped thumb position. No fade: it disappears the moment the pointer lifts. |
+| Bomb button | Bottom right, at the foot of the bomb and super stack (section 9). Tap fires a bomb if bombs > 0 and bomb cooldown elapsed. |
 | Super button | Directly above bomb. Tap activates super when charge is full. |
 | Pause button | Top right. |
 | Multi-touch | Pointer capture per pointerId. A stick follows only its own pointer. Releasing a pointer frees that stick. |
@@ -163,7 +163,7 @@ Score = base value x multiplier at the moment of the kill. Geoms from that kill 
 - Contact with the ship kills the ship (unless invulnerable).
 - Enemies collide with arena walls and obstacles: they slide along them (Wanderer and Pinwheel reflect instead).
 - Enemies do not collide with each other, except a soft separation force of 80 u/s between same-type enemies closer than the sum of their radii. Why: prevents stacking into one blob without O(n^2) physics cost on large counts beyond a spatial grid.
-- All enemy speeds are multiplied by `LevelDef.speedScale` (1.00 to 1.40).
+- All enemy linear speeds are multiplied by `LevelDef.speedScale` (1.00 to 1.40) and by the arena speed factor (0.88 to 1, section 6.6). Turn rates use `speedScale` only.
 - All variation (Grunt pulse phase, Pinwheel spin direction) comes from LevelDef fields or from the stateless `hash01` in `src/core/rng.ts`. The simulation never constructs or advances a PRNG.
 
 ### 6.2 Stats table
@@ -219,7 +219,12 @@ Weight 0 means the type is not eligible in that band. The generator samples the 
 
 ### 6.6 Speed scaling
 
-`speedScale` per band: 1.00, 1.05, 1.10, 1.20; above level 31, plus 0.005 per level, capped at 1.40. Applies to enemy speeds and Dart turn rate, not to the ship, bullets or wells.
+Enemy linear speeds (the Weaver dodge speed included) are multiplied by `speedScale` x arena factor. Speeds in the section 6.2 table are before scaling.
+
+- `speedScale` per band: 1.00, 1.05, 1.10, 1.20; above level 31, plus 0.005 per level, capped at 1.40. It also scales the Dart turn rate.
+- Arena factor: `sqrt(shorter arena span / 900)` clamped to 0.88 to 1 (`src/game/tuning.ts`). A 700 u high arena gives 0.88, 800 u gives 0.94, 900 u and up gives 1. It keeps reaction distance fair when a small arena is drawn small on the cover screen. The Endless arena (1600 x 1000 u) gives 1. It does not scale turn rates.
+
+Neither applies to the ship, bullets or wells.
 
 ### 6.7 Gravity well numbers
 
@@ -266,39 +271,59 @@ Wave schedule loops after its last wave (see generator doc) so destroy levels ne
 
 All sizes in CSS px. Offsets are from the named screen edge plus that edge's `env(safe-area-inset-*)`. Aspect class is chosen at every resize: `cover` when viewport width / height is 1.8 or more, `main` otherwise.
 
+The HUD is a DOM overlay that owns fixed columns or bands at the screen edges. The arena play rect is what is left, and the arena is fitted inside it, so no HUD element sits over the arena. The layout is the pure `hudFrame` in `src/ui/hudFrame.ts`.
+
 ### 9.1 Cover screen (21:9)
+
+Two side columns and no top band: the left column is 160 px wide (score and objective text), the right column is 112 px wide (pause, lives, bombs, super and bomb buttons). The play rect is the full height between them.
 
 | Element | Anchor | Offset (x, y) | Size | Content |
 |---|---|---|---|---|
 | Score | top left | 16, 8 | 20 px text | Score with thousands separators |
-| Multiplier | top left | 16, 30 | 14 px text | "x" plus multiplier |
-| Objective | top centre | 0, 8 | 220 x 16 bar plus 14 px label | Timer or progress bar |
-| Lives | top right | 64, 8 | ship icons 12 px, gap 4 | Up to 5 icons, then "x N" |
-| Bombs | top right | 64, 26 | circle icons 10 px, gap 4 | Up to 5 icons, then "x N" |
-| Pause button | top right | 12, 8 | 40 x 40 hit area, 20 px icon | Two bars |
-| Bomb button | bottom centre | 0, 16 | 64 px diameter | Bomb count inside |
-| Super button | bottom centre | 0, 92 | 56 px diameter | Charge ring, fills clockwise |
-| Par line | top centre | 0, 28 | 12 px text | "Par N" (Adventure) or "Best N" (Endless) |
-| Endless segment | top centre | 0, 42 | 12 px text | "Wave N" (Endless only) |
+| Multiplier | top left | 16, 32 | 14 px text, 52 px wide box | "x" plus multiplier |
+| Weapon indicator | top left, right of the multiplier | 76, 32 | 10 px label, 5 px high bar below it | Weapon name and time left. Hidden while the weapon is Spread (docs/11) |
+| Objective bar | top left | 16, 58 | 136 x 12 bar | Progress fill |
+| Objective label | top left | 16, 72 | 11 px text, up to 2 lines | Objective text, see below |
+| Level line | top left | 16, 106 | 11 px text, up to 2 lines | Adventure: "L3  Par 1,000  #abcd1234" (level, par, level hash). Endless: "Endless  Seed N  m:ss" |
+| Pause button | top right | centre 32 in from the top and right edges | 56 x 56 hit area, 20 px icon | Two bars |
+| Lives | right column, right aligned | right edge 12 in, y 64 | 12 px icons | Up to 5 icons, then one icon and "x N" |
+| Bombs | right column, right aligned | right edge 12 in, y 82 | 10 px icons | As lives |
+| Super label | right column, centred | stacked just above the super hit circle | 11 px text | "SUPER: HOMING" (or DETONATE, TURBO) |
+| Super hint | right column, centred | directly under the label | 9 px text | "charges with geoms", or "ready: tap ring" at full charge |
+| Super button | right column | centre 56 in from the right edge, 120 up from the bottom | 56 px ring, 76 px hit circle | Charge ring, fills clockwise |
+| Bomb button | right column | centre 56 in from the right edge, 48 up from the bottom | 64 px ring, 88 px hit circle | Bomb count inside |
 
-HUD top band height on cover: 52 px. The safe play rect excludes it.
+Objective text: score in time shows "1,200 / 5,000  1:23" (score, target, time left) and "Target met  1:23" once the target is reached; survive shows "Survive 1:23"; destroy shows "Destroy 4 / 20". Endless shows "Endless" with an empty bar. The Endless wave number is not shown.
 
 ### 9.2 Main screen (10:9)
 
+A top band of text rows, 60 px high, then the bomb and super buttons in one of two arrangements. `hudFrame` builds both for the current viewport and arena and keeps the one that leaves the larger arena scale; a tie keeps the right column.
+
+- Right column: the buttons sit in a 92 px wide column at the right edge, below the top band.
+- Bottom band: the buttons sit in a full width band at the bottom edge, 158 px high.
+
+Top band rows (both arrangements):
+
 | Element | Anchor | Offset (x, y) | Size | Content |
 |---|---|---|---|---|
-| Score | top left | 24, 12 | 28 px text | Score |
-| Multiplier | top left | 24, 44 | 18 px text | "x" plus multiplier |
-| Objective | top centre | 0, 12 | 320 x 20 bar plus 16 px label | Timer or progress bar |
-| Par line | top centre | 0, 40 | 14 px text | Par or Best |
-| Endless segment | top centre | 0, 58 | 14 px text | "Wave N" |
-| Lives | top right | 80, 12 | ship icons 16 px, gap 6 | As cover |
-| Bombs | top right | 80, 36 | circle icons 14 px, gap 6 | As cover |
-| Pause button | top right | 16, 12 | 48 x 48 hit area | Two bars |
-| Bomb button | bottom centre | 0, 24 | 72 px diameter | Bomb count |
-| Super button | bottom centre | 0, 108 | 64 px diameter | Charge ring |
+| Score | top left | 24, 6 | 28 px text | Score |
+| Multiplier | top left | 24, 38 | 18 px text, up to 64 px wide box | "x" plus multiplier |
+| Weapon indicator | top left, right of the multiplier | 8 px right of the multiplier box, y 38 | 12 px label, 5 px high bar at y 54 | As cover |
+| Objective | top centre | 0, 8 | up to 320 x 20 bar with the 14 px label centred over it | Objective text, as cover |
+| Level line | top centre | 0, 32 | 14 px text | As cover |
+| Lives | top right | right edge 80 in, y 8 | 16 px icons | As cover |
+| Bombs | top right | right edge 80 in, y 32 | 14 px icons | As cover |
+| Pause button | top right | centre 32 in from the top and right edges | 56 x 56 hit area, 24 px icon | Two bars |
 
-HUD top band height on main: 76 px.
+Buttons:
+
+| Element | Anchor | Offset (x, y) | Size | Content |
+|---|---|---|---|---|
+| Bomb button | bottom right | centre 48 in from the right edge (right column) or 56 in (bottom band), 48 up from the bottom | 72 px ring, 88 px hit circle | Bomb count |
+| Super button | stacked above the bomb | same x, 120 up from the bottom | 64 px ring, 76 px hit circle | Charge ring |
+| Super label and hint | right column or bottom band | right column: just above the super hit circle, wrapped to 2 lines. Bottom band: left of the super ring, right aligned | right column 12 px label and 10 px hint; bottom band 13 px and 11 px | As cover |
+
+The bomb and super stack hugs the bottom right corner. Its centre is 56 px in from the right edge of the button area, clamped so both hit circles stay inside a narrow column.
 
 ### 9.3 HUD rules
 
@@ -322,29 +347,29 @@ menu -> endless play (no intro card, 1.5 s "Ready" text) -> results -> menu
 |---|---|---|
 | Boot | Title "Shape of War", "Tap to start". The tap requests fullscreen and resumes the AudioContext. | Tap to menu |
 | Menu | Continue (Adventure at highest unlocked level), Level select (grid of unlocked levels with best stars), Endless, Settings | Each item |
-| Level intro | Level number, objective text, par and star thresholds, drone and super names. 3.0 s auto-advance, tap to skip | Play |
+| Level intro | Level number, objective text, par and star thresholds, drone and super names. 1.5 s auto-advance, tap to skip | Play |
 | Play | Arena, HUD | Pause button, objective end |
 | Pause | Resume, Restart level, Settings, Quit to menu. Simulation halted. Auto-pause on `visibilitychange` to hidden and on aspect class change (fold or unfold) | Each item |
 | Results | Success or failure title, score, stars earned, par, best, new best flag. Buttons: Next (success only), Retry, Menu | Each button |
-| Settings | Neon slider 0 to 100 with live preview arena (grid plus one of each enemy drifting), Volume slider 0 to 100 (default 70), Reset progress (two-tap confirm) | Back |
+| Settings | Neon slider 0 to 100 with live preview arena (grid plus one of each enemy drifting), Volume slider 0 to 100 (default 70), Music slider (0 is off), Space physics (Off, Low, Medium, High), Weapon pickups (On, Off), Effects (Low, Standard, High), Show FPS toggle, Glow toggle (Bloom or Fallback), Play seed (a run seed field and button that start Adventure level 1 on that seed, with a line under the field showing its level 1 hash), Reset progress (two-tap confirm). The Music, Space physics, Weapon pickups and Effects rows are specified in docs/11. A "build" version line sits at the foot; five taps on it within 3 s reveal a debug button, "Stress: 400 entities, 2000 particles" | Back |
 
 Persistence keys (localStorage): `sow.settings.neon` (SPEC), `sow.settings.volume`, `sow.progress.runSeed`, `sow.progress.unlocked`, `sow.scores.adventure` (map of level index to best score and stars), `sow.scores.endless` (top 10 array). All reads tolerate missing or corrupt values and fall back to defaults.
 
 ## 11. Colour palette
 
-Base values at neon = 100 before saturation scaling. `applyNeon(n)` multiplies saturation by the factor from SPEC section 4 (0.4 to 1.3) and clamps to 100 percent. Lightness is not changed by the slider.
+Entity hues are the shipped `BASE_PALETTE` hues in `src/render/neon.ts`. Saturation and lightness cells are starting values; the code's base saturation for the v1 enemies, geom and well ring is 75 percent. `applyNeon(n)` multiplies saturation by the factor from SPEC section 4 (0.4 to 1.3) and clamps to 100 percent. Lightness is not changed by the slider.
 
 | Entity | HSL |
 |---|---|
 | Background | hsl(230, 40%, 4%) |
 | Grid lines | hsl(225, 80%, 45%), alpha 0.1 to 0.6 via applyNeon |
 | Arena wall and obstacles | hsl(200, 100%, 70%) |
-| Ship | hsl(50, 100%, 85%) |
-| Player bullet | hsl(45, 100%, 70%) |
-| Drone | hsl(170, 90%, 65%) |
-| Grunt | hsl(205, 100%, 60%) |
+| Ship | hsl(0, 0%, 100%), white |
+| Player bullet | hsl(55, 100%, 70%) |
+| Drone | hsl(0, 0%, 95%), white |
+| Grunt | hsl(215, 100%, 60%) |
 | Wanderer | hsl(275, 90%, 62%) |
-| Weaver | hsl(130, 95%, 55%) |
+| Weaver | hsl(125, 95%, 55%) |
 | Pinwheel | hsl(310, 95%, 62%) |
 | Dart | hsl(28, 100%, 58%) |
 | Snake head | hsl(185, 100%, 60%) |
@@ -358,9 +383,9 @@ Base values at neon = 100 before saturation scaling. `applyNeon(n)` multiplies s
 | HUD text | hsl(190, 60%, 90%) |
 | Multiplier text | hsl(95, 100%, 65%) |
 | Super charge ring | hsl(45, 100%, 60%) |
-| Stick ring and knob | hsl(190, 60%, 90%) |
+| Stick knob (no ring) | white at 30 percent alpha |
 
-Shapes: Grunt diamond, Wanderer four-point star (two crossed squares), Weaver square with inner diamond, Pinwheel four-blade pinwheel, Dart thin arrowhead, Snake head chevron with circle segments, Spawner hexagon with inner hexagon, Gravity well filled core circle with ring, Geom small rhombus, Drone small circle. All drawn as Pixi Graphics strokes, line width 2.5 u, plus glow per SPEC section 4.
+Shapes: Grunt square with an inner diamond, Wanderer bow tie (two triangles meeting at the centre), Weaver diamond with an inner square, Pinwheel four-blade pinwheel, Dart thin arrowhead, Snake head hexagon with a centre dot and circle segments, Spawner octagon with an inner square, Gravity well outer and inner ring around a filled white core, Geom small rhombus, Drone circle with a cross. The shape registry is `src/render/shapeSpecs.ts`. All drawn as Pixi Graphics strokes, line width 2.5 u, plus glow per SPEC section 4.
 
 ## 12. Particles and screen shake
 
@@ -401,20 +426,29 @@ All cues are synthesised in `src/audio/synth.ts` with oscillators, a shared whit
 | fire | square | 880 to 660 Hz, exponential | 40 ms | 0.04 | Max 12 per s (one per volley), 24 during Turbo |
 | enemyKill | noise through bandpass | bandpass centre 1200 to 300 Hz | 120 ms | 0.12 | Plus triangle 440 to 110 Hz, 120 ms, gain 0.06 |
 | bigKill (Snake, Spawner, well) | noise through lowpass plus sawtooth | lowpass 3000 to 200 Hz; saw 220 to 55 Hz | 400 ms | 0.18 | |
-| geomPickup | sine | 1200 to 1800 Hz, plus 10 Hz per multiplier step mod 50 | 50 ms | 0.05 | Max 20 per s |
+| geomPickup | sine | 1200 to 1800 Hz, exponential | 50 ms | 0.05 | Max 20 per s. Every pickup plays the same sweep; the pitch step per multiplier (see 13.1) is not implemented |
 | telegraph | sine | 300 to 600 Hz | 60 ms | 0.03 | Max 4 per s |
 | bomb | noise through lowpass plus sawtooth | lowpass 2000 to 80 Hz; saw 110 to 40 Hz | 900 ms | 0.30 | |
 | shipDeath | sawtooth plus noise | saw 440 to 55 Hz; noise lowpass 4000 to 100 Hz | 700 ms | 0.30 | |
 | respawn | sine | 220 to 880 Hz | 300 ms | 0.10 | |
 | superReady | triangle | arpeggio 523, 659, 784 Hz, steps of 80 ms | 240 ms | 0.10 | |
 | superActivate | square | 330 to 1320 Hz | 250 ms | 0.12 | |
-| wellPulse | sine | 55 to 50 Hz | 200 ms | 0.04 | Once per well pulse, only when ship within pull radius |
-| wellExplode | noise plus sine | noise lowpass 1500 to 60 Hz; sine 80 to 30 Hz | 1200 ms | 0.30 | |
-| extraLife | triangle | 660 then 880 then 1320 Hz, steps of 100 ms | 300 ms | 0.12 | Endless only |
 | levelStart | triangle | 392 to 784 Hz | 400 ms | 0.10 | |
 | levelComplete | triangle | arpeggio 523, 659, 784, 1047 Hz, steps of 120 ms | 480 ms | 0.14 | |
 | levelFail | sawtooth | 330 to 110 Hz | 800 ms | 0.12 | |
 | uiTap | sine | 1000 Hz flat | 30 ms | 0.05 | |
+All 14 cues in the table are defined in `src/audio/cues.ts` and play at v2.1.
+
+### 13.1 Designed, not implemented
+
+These have no entry in `src/audio/cues.ts` and never play. They are out of scope until Fable queues them. The numbers are the original design.
+
+| Cue | Waveform | Frequency sweep | Duration | Gain | Notes |
+|---|---|---|---|---|---|
+| geomPickup pitch step | sine | geomPickup sweep plus 10 Hz per multiplier step mod 50 | 50 ms | 0.05 | Max 20 per s, as the shipped geomPickup |
+| wellPulse | sine | 55 to 50 Hz | 200 ms | 0.04 | Once per well pulse, only when ship within pull radius |
+| wellExplode | noise plus sine | noise lowpass 1500 to 60 Hz; sine 80 to 30 Hz | 1200 ms | 0.30 | |
+| extraLife | triangle | 660 then 880 then 1320 Hz, steps of 100 ms | 300 ms | 0.12 | Endless only |
 | uiSlider | sine | 600 plus 6 x value Hz | 20 ms | 0.03 | Max 15 per s while dragging |
 
 No music in v1.
