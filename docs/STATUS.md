@@ -40,7 +40,7 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Spend so far about $172 of $192 (includes the player guide $10.04 from the other session) (second $200 also usable per Ryan); cap $8 per run, Ryan wants $12 (restart pending) tagged v1.0.0 at 4fbdaf7
 
 ## Open bugs
-- B10, B11, B13, B14: fixed at afa6332, retest at G2.1 or the next gate. B12: all cues play except respawn (SfxName union lacks it; small Forge or Chorus run). Remaining player guide audit items are docs drift (dead zone 12 percent not 25, stick visuals, HUD layouts, speed arena factor): docs/01 to follow the code in a Scribe pass.
+- B10, B11, B13, B14: fixed at afa6332, retest at G2.1 or the next gate. B12: closed (all cues play; respawn from the UI flow). Remaining player guide audit items are docs drift (dead zone 12 percent not 25, stick visuals, HUD layouts, speed arena factor): docs/01 to follow the code in a Scribe pass.
 - B9 (P1): input and sim proven exact (feat/thumbs-feel, feat/forge-feel, 62 tests). Device at 4e6af68: peak 100 percent both screens, 60 Hz, intro card clean, wells resist, main slower than cover on L1. Fixes merged: feat/swarm-wells (pull retune), feat/ledger-hud-scale (main insets). Closed at e231b6d (G5). Residual: L1 and L6 main at 89 percent of pre-B6; Ledger proposes super ring beside bomb on main (SPEC 5 change) if still felt.
 - B5: closed (G4 pass).
 - B6, B7, B8: closed (G4 and retests pass).
