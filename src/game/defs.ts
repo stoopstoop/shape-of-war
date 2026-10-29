@@ -62,6 +62,14 @@ export function defOf(k: Kind): EnemyDef | null {
       return splime.def;
     case Kind.Slime:
       return slime.def;
+    // V3 contract stubs (docs/12 V3-W0): no EnemyDef for a boss, its parts and hazards, a drone
+    // pickup or the twin drone. Explicit so a later wave replaces a visible line, not the default.
+    case Kind.Boss:
+    case Kind.BossPart:
+    case Kind.BossHazard:
+    case Kind.DronePickup:
+    case Kind.DroneTwin:
+      return null;
     default:
       return null;
   }

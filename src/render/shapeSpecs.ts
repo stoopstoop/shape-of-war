@@ -61,6 +61,12 @@ export const ALL_KINDS: readonly DrawnKind[] = [
   Kind.Mine,
   Kind.Splime,
   Kind.Slime,
+  // V3 contract stubs (docs/12-v3-plan.md V3-W0), enum order.
+  Kind.Boss,
+  Kind.BossPart,
+  Kind.BossHazard,
+  Kind.DronePickup,
+  Kind.DroneTwin,
 ];
 
 interface LayerExtra {
@@ -465,6 +471,14 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   [Kind.Splime]: SPLIME_SPEC,
   // Plain Kind.Slime slot: the first outline. Live puddles use the per id variant slots.
   [Kind.Slime]: SLIME_SPECS[0] ?? slimeSpec(1),
+  // V3 contract stubs (docs/12 V3-W0): plain placeholder circles, so the registry is complete and
+  // nothing falls back to the magenta unknown glyph. Nothing spawns these Kinds yet. Glow draws
+  // the real boss, part, hazard and drone pickup shapes in wave A and the twin drone in wave D.
+  [Kind.Boss]: { tint: 'bossBlue', radius: 60, layers: [layer([{ t: 'circle', r: 60 }], 3)] },
+  [Kind.BossPart]: { tint: 'bossBlue', radius: 22, layers: [layer([{ t: 'circle', r: 22 }], 2.5)] },
+  [Kind.BossHazard]: { tint: 'bossRed', radius: 12, layers: [layer([{ t: 'circle', r: 12 }], 2)] },
+  [Kind.DronePickup]: { tint: 'dronePickup', radius: 14, layers: [layer([{ t: 'circle', r: 14 }], 2)] },
+  [Kind.DroneTwin]: { tint: 'white', radius: 8, layers: [layer([{ t: 'circle', r: 8 }], 2)] },
 };
 
 /** Kind values the renderer checks per entity, as plain numbers (the enum is const). */

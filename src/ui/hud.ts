@@ -120,6 +120,13 @@ export const WEAPON_NAMES: Readonly<Record<WeaponKind, string>> = {
   rapid: 'RAPID',
   pierce: 'PIERCE',
   orbit: 'ORBIT',
+  // V3 contract stubs: the names Ryan kept (docs/13). Ledger replaces these with COMBO_NAMES in wave D.
+  'spread+rapid': 'HAIL',
+  'spread+pierce': 'TRIDENT',
+  'spread+orbit': 'HALO',
+  'rapid+pierce': 'NEEDLE',
+  'rapid+orbit': 'WHIRL',
+  'pierce+orbit': 'ECLIPSE',
 };
 
 /** Pure: CSS colour for a weapon's label and bar. The hue comes from weaponHue (B14). */

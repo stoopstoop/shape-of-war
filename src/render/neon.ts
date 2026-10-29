@@ -61,6 +61,22 @@ export const BASE_PALETTE = {
   pierce: [258, 1.0, 0.78],
   /** Orbit: mint blades, in the gap between Weaver green (125) and Swirl (160). */
   orbit: [143, 1.0, 0.72],
+  // V3 contract stubs (docs/12-v3-plan.md V3-W0). Placeholder HSL, Glow tunes them in wave A. They
+  // are plain hue guesses and are not yet checked against the enemy and weapon hue gap tests.
+  /** Tier 1 boss colours: blue, green, yellow (docs/12 boss schedule). */
+  bossBlue: [220, 0.8, 0.6],
+  bossGreen: [130, 0.8, 0.55],
+  bossYellow: [52, 0.85, 0.6],
+  /** Tier 2 boss colours: orange, magenta, violet. */
+  bossOrange: [24, 0.85, 0.58],
+  bossMagenta: [315, 0.8, 0.62],
+  bossViolet: [268, 0.8, 0.62],
+  /** Tier 3 bosses: bright red with a thick glow (the glow width is Glow's, through applyNeon). */
+  bossRed: [358, 0.9, 0.58],
+  /** Tier 4 boss (Prism): a shimmering multicolour, so a base hue is only the fallback tint. */
+  bossPrism: [190, 0.8, 0.7],
+  /** Drone pickup (Kind.DronePickup). Placeholder, apart from the weapon pickup white. */
+  dronePickup: [170, 0.8, 0.65],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type PaletteKey = keyof typeof BASE_PALETTE;
@@ -74,6 +90,14 @@ export const WEAPON_PALETTE: Readonly<Record<WeaponKind, PaletteKey>> = {
   rapid: 'rapid',
   pierce: 'pierce',
   orbit: 'orbit',
+  // V3 contract stubs: each pair borrows the key of its later ingredient (order spread, rapid,
+  // pierce, orbit). Placeholders only: Glow gives the six combined looks their own colours in wave D.
+  'spread+rapid': 'rapid',
+  'spread+pierce': 'pierce',
+  'spread+orbit': 'orbit',
+  'rapid+pierce': 'pierce',
+  'rapid+orbit': 'orbit',
+  'pierce+orbit': 'orbit',
 };
 
 /** Pure: palette key for a weapon. */

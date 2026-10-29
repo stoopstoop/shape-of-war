@@ -34,6 +34,15 @@ export function turnToward(cur: number, target: number, maxDelta: number): numbe
   return wrapAngle(target);
 }
 
+/**
+ * V3 contract stub (docs/12 V3-W0). The entity id that enemy and boss code chases or aims at.
+ * Always the ship (id 0) until wave D gives it the decoy. Boss code calls it for every chase and
+ * aim target from wave A on, so the decoy is one edit here. Behaviour unchanged.
+ */
+export function targetOf(w: World, id: number): number {
+  return 0;
+}
+
 /** Angle from id to the ship. */
 export function angleToShip(w: World, id: number): number {
   return Math.atan2((w.y[0] ?? 0) - (w.y[id] ?? 0), (w.x[0] ?? 0) - (w.x[id] ?? 0));
