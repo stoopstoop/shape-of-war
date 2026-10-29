@@ -14,6 +14,7 @@
 // - kicks may overlap one other kick only in the middle of a bar.
 import { barsOf, DEFAULT_KEY, HARMONIES, triad, type ChordName, type Harmony, type Key } from './harmony';
 import { A4 } from './scale';
+import type { Layer } from './track';
 
 export const TUNE_IDS = ['neon', 'tide', 'ember', 'orbit'] as const;
 export type TuneId = (typeof TUNE_IDS)[number];
@@ -333,6 +334,31 @@ const ORBIT: Tune = {
   },
   bed: { bass: 'square', pad: 'sawtooth', arp: 'sine', padDetune: 15 },
 };
+
+// ---------------------------------------------------------------------------------------
+// Bed loudness trim (B20). The layer gains were tuned on Neon Drive's waves (triangle bass, saw
+// pad, square arp). On a phone speaker the sub bass fundamental is inaudible and only its
+// harmonics come through, so a saw or square bass at the same gain jumps far in front of the
+// triangle and buries the motifs. Each bed note is scaled by the ratio of the reference wave's
+// weight to the tune's wave weight, never above 1, so a brighter wave is pulled back to the
+// reference and a softer one stays soft. Neon Drive is unchanged.
+
+/** Rough loudness weight of a wave once the bed filters and a phone speaker have had it. */
+export const WAVE_WEIGHT: Readonly<Record<OscillatorType, number>> = {
+  sine: 0.7,
+  triangle: 0.7,
+  sawtooth: 1,
+  square: 1.05,
+  custom: 1,
+};
+
+/** Pure: the gain factor (0 to 1) for one bed layer of a tune. Drums are never trimmed. */
+export function bedWaveTrim(layer: Layer, bed: BedTimbre): number {
+  if (layer !== 'bass' && layer !== 'pad' && layer !== 'arp') return 1;
+  const ref = WAVE_WEIGHT[NEON.bed[layer]];
+  const own = WAVE_WEIGHT[bed[layer]];
+  return own > 0 ? Math.min(1, ref / own) : 1;
+}
 
 /** Every tune, in selection order. Index 0 is the original track. */
 export const TUNES: readonly Tune[] = [NEON, TIDE, EMBER, ORBIT];

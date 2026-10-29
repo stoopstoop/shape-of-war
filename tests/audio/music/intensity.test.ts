@@ -49,13 +49,13 @@ describe('layer gains', () => {
     expect(sumGains(layerGains(1))).toBeGreaterThan(0.8);
   });
 
-  it('pad always, bass from 0.06, kick from 0.15, hat from 0.28, arp from 0.42, perc from 0.7', () => {
+  it('pad always, bass from 0.06, arp from 0.12, kick from 0.2, hat from 0.32, perc from 0.7', () => {
     expect(layerGain('pad', 0)).toBeGreaterThan(0);
     const starts: [typeof LAYERS[number], number][] = [
       ['bass', 0.06],
-      ['kick', 0.15],
-      ['hat', 0.28],
-      ['arp', 0.42],
+      ['arp', 0.12],
+      ['kick', 0.2],
+      ['hat', 0.32],
       ['perc', LIFT_ON],
     ];
     for (const [layer, from] of starts) {
@@ -118,6 +118,17 @@ describe('layer gains', () => {
     }
     expect(masterCutoff(-1)).toBeCloseTo(CUTOFF_MIN_HZ, 6);
     expect(masterCutoff(Number.NaN)).toBeCloseTo(CUTOFF_MIN_HZ, 6);
+  });
+
+  it('B20: an early level (threat 0.25) hears the tune: the arp is in and the lowpass is above 900 Hz', () => {
+    const m = mixFor(0.25);
+    expect(m.gains.arp).toBeGreaterThan(0.08);
+    expect(m.cutoffHz).toBeGreaterThan(900);
+    // The old curve (1.3) kept it near 680 Hz, where every tune's waves sounded the same.
+    expect(450 * Math.pow(CUTOFF_MAX_HZ / 450, Math.pow(0.25, 1.3))).toBeLessThan(700);
+    // The arp is the second layer in, before anything rhythmic.
+    expect(mixFor(0.15).gains.arp).toBeGreaterThan(0);
+    expect(mixFor(0.15).gains.kick).toBe(0);
   });
 
   it('cutoff updates are only sent on a meaningful change', () => {

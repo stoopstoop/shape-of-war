@@ -262,9 +262,11 @@ describe.each(TUNES.map((t) => [t.id, t] as const))('60 s of a 400 entity wave u
     const s = musicState().kills;
     expect(s.notes).toBeGreaterThan(20);
     // Chord hits only take free voices (they never steal), so how many land with six motifs live
-    // depends on where the tune's motif notes fall against its downbeats: 4 on the original tune
-    // (unchanged since v2.1), at least 2 on every other.
-    expect(s.chords).toBeGreaterThanOrEqual(id === 'neon' ? 4 : 2);
+    // depends on where the tune's motif notes fall against its downbeats. Since B20 the arp
+    // (each tune's own melody) sounds from threat 0.12, so in this wave's mid threat dips after
+    // a bomb it holds the one voice a big kill chord used to find: 1 to 5 land now (2 to 6
+    // before). A bomb's chord makes the arp rest (tunesIndex.test.ts).
+    expect(s.chords).toBeGreaterThanOrEqual(1);
     // Well balanced: a share of kills is heard, never all of them.
     expect(s.notes + s.chords).toBeLessThan(s.seen / 2);
   });

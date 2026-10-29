@@ -3,8 +3,8 @@
 // layer gains, a lift flag and a master lowpass cutoff. Also the music volume to music master
 // gain mapping.
 //
-// Dynamic range (v2 fixes): an empty arena is the bed only (pad, then the sub bass). Kick, hat
-// and arp enter one by one as threat rises. At high threat the lift turns on (with hysteresis so
+// Dynamic range (v2 fixes): an empty arena is the bed only (pad, then the sub bass). Arp, kick
+// and hat enter one by one as threat rises. At high threat the lift turns on (with hysteresis so
 // it never flickers): the hat goes to sixteenths, the perc layer (backbeat clap) comes in, the
 // arp moves up an octave and the lowpass opens a further step.
 import type { Layer } from './track';
@@ -21,8 +21,12 @@ export const CUTOFF_MIN_HZ = 450;
 export const CUTOFF_MAX_HZ = 5500;
 /** The lift opens the lowpass by this factor on top of the threat curve. */
 export const LIFT_CUTOFF_MUL = 1.6;
-/** Curve exponent: the low end stays dark longer, so the top end reads as an opening. */
-const CUTOFF_CURVE = 1.3;
+/**
+ * Curve exponent. Below 1 the filter opens early (B20): an early Adventure level sits at threat
+ * 0.1 to 0.35, and at the old 1.3 the bed stayed under 750 Hz there, so every tune's timbre and
+ * arp were filtered to the same dull pad. The end points (450 Hz and 5.5 kHz) are unchanged.
+ */
+export const CUTOFF_CURVE = 0.85;
 /** The lift turns on at or above this smoothed threat ... */
 export const LIFT_ON = 0.7;
 /** ... and off again only below this one. */
@@ -41,12 +45,15 @@ export interface LayerRamp {
   readonly max: number;
 }
 
+// The arp is each tune's own melody, so it enters second (B20): at the old 0.42 it was silent
+// for most of an early level and the only melody left was the enemy motifs, the same on every
+// tune. Kick and hat follow; the empty arena is still the pad alone.
 export const LAYER_RAMPS: Readonly<Record<Layer, LayerRamp>> = {
   pad: { from: 0, span: 1, floor: 0.13, max: 0.18 },
   bass: { from: 0.06, span: 0.14, floor: 0, max: 0.22 },
-  kick: { from: 0.15, span: 0.15, floor: 0, max: 0.21 },
-  hat: { from: 0.28, span: 0.14, floor: 0, max: 0.08 },
-  arp: { from: 0.42, span: 0.14, floor: 0, max: 0.11 },
+  arp: { from: 0.12, span: 0.14, floor: 0, max: 0.11 },
+  kick: { from: 0.2, span: 0.15, floor: 0, max: 0.21 },
+  hat: { from: 0.32, span: 0.14, floor: 0, max: 0.08 },
   perc: { from: LIFT_ON, span: 0.12, floor: 0, max: 0.08 },
 };
 

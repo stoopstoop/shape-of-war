@@ -14,7 +14,7 @@ import { midiToHz } from './scale';
 import type { PlannedNote } from './scheduler';
 import type { Timbre } from './layers';
 import type { Layer } from './track';
-import { DEFAULT_TUNE, type BedTimbre } from './tunes';
+import { bedWaveTrim, DEFAULT_TUNE, type BedTimbre } from './tunes';
 
 export const MUSIC_VOICE_CAP = 16;
 /** Most voices the composed bed holds at once (pad crossfade at a bar line), see layers tests. */
@@ -515,8 +515,9 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     }
   }
 
-  function envFor(n: PlannedNote, t: number, len: number): GainLike {
-    const peak = voicePeak(n.layer, n.gain);
+  function envFor(n: PlannedNote, t: number, len: number, bed: BedTimbre): GainLike {
+    // A brighter bed wave than the original track's is pulled back to its loudness (tunes.ts).
+    const peak = voicePeak(n.layer, n.gain * bedWaveTrim(n.layer, bed));
     switch (n.layer) {
       case 'pad':
         return envelope(peak / 2, t, PAD_ATTACK_SEC, n.dur, PAD_RELEASE_SEC);
@@ -568,7 +569,7 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
       if (disposed || !(n.gain > 0)) return;
       const t = Math.max(ctx.currentTime, n.time);
       const len = voiceLength(n.layer, n.dur);
-      const env = envFor(n, t, len);
+      const env = envFor(n, t, len, bed);
       const sources = sourcesFor(n, t, bed);
       for (const s of sources) s.connect(env);
       launch('bed', sources, [], env, busFor(n.layer), t, len);

@@ -193,6 +193,11 @@ interface Session {
   readonly stats: KillStats;
   hitGate: HitGate;
   readonly hits: QueuedHit[];
+  /**
+   * Steps where the arp rests because a chord hit lands there (B20). The arp now plays from low
+   * threat, so on a busy bar line it would take the voice a bomb or big kill chord needs.
+   */
+  readonly arpYield: Set<number>;
 }
 
 interface Playing {
@@ -346,7 +351,16 @@ function onTick(s: Session, now: number, sched: Scheduler): void {
  * Bed and motif notes that will start before `until` but are not scheduled yet. The track and
  * the motifs are composed, so the voice budget can count them before they exist.
  */
-function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
+/**
+ * True when the arp rests at this step: a chord hit starting at `yieldAt` asks for its voice, or
+ * one already took it. The arp rests for the whole chord (CHORD_STEPS), since its notes follow
+ * one another in a single voice that would otherwise count against the chord at every step.
+ */
+function arpRests(s: Session, step: number, yieldAt: number | null): boolean {
+  return (yieldAt !== null && step >= yieldAt && step < yieldAt + CHORD_STEPS) || s.arpYield.has(step);
+}
+
+function upcomingSpans(s: Session, sched: Scheduler, until: number, yieldAt: number | null = null): Span[] {
   const out: Span[] = [];
   const mix = mixFor(level, s.lift);
   for (let step = sched.nextStep; sched.timeOf(step) < until; step++) {
@@ -355,7 +369,10 @@ function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
     const inBar = step % STEPS_PER_BAR;
     const sec = secAt(s, step);
     const bar = s.bar !== null && s.barIndex === barIndex ? s.bar : makeBar(s, barIndex);
-    for (const n of planStep(bar, inBar, mix, time, sec)) out.push({ start: time, end: time + voiceLength(n.layer, n.dur) });
+    for (const n of planStep(bar, inBar, mix, time, sec)) {
+      if (n.layer === 'arp' && arpRests(s, step, yieldAt)) continue;
+      out.push({ start: time, end: time + voiceLength(n.layer, n.dur) });
+    }
     for (const l of s.layers) {
       if (!motifActive(l, step) || envelopeAt(l, step) <= 0) continue;
       for (const n of motifBar(s, l.kind, barIndex)) {
@@ -366,14 +383,17 @@ function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
   return out;
 }
 
-/** Free accent voices for `steps` sixteenths from `step`. */
-function roomAt(s: Session, sched: Scheduler, step: number, steps: number): number {
+/**
+ * Free accent voices for `steps` sixteenths from `step`. A chord asks with `arpYields`: the arp
+ * note on its own step (not yet scheduled) gives way, so it does not count against the chord.
+ */
+function roomAt(s: Session, sched: Scheduler, step: number, steps: number, arpYields = false): number {
   const t = sched.timeOf(step);
   const len = steps * secAt(s, step);
-  return s.engine.accentRoom(t, len, upcomingSpans(s, sched, t + len));
+  return s.engine.accentRoom(t, len, upcomingSpans(s, sched, t + len, arpYields ? step : null));
 }
 
-function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSource | null, at: number): void {
+function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSource | null, at: number, arpYields = false): void {
   s.gate = r.gate;
   const a = r.action;
   if (a.type === 'note' && source !== null) {
@@ -399,9 +419,14 @@ function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSour
     const time = sched.timeOf(a.step);
     const hit = chordHit(w.bar, a.big, a.withResolve, w.tune);
     const all = hit.midis;
-    const room = roomAt(s, sched, a.step, CHORD_STEPS);
+    const room = roomAt(s, sched, a.step, CHORD_STEPS, arpYields);
     // Fewer free voices than notes: drop from the bottom (the big chord's low note goes first).
     const notes = all.slice(Math.max(0, all.length - room));
+    // The arp rests under a bomb's chord (only while its steps are ahead). Kill chords do not
+    // move it, so they stay as rare as before the arp came in early.
+    if (arpYields && notes.length > 0) {
+      for (let k = Math.max(a.step, sched.nextStep); k < a.step + CHORD_STEPS; k++) s.arpYield.add(k);
+    }
     const gain = hit.gain / Math.max(1, notes.length);
     for (const midi of notes) {
       s.engine.playVoice({ time, dur: CHORD_STEPS * w.tune.stepSec, midi, fromMidi: null, gain, timbre: CHORD_TIMBRE }, 'accent');
@@ -422,22 +447,25 @@ function drainAccents(s: Session, now: number, sched: Scheduler): void {
   // Every queued kill lands on the same step, so voice room is computed once per (start,
   // length) and only recomputed after an accent is actually scheduled.
   const cache = new Map<string, number>();
-  const room = (at: number, steps: number): number => {
-    const key = `${at}:${steps}`;
+  const roomFor = (at: number, steps: number, arpYields: boolean): number => {
+    const key = `${at}:${steps}:${arpYields ? 1 : 0}`;
     let r = cache.get(key);
     if (r === undefined) {
-      r = roomAt(s, sched, at, steps);
+      r = roomAt(s, sched, at, steps, arpYields);
       cache.set(key, r);
     }
     return r;
   };
-  const chordRoom = (at: number): number => room(at, CHORD_STEPS);
+  const room = (at: number, steps: number): number => roomFor(at, steps, false);
+  // A bomb's chord counts the arp as resting (applyGate rests it); kill chords do not.
+  const bombChordRoom = (at: number): number => roomFor(at, CHORD_STEPS, true);
+  const chordRoom = (at: number): number => roomFor(at, CHORD_STEPS, false);
   const resolveRoom = (at: number): number => room(at, RESOLVE_STEPS);
   for (const q of s.queue) {
     let r: GateResult;
     let source: KillSource | null = null;
     if (q.type === 'bomb') {
-      r = gateBomb(s.gate, step, chordRoom);
+      r = gateBomb(s.gate, step, bombChordRoom);
     } else {
       source = q.source;
       const spec = KILL_SPECS[q.source];
@@ -454,7 +482,7 @@ function drainAccents(s: Session, now: number, sched: Scheduler): void {
         resolveRoom,
       });
     }
-    applyGate(s, sched, r, source, now);
+    applyGate(s, sched, r, source, now, q.type === 'bomb');
     if (r.action.type !== 'none') cache.clear();
   }
   s.queue.length = 0;
@@ -561,7 +589,9 @@ function onStep(p: Session, step: number, time: number): void {
   const inBar = step % STEPS_PER_BAR;
   const mix = mixFor(level, p.lift);
   const lm = layerMix(sumGains(mix.gains), p.layers, registry, step);
+  const arpYields = p.arpYield.delete(step);
   for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time, sec)) {
+    if (arpYields && n.layer === 'arp') continue;
     p.engine.play(n, w.tune.bed);
     if (noteHook) logNote(w.tune, { role: 'bed', layer: n.layer, kind: null, step, time, midi: n.midi, gain: n.gain });
   }
@@ -798,6 +828,7 @@ export function startMusic(seed: number): boolean {
     stats: { seen: 0, notes: 0, chords: 0 },
     hitGate: HIT_GATE_INIT,
     hits: [],
+    arpYield: new Set(),
   };
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
