@@ -2,6 +2,8 @@
 // shapes.ts turns each spec into a GraphicsContext. Sizes are arena units and match the
 // hitbox radii in docs/01-game-design.md section 6.2. Facing is +x at rot 0.
 import { Kind } from '../game/world';
+import { BOSS_COUNT, BOSS_OPEN_STEPS, tierOf } from './bossLook';
+import { BOSS_SPECS, buildBossSpec, buildPartSpec, HAZARD_GLYPH, PART_SPECS, PART_TYPES, partType } from './bossShapes';
 import { hash01 } from './color';
 import { SLIME_RADIUS, SLIME_VARIANTS, slimeVariant } from './enemyFx';
 import { weaponPaletteKey, type PaletteKey } from './neon';
@@ -25,6 +27,11 @@ export interface ShapeLayer {
   readonly glow: boolean;
   /** Stroke alpha multiplier for the core line and its halos, 1 for solid (Slime rim is lower). */
   readonly alpha: number;
+  /**
+   * Boss layer only: extra multiplier on the outer halo width (tier 3's wider outer glow stroke,
+   * docs/13 SPEC 3.8 item 1). Absent means 1. The halo width itself still comes from applyNeon.
+   */
+  readonly haloMul?: number;
 }
 
 export interface ShapeSpec {
@@ -471,12 +478,13 @@ export const SHAPE_SPECS: Readonly<Record<DrawnKind, ShapeSpec>> = {
   [Kind.Splime]: SPLIME_SPEC,
   // Plain Kind.Slime slot: the first outline. Live puddles use the per id variant slots.
   [Kind.Slime]: SLIME_SPECS[0] ?? slimeSpec(1),
-  // V3 contract stubs (docs/12 V3-W0): plain placeholder circles, so the registry is complete and
-  // nothing falls back to the magenta unknown glyph. Nothing spawns these Kinds yet. Glow draws
-  // the real boss, part, hazard and drone pickup shapes in wave A and the twin drone in wave D.
-  [Kind.Boss]: { tint: 'bossBlue', radius: 60, layers: [layer([{ t: 'circle', r: 60 }], 3)] },
-  [Kind.BossPart]: { tint: 'bossBlue', radius: 22, layers: [layer([{ t: 'circle', r: 22 }], 2.5)] },
-  [Kind.BossHazard]: { tint: 'bossRed', radius: 12, layers: [layer([{ t: 'circle', r: 12 }], 2)] },
+  // V3 wave A (Glow): the boss registry entry is the Warden shut; live bosses draw per id and
+  // openness step through bossSlot. Parts draw per type and tier through partSlot, tinted with the
+  // boss colour. Hazards draw through the hazard sprite layer; HAZARD_GLYPH keeps the registry whole.
+  [Kind.Boss]: buildBossSpec(0, 0),
+  [Kind.BossPart]: { ...buildPartSpec(0, 1), tint: 'bossGreen' },
+  [Kind.BossHazard]: HAZARD_GLYPH,
+  // V3 contract stubs: placeholders until wave D draws the drone pickup and the twin drone.
   [Kind.DronePickup]: { tint: 'dronePickup', radius: 14, layers: [layer([{ t: 'circle', r: 14 }], 2)] },
   [Kind.DroneTwin]: { tint: 'white', radius: 8, layers: [layer([{ t: 'circle', r: 8 }], 2)] },
 };
@@ -491,6 +499,9 @@ export const KIND_NUM = {
   mine: Kind.Mine as number,
   splime: Kind.Splime as number,
   slime: Kind.Slime as number,
+  boss: Kind.Boss as number,
+  bossPart: Kind.BossPart as number,
+  bossHazard: Kind.BossHazard as number,
 } as const;
 
 /** Drawn for any kind value outside the registry: a magenta circle. */
@@ -518,8 +529,36 @@ export const MAX_KIND: number = Math.max(...ALL_KINDS);
 /** First Slime variant slot. */
 export const SLIME_SLOT_BASE: number = MAX_KIND + PICKUP_VARIANTS + 1;
 
+/** First boss slot: one per boss index and openness step (bossShapes.ts BOSS_SPECS). */
+export const BOSS_SLOT_BASE: number = SLIME_SLOT_BASE + SLIME_VARIANTS;
+
+/** First boss part slot: one per part type and boss tier (bossShapes.ts PART_SPECS). */
+export const PART_SLOT_BASE: number = BOSS_SLOT_BASE + BOSS_COUNT * BOSS_OPEN_STEPS;
+
 /** Highest visual slot, for the context and texture cache sizes. */
-export const MAX_SLOT: number = MAX_KIND + PICKUP_VARIANTS + SLIME_VARIANTS;
+export const MAX_SLOT: number = PART_SLOT_BASE + PART_TYPES * 4 - 1;
+
+/** Pure: visual slot for a boss index and openness step. Out of range values are clamped. */
+export function bossSlot(id: number, step: number): number {
+  const b = Number.isInteger(id) && id >= 0 && id < BOSS_COUNT ? id : 0;
+  const s = Math.max(0, Math.min(BOSS_OPEN_STEPS - 1, Math.round(Number.isFinite(step) ? step : 0)));
+  return BOSS_SLOT_BASE + b * BOSS_OPEN_STEPS + s;
+}
+
+/** Pure: visual slot for a boss part type (w.a) at a boss tier. */
+export function partSlot(a: number, tier: number): number {
+  return PART_SLOT_BASE + partType(a) * 4 + (tierOf(tier) - 1);
+}
+
+/** Pure: true for a boss body slot. */
+export function isBossSlot(slot: number): boolean {
+  return slot >= BOSS_SLOT_BASE && slot < PART_SLOT_BASE;
+}
+
+/** Pure: true for a boss part slot. */
+export function isPartSlot(slot: number): boolean {
+  return slot >= PART_SLOT_BASE && slot <= MAX_SLOT;
+}
 
 /** Pure: visual slot for a pickup weapon index. Unknown indices give the plain pickup slot. */
 export function pickupSlot(weapon: number): number {
@@ -543,14 +582,16 @@ export function visualSlot(kind: number, a: number, h = 0): number {
 
 /** Pure: spec for a visual slot, with the magenta fallback. */
 export function specForSlot(slot: number): ShapeSpec {
-  if (slot >= SLIME_SLOT_BASE && slot <= MAX_SLOT) return SLIME_SPECS[slot - SLIME_SLOT_BASE] ?? UNKNOWN_SPEC;
+  if (isPartSlot(slot)) return PART_SPECS[slot - PART_SLOT_BASE] ?? UNKNOWN_SPEC;
+  if (isBossSlot(slot)) return BOSS_SPECS[slot - BOSS_SLOT_BASE] ?? UNKNOWN_SPEC;
+  if (slot >= SLIME_SLOT_BASE && slot < BOSS_SLOT_BASE) return SLIME_SPECS[slot - SLIME_SLOT_BASE] ?? UNKNOWN_SPEC;
   if (slot > MAX_KIND && slot < SLIME_SLOT_BASE) return PICKUP_SPECS[slot - MAX_KIND] ?? UNKNOWN_SPEC;
   return specFor(slot);
 }
 
 /** Pure: whether a visual slot draws on the floor layer (under every entity): the Slime puddles. */
 export function isFloorSlot(slot: number): boolean {
-  return slot === Kind.Slime || (slot >= SLIME_SLOT_BASE && slot <= MAX_SLOT);
+  return slot === Kind.Slime || (slot >= SLIME_SLOT_BASE && slot < BOSS_SLOT_BASE);
 }
 
 /** Pickup spin, radians per second (render only). */

@@ -71,7 +71,7 @@ export function buildContext(spec: ShapeSpec, style: GlowStyle, pal: Palette): G
   for (const l of spec.layers) {
     if (!l.glow || l.width <= 0) continue;
     const c = layerColour(l, pal);
-    if (style.haloAlpha > 0) strokeLayer(ctx, l, l.width * style.haloWidthMul, c, style.haloAlpha * l.alpha);
+    if (style.haloAlpha > 0) strokeLayer(ctx, l, l.width * style.haloWidthMul * (l.haloMul ?? 1), c, style.haloAlpha * l.alpha);
     if (style.innerAlpha > 0) strokeLayer(ctx, l, l.width * style.innerWidthMul, c, style.innerAlpha * l.alpha);
   }
   for (const l of spec.layers) {
@@ -141,6 +141,8 @@ export function contextForSlot(slot: number): GraphicsContext {
  */
 export function rebuildShapeContexts(style: GlowStyle): GraphicsContext[] {
   const old = contexts.filter((c): c is GraphicsContext => c !== null);
-  contexts = contexts.map((_, slot) => buildContext(specForSlot(slot), style, palette));
+  // Only slots that were built are rebuilt; the rest (most boss states and parts) stay lazy, so a
+  // neon slider drag does not build every boss context.
+  contexts = contexts.map((c, slot) => (c === null ? null : buildContext(specForSlot(slot), style, palette)));
   return old;
 }

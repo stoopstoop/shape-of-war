@@ -237,6 +237,36 @@ export function burstSmall(
   emitBurst(pool, x, y, scratch);
 }
 
+/**
+ * Boss burst (death and phase change): count particles with explicit speeds, life and drag, never
+ * more than the live cap of the effects tier. Embers (large slow sparks) mix in on standard and high
+ * only, as the kill bursts do. Returns the number written.
+ */
+export function burstBoss(
+  x: number,
+  y: number,
+  colour: number,
+  count: number,
+  speedMin: number,
+  speedMax: number,
+  lifeMin: number,
+  lifeMax: number,
+): number {
+  scratch.count = Math.max(0, Math.min(pool.limit, Math.floor(count)));
+  scratch.speedMin = speedMin;
+  scratch.speedMax = speedMax;
+  scratch.lifeMin = lifeMin;
+  scratch.lifeMax = lifeMax;
+  scratch.drag = 1.8;
+  scratch.colour = colour;
+  scratch.colour2 = null;
+  scratch.inwardRadius = 0;
+  scratch.bigEvery = trailsOn(burstTier) ? 4 : 0;
+  const n = emitBurst(pool, x, y, scratch);
+  scratch.bigEvery = 0;
+  return n;
+}
+
 /** Spray count particles from (x, y) in arena units with default speeds. */
 export function burst(x: number, y: number, colour: number, count: number): void {
   scratch.count = tierBurstCount(count, burstTier, pool.limit);
