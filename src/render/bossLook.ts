@@ -16,6 +16,10 @@ export const BOSS_COUNT: number = BOSS_IDS.length;
 export const BOSS_WARDEN = 0;
 export const BOSS_BROOD = 1;
 export const BOSS_SPINDLE = 2;
+/** Boss index of each wave B (tier 2) boss. */
+export const BOSS_EMBER = 3;
+export const BOSS_MIRAGE = 4;
+export const BOSS_GRAVITAS = 5;
 
 /** Tier per boss index, docs/13 schedule: three tier 1, three tier 2, three tier 3, one tier 4. */
 export const BOSS_TIER_BY_ID: readonly BossTier[] = [1, 1, 1, 2, 2, 2, 3, 3, 3, 4];
