@@ -67,6 +67,14 @@ export interface Scheduler {
   timeOf(step: number): number;
   /** Pure on the current grid: the first step whose time is at or after `time`. */
   stepAtOrAfter(time: number): number;
+  /**
+   * Change the tempo from step `fromStep` on (v2.1 tunes, an Endless rotation). Steps before it
+   * keep the current grid, so notes already scheduled stay where they are. `fromStep` should be
+   * a bar line at or after nextStep; an earlier step is moved up to nextStep.
+   */
+  setStepSec(sec: number, fromStep: number): void;
+  /** Seconds per step at an absolute step on the current grid. */
+  stepSecAt(step: number): number;
 }
 
 /** Pure: the first bar line at or after an absolute step. */
@@ -74,8 +82,14 @@ export function nextBarLine(step: number): number {
   return Math.ceil(step / STEPS_PER_BAR) * STEPS_PER_BAR;
 }
 
+/** A tempo change booked ahead: from `step` on, steps last `sec`. */
+interface TempoChange {
+  readonly step: number;
+  readonly sec: number;
+}
+
 export function createScheduler(o: SchedulerOptions): Scheduler {
-  const stepSec = o.stepSec ?? STEP_SEC;
+  let stepSec = o.stepSec ?? STEP_SEC;
   const ahead = o.lookaheadSec ?? LOOKAHEAD_SEC;
   const tickMs = o.tickMs ?? TICK_MS;
   let cancel: (() => void) | null = null;
@@ -86,11 +100,28 @@ export function createScheduler(o: SchedulerOptions): Scheduler {
   let anchorTime = 0;
   let next = 0;
   let skipped = 0;
+  let change: TempoChange | null = null;
 
-  const timeOf = (step: number): number => anchorTime + (step - anchorStep) * stepSec;
+  const flatTime = (step: number): number => anchorTime + (step - anchorStep) * stepSec;
+  const timeOf = (step: number): number => {
+    if (change === null || step <= change.step) return flatTime(step);
+    return flatTime(change.step) + (step - change.step) * change.sec;
+  };
   const stepAtOrAfter = (time: number): number => {
     // Nanosecond slack so a time exactly on the grid maps to its own step despite float rounding.
+    if (change !== null) {
+      const at = flatTime(change.step);
+      if (time > at) return change.step + Math.ceil((time - at) / change.sec - 1e-9);
+    }
     return anchorStep + Math.ceil((time - anchorTime) / stepSec - 1e-9);
+  };
+  /** Fold a booked change into the anchor once the grid reaches it. */
+  const settle = (upTo: number): void => {
+    if (change === null || upTo < change.step) return;
+    anchorTime = flatTime(change.step);
+    anchorStep = change.step;
+    stepSec = change.sec;
+    change = null;
   };
 
   const arm = (): void => {
@@ -110,11 +141,13 @@ export function createScheduler(o: SchedulerOptions): Scheduler {
       next++;
       skipped++;
     }
+    settle(next);
     // A step exactly on the horizon waits for the next tick; the epsilon keeps float rounding
     // of the clock from deciding it either way.
     while (timeOf(next) < now + ahead - HORIZON_EPS) {
       o.onStep(next, timeOf(next));
       next++;
+      settle(next);
     }
   }
 
@@ -122,6 +155,11 @@ export function createScheduler(o: SchedulerOptions): Scheduler {
     anchorStep = step;
     anchorTime = o.clock.now() + START_LEAD_SEC;
     next = step;
+    // A change booked at or before the new anchor applies from it.
+    if (change !== null && change.step <= step) {
+      stepSec = change.sec;
+      change = null;
+    }
   }
 
   return {
@@ -129,6 +167,7 @@ export function createScheduler(o: SchedulerOptions): Scheduler {
       disarm();
       running = true;
       paused = false;
+      change = null;
       anchorAt(0);
       arm();
       tick();
@@ -137,7 +176,23 @@ export function createScheduler(o: SchedulerOptions): Scheduler {
       disarm();
       running = false;
       paused = false;
+      change = null;
       next = 0;
+    },
+    setStepSec(sec: number, fromStep: number): void {
+      if (!(sec > 0) || !Number.isFinite(sec)) return;
+      const from = Math.max(next, Math.ceil(fromStep));
+      // One change is booked at a time: a second call replaces a pending one, and the steps up
+      // to `from` keep the current tempo.
+      change = null;
+      if (from === anchorStep && next === anchorStep) {
+        stepSec = sec;
+        return;
+      }
+      change = { step: from, sec };
+    },
+    stepSecAt(step: number): number {
+      return change !== null && step >= change.step ? change.sec : stepSec;
     },
     pause(): void {
       if (!running || paused) return;

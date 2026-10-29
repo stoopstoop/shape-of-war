@@ -16,6 +16,7 @@
 // Hits that fail the gate are dropped; the visual flash still tells the player.
 import { KILL_SPECS, killMidi, type KillSource } from './kills';
 import { TIMBRES, type Timbre } from './layers';
+import { DEFAULT_TUNE, type Tune } from './tunes';
 
 /** Most hit ticks per source per second. */
 export const HIT_RATE_MAX = 8;
@@ -60,8 +61,8 @@ export function hitTimbreFor(source: KillSource): Timbre {
 }
 
 /** Pure: a hit tick's pitch at a bar: its kill pitch an octave up, folded down above E7. */
-export function hitMidi(source: KillSource, bar: number): number {
-  const m = killMidi(KILL_SPECS[source], bar) + 12;
+export function hitMidi(source: KillSource, bar: number, tune: Tune = DEFAULT_TUNE): number {
+  const m = killMidi(KILL_SPECS[source], bar, tune) + 12;
   return m > HIT_MIDI_MAX ? m - 12 : m;
 }
 
@@ -71,8 +72,8 @@ export function hitGain(source: KillSource): number {
 }
 
 /** Pure: the deflect pitch at a bar: the Bulwark kill pitch three octaves up, folded under E7. */
-export function deflectMidi(bar: number): number {
-  let m = killMidi(KILL_SPECS.bulwark, bar) + 36;
+export function deflectMidi(bar: number, tune: Tune = DEFAULT_TUNE): number {
+  let m = killMidi(KILL_SPECS.bulwark, bar, tune) + 36;
   while (m > HIT_MIDI_MAX) m -= 12;
   return m;
 }

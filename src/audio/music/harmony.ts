@@ -2,28 +2,31 @@
 // contributions not consistent nor impactful enough on the melody and harmony"). Pure, no Web
 // Audio, no PRNG.
 //
-// The 8 bar loop is i, VI, III, VII in A minor (Am, F, C, G), two bars each. Every melodic
-// contribution reads the chord of its own bar from here: motifs, entrance phrases, kill notes,
-// kill resolutions and chord hits. The rule is chord tones on strong steps (the beats, every
-// fourth sixteenth) and A natural minor scale tones on weak steps, so the melody always agrees
-// with the bed's pad and bass.
+// A key (v2.1 tunes) is a scale plus one chord per bar of its loop. Every melodic contribution
+// reads the chord of its own bar from the active key: motifs, entrance phrases, kill notes, kill
+// resolutions, chord hits and hit ticks. The rule is chord tones on strong steps (the beats,
+// every fourth sixteenth) and scale tones on weak steps, so the melody always agrees with the
+// bed's pad and bass. Every function takes the key last and defaults to DEFAULT_KEY, the
+// original 8 bar loop: i, VI, III, VII in A minor (Am, F, C, G), two bars each. tunes.ts holds
+// the other keys.
 import { pitchClass } from './scale';
 
 /** Sixteenths per bar (4/4). The track re-exports this. */
 export const STEPS_PER_BAR = 16;
-/** Bars in the loop. The track re-exports this. */
+/** Bars in the default loop. The track re-exports this. */
 export const LOOP_BARS = 8;
-/** Bars each chord lasts. */
+/** Bars each chord lasts in the default loop. */
 export const BARS_PER_CHORD = 2;
 /** Steps per beat; a step on a beat is strong. */
 export const BEAT_STEPS = 4;
 
-export type ChordName = 'Am' | 'F' | 'C' | 'G';
+/** A chord name such as 'Am', 'F' or 'C#m'. */
+export type ChordName = string;
 
 export interface Harmony {
   readonly name: ChordName;
-  /** Roman numeral in A minor. */
-  readonly numeral: 'i' | 'VI' | 'III' | 'VII';
+  /** Roman numeral in the key ('i', 'VI', 'bII', ...). */
+  readonly numeral: string;
   /** Pitch class of the root, C = 0. */
   readonly root: number;
   /** Semitones above the root of the triad tones, root first, ascending. */
@@ -32,38 +35,61 @@ export interface Harmony {
   readonly tones: readonly number[];
 }
 
-function triad(name: ChordName, numeral: Harmony['numeral'], root: number, third: number): Harmony {
+/** A key: a scale and the chord of every bar of a loop. Pure data, JSON serialisable. */
+export interface Key {
+  /** Pitch class of the tonic, C = 0. */
+  readonly tonic: number;
+  /** Pitch classes of the scale, tonic first. */
+  readonly scale: readonly number[];
+  /** One chord per bar of the loop; the loop length is bars.length. */
+  readonly bars: readonly Harmony[];
+}
+
+/** Pure: a triad from a root pitch class and its third (3 minor, 4 major). */
+export function triad(name: ChordName, numeral: string, root: number, third: number): Harmony {
   const intervals = [0, third, 7];
   return { name, numeral, root, intervals, tones: intervals.map((i) => (root + i) % 12) };
 }
 
-export const HARMONIES: Readonly<Record<ChordName, Harmony>> = {
+export const HARMONIES: Readonly<Record<'Am' | 'F' | 'C' | 'G', Harmony>> = {
   Am: triad('Am', 'i', 9, 3),
   F: triad('F', 'VI', 5, 4),
   C: triad('C', 'III', 0, 4),
   G: triad('G', 'VII', 7, 4),
 };
 
-/** The progression, one entry per chord (two bars each). */
+/** The default progression, one entry per chord (two bars each). */
 export const PROGRESSION: readonly ChordName[] = ['Am', 'F', 'C', 'G'];
 
-/** Pitch classes of A natural minor: A B C D E F G. */
-const SCALE_PCS: readonly number[] = [9, 11, 0, 2, 4, 5, 7];
-
-/** Bar index wrapped into the 8 bar loop (negatives wrap too). */
-export function loopBar(bar: number): number {
-  const b = Math.trunc(bar);
-  return ((b % LOOP_BARS) + LOOP_BARS) % LOOP_BARS;
+/** Pure: a per bar chord list from chords that each last `barsEach` bars. */
+export function barsOf(chords: readonly Harmony[], barsEach: number): Harmony[] {
+  const out: Harmony[] = [];
+  for (const h of chords) for (let i = 0; i < barsEach; i++) out.push(h);
+  return out;
 }
 
-/** Pure: the chord of a bar (any integer, wrapped into the loop). */
-export function harmonyForBar(bar: number): Harmony {
-  return HARMONIES[PROGRESSION[Math.floor(loopBar(bar) / BARS_PER_CHORD)] ?? 'Am'];
+/** The default key: A natural minor (A B C D E F G), Am F C G two bars each. */
+export const DEFAULT_KEY: Key = {
+  tonic: 9,
+  scale: [9, 11, 0, 2, 4, 5, 7],
+  bars: barsOf([HARMONIES.Am, HARMONIES.F, HARMONIES.C, HARMONIES.G], BARS_PER_CHORD),
+};
+
+/** Bar index wrapped into a loop of `bars` bars, default 8 (negatives wrap too). */
+export function loopBar(bar: number, bars: number = LOOP_BARS): number {
+  const b = Math.trunc(bar);
+  const n = Math.max(1, Math.trunc(bars));
+  return ((b % n) + n) % n;
+}
+
+/** Pure: the chord of a bar (any integer, wrapped into the key's loop). */
+export function harmonyForBar(bar: number, key: Key = DEFAULT_KEY): Harmony {
+  return key.bars[loopBar(bar, key.bars.length)] ?? HARMONIES.Am;
 }
 
 /** Pure: the chord sounding at an absolute step. */
-export function harmonyAtStep(step: number): Harmony {
-  return harmonyForBar(Math.floor(step / STEPS_PER_BAR));
+export function harmonyAtStep(step: number, key: Key = DEFAULT_KEY): Harmony {
+  return harmonyForBar(Math.floor(step / STEPS_PER_BAR), key);
 }
 
 /** Pure: true on a beat (steps 0, 4, 8 and 12 of a bar). Works for absolute steps too. */
@@ -75,8 +101,8 @@ export function inChord(midi: number, h: Harmony): boolean {
   return h.tones.includes(pitchClass(midi));
 }
 
-export function inScale(midi: number): boolean {
-  return SCALE_PCS.includes(pitchClass(midi));
+export function inScale(midi: number, key: Key = DEFAULT_KEY): boolean {
+  return key.scale.includes(pitchClass(midi));
 }
 
 /** Nearest MIDI note (ties go down) accepted by `ok`. */
@@ -94,22 +120,22 @@ export function snapToChord(midi: number, h: Harmony): number {
   return nearest(midi, (m) => inChord(m, h));
 }
 
-/** Pure: the nearest A natural minor tone (ties go down). */
-export function snapToScale(midi: number): number {
-  return nearest(midi, inScale);
+/** Pure: the nearest scale tone of the key (ties go down). */
+export function snapToScale(midi: number, key: Key = DEFAULT_KEY): number {
+  return nearest(midi, (m) => inScale(m, key));
 }
 
 /**
  * Pure: the pitch a melodic note plays at an absolute step: the nearest chord tone of that
  * step's bar on a strong step, the nearest scale tone on a weak one.
  */
-export function fitPitch(midi: number, step: number): number {
-  return isStrongStep(step) ? snapToChord(midi, harmonyAtStep(step)) : snapToScale(midi);
+export function fitPitch(midi: number, step: number, key: Key = DEFAULT_KEY): number {
+  return isStrongStep(step) ? snapToChord(midi, harmonyAtStep(step, key)) : snapToScale(midi, key);
 }
 
 /** Pure: true when a pitch obeys the rule at an absolute step (the stress test checks this). */
-export function fitsHarmony(midi: number, step: number): boolean {
-  return isStrongStep(step) ? inChord(midi, harmonyAtStep(step)) : inScale(midi);
+export function fitsHarmony(midi: number, step: number, key: Key = DEFAULT_KEY): boolean {
+  return isStrongStep(step) ? inChord(midi, harmonyAtStep(step, key)) : inScale(midi, key);
 }
 
 /**
@@ -170,9 +196,9 @@ export interface PlacedNote {
  * contour) never changes; each note takes the chord of its own bar, so a phrase that crosses a
  * chord change still agrees with the bed.
  */
-export function transposePhrase(shape: readonly PhraseNote[], start: number, base: number): PlacedNote[] {
+export function transposePhrase(shape: readonly PhraseNote[], start: number, base: number, key: Key = DEFAULT_KEY): PlacedNote[] {
   return shape.map((n) => {
     const step = start + n.at;
-    return { step, midi: chordToneMidi(harmonyAtStep(step), n.deg, base), dur: n.dur, vel: n.vel };
+    return { step, midi: chordToneMidi(harmonyAtStep(step, key), n.deg, base), dur: n.dur, vel: n.vel };
   });
 }

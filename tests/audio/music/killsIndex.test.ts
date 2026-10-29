@@ -7,7 +7,8 @@ import { harmonyForBar, inChord } from '../../../src/audio/music/harmony';
 import { CHORD_GAIN, CHORD_TIMBRE, isKillSlot, KILL_LEAD_SEC, KILL_SPECS, killNoteMidi, resolveMidi } from '../../../src/audio/music/kills';
 import { pitchClass } from '../../../src/audio/music/scale';
 import { START_LEAD_SEC, TICK_MS } from '../../../src/audio/music/scheduler';
-import { BAR_SEC, buildBar, STEP_SEC, STEPS_PER_BAR } from '../../../src/audio/music/track';
+import { BAR_SEC, buildBar, STEP_SEC, STEPS_PER_BAR, type FillBar } from '../../../src/audio/music/track';
+import { DEFAULT_TUNE } from '../../../src/audio/music/tunes';
 import { Bus, type Events } from '../../../src/core/events';
 import { FakeContext, FakeNode, FakeTimer } from './fakeAudio';
 
@@ -61,7 +62,7 @@ beforeEach(() => {
   bus = new Bus();
   graph = { ctx, master: new FakeNode() };
   log = [];
-  uninstall = initMusic({
+  uninstall = initMusic({ tune: 'neon',
     bus,
     graph: () => graph,
     timer,
@@ -263,16 +264,19 @@ describe('intensity lift through the loop', () => {
     const loud = log.filter((n) => n.role === 'bed' && n.step >= 2 * STEPS_PER_BAR + STEPS_PER_BAR);
     const layers = new Set(loud.map((n) => n.layer));
     for (const l of ['bass', 'pad', 'kick', 'perc', 'hat', 'arp']) expect(layers.has(l as never)).toBe(true);
-    // Arp an octave above the composed line.
+    // Arp an octave above the composed line (or above the fill run: the lift turning on is a
+    // phase change, so a 2 bar fill follows it).
     const arp = loud.filter((n) => n.layer === 'arp');
     expect(arp.length).toBeGreaterThan(0);
     for (const n of arp) {
-      const bar = buildBar(seed, Math.floor(n.step / STEPS_PER_BAR));
-      const composed = bar.notes.find((x) => x.layer === 'arp' && x.step === n.step % STEPS_PER_BAR);
-      expect(n.midi).toBe((composed?.midi ?? 0) + 12);
+      const b = Math.floor(n.step / STEPS_PER_BAR);
+      const at = (fill: FillBar): number | null =>
+        buildBar(seed, b, DEFAULT_TUNE, fill).notes.find((x) => x.layer === 'arp' && x.step === n.step % STEPS_PER_BAR)?.midi ?? null;
+      const options = [at(null), at(1)].filter((m): m is number => m !== null).map((m) => m + 12);
+      expect(options).toContain(n.midi);
     }
-    // Perc on the backbeat.
-    for (const n of loud.filter((x) => x.layer === 'perc')) expect([4, 12, 14]).toContain(n.step % STEPS_PER_BAR);
+    // Perc on the backbeat (the fill's roll adds 8 and 13).
+    for (const n of loud.filter((x) => x.layer === 'perc')) expect([4, 8, 12, 13, 14]).toContain(n.step % STEPS_PER_BAR);
     // The lowpass ends up opened past the plain threat curve.
     const master = ctx.filters[0];
     const last = master?.frequency.calls.filter((c) => c.fn === 'target').at(-1)?.v ?? 0;

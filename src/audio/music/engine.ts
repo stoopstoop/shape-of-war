@@ -14,6 +14,7 @@ import { midiToHz } from './scale';
 import type { PlannedNote } from './scheduler';
 import type { Timbre } from './layers';
 import type { Layer } from './track';
+import { DEFAULT_TUNE, type BedTimbre } from './tunes';
 
 export const MUSIC_VOICE_CAP = 16;
 /** Most voices the composed bed holds at once (pad crossfade at a bar line), see layers tests. */
@@ -230,6 +231,8 @@ export const HAT_DECAY_SEC = 0.045;
 export const PERC_DECAY_SEC = 0.14;
 export const PERC_BP_HZ = 1700;
 export const ARP_DECAY_SEC = 0.11;
+/** Most of a sixteenth an arp voice lasts before its 10 ms tail. */
+export const ARP_LEN_FRAC = 0.88;
 export const PAD_ATTACK_SEC = 0.25;
 export const PAD_RELEASE_SEC = 0.4;
 /** Notes per pad chord, so the pad layer gain is shared by its three notes. */
@@ -248,7 +251,8 @@ export function voiceLength(layer: Layer, dur: number): number {
     case 'perc':
       return PERC_DECAY_SEC;
     case 'arp':
-      return Math.min(dur, ARP_DECAY_SEC) + 0.01;
+      // Shorter than a sixteenth at every tune tempo (up to 132 BPM), so arp notes never overlap.
+      return Math.min(dur * ARP_LEN_FRAC, ARP_DECAY_SEC) + 0.01;
     case 'bass':
       return dur * 0.9;
   }
@@ -340,8 +344,8 @@ export function accentRoomFor<T>(scheduled: readonly PoolEntry<T>[], upcoming: r
 }
 
 export interface MusicEngine {
-  /** Schedule one planned bed note on the audio clock. */
-  play(n: PlannedNote): void;
+  /** Schedule one planned bed note on the audio clock, with the active tune's bed waves (default the original). */
+  play(n: PlannedNote, bed?: BedTimbre): void;
   /**
    * Schedule one motif, stinger (class 'motif', the default) or kill accent (class 'accent').
    * When the pool is full the oldest accent is stolen first, then the oldest motif voice.
@@ -482,18 +486,18 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
     return g;
   }
 
-  function sourcesFor(n: PlannedNote, t: number): SourceLike[] {
+  function sourcesFor(n: PlannedNote, t: number, bed: BedTimbre): SourceLike[] {
     const hz = n.midi === null ? 0 : midiToHz(n.midi);
     switch (n.layer) {
       case 'bass':
-        return [osc('triangle', hz, t)];
+        return [osc(bed.bass, hz, t)];
       case 'arp':
-        return [osc('square', hz, t)];
+        return [osc(bed.arp, hz, t)];
       case 'pad': {
-        const a = osc('sawtooth', hz, t);
-        const b = osc('sawtooth', hz, t);
-        a.detune.setValueAtTime(-PAD_DETUNE_CENTS, t);
-        b.detune.setValueAtTime(PAD_DETUNE_CENTS, t);
+        const a = osc(bed.pad, hz, t);
+        const b = osc(bed.pad, hz, t);
+        a.detune.setValueAtTime(-bed.padDetune, t);
+        b.detune.setValueAtTime(bed.padDetune, t);
         return [a, b];
       }
       case 'kick': {
@@ -560,12 +564,12 @@ export function createMusicEngine(ctx: MusicContext, destination: NodeLike, mast
   }
 
   return {
-    play(n: PlannedNote): void {
+    play(n: PlannedNote, bed: BedTimbre = DEFAULT_TUNE.bed): void {
       if (disposed || !(n.gain > 0)) return;
       const t = Math.max(ctx.currentTime, n.time);
       const len = voiceLength(n.layer, n.dur);
       const env = envFor(n, t, len);
-      const sources = sourcesFor(n, t);
+      const sources = sourcesFor(n, t, bed);
       for (const s of sources) s.connect(env);
       launch('bed', sources, [], env, busFor(n.layer), t, len);
     },

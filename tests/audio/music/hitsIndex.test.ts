@@ -51,7 +51,7 @@ beforeEach(() => {
   bus = new Bus();
   log = [];
   const graph: MusicGraph = { ctx, master: new FakeNode() };
-  uninstall = initMusic({ bus, graph: () => graph, timer, visibility: null, volume: 50, onNote: (n) => log.push({ ...n, now: ctx.currentTime }) });
+  uninstall = initMusic({ tune: 'neon', bus, graph: () => graph, timer, visibility: null, volume: 50, onNote: (n) => log.push({ ...n, now: ctx.currentTime }) });
 });
 
 afterEach(() => uninstall());

@@ -228,3 +228,80 @@ describe('planStep', () => {
     expect(planStep(bar, 4, mixFor(0.9, true), 1).some((n) => n.layer === 'perc')).toBe(true);
   });
 });
+
+describe('tempo change (v2.1 tunes, Endless rotation)', () => {
+  const NEW = 60 / 104 / 4;
+
+  it('keeps the old grid up to the change step and the new grid after it, with no gap or overlap', () => {
+    const r = rig();
+    r.sched.start();
+    r.run(1);
+    const t0 = r.recs[0]?.time ?? 0;
+    const from = nextBarLine(r.sched.nextStep + 4);
+    r.sched.setStepSec(NEW, from);
+    expect(r.sched.timeOf(from) - t0).toBeCloseTo(from * STEP_SEC, 9);
+    expect(r.sched.timeOf(from + 16) - r.sched.timeOf(from)).toBeCloseTo(16 * NEW, 9);
+    expect(r.sched.stepSecAt(from - 1)).toBe(STEP_SEC);
+    expect(r.sched.stepSecAt(from)).toBe(NEW);
+    expect(r.sched.stepAtOrAfter(r.sched.timeOf(from + 5))).toBe(from + 5);
+    expect(r.sched.stepAtOrAfter(r.sched.timeOf(from - 3))).toBe(from - 3);
+    r.run(6, true);
+    // Every step scheduled once, in order, never in the past; spacing switches at `from`.
+    for (let i = 1; i < r.recs.length; i++) {
+      const a = r.recs[i - 1];
+      const b = r.recs[i];
+      if (!a || !b) continue;
+      expect(b.step).toBe(a.step + 1);
+      expect(b.time - a.time).toBeCloseTo(a.step < from ? STEP_SEC : NEW, 9);
+      expect(b.time).toBeGreaterThanOrEqual(b.now);
+    }
+    expect(r.sched.skipped).toBe(0);
+    // After the grid passes the change, timeOf still agrees with what was scheduled from it on.
+    for (const e of r.recs) if (e.step >= from) expect(r.sched.timeOf(e.step)).toBeCloseTo(e.time, 9);
+  });
+
+  it('a change booked in the past applies from the next step, and resume keeps the new tempo', () => {
+    const r = rig();
+    r.sched.start();
+    r.run(0.5);
+    const next = r.sched.nextStep;
+    r.sched.setStepSec(NEW, 0);
+    expect(r.sched.stepSecAt(next)).toBe(NEW);
+    r.run(0.5);
+    r.sched.pause();
+    r.clock.t += 3;
+    const before = r.recs.length;
+    r.sched.resume();
+    r.run(1);
+    const after = r.recs.slice(before);
+    for (let i = 1; i < after.length; i++) expect((after[i]?.time ?? 0) - (after[i - 1]?.time ?? 0)).toBeCloseTo(NEW, 9);
+    expect((after[0]?.step ?? 1) % STEPS_PER_BAR).toBe(0);
+  });
+
+  it('a change booked past a pause applies on the resumed grid', () => {
+    const r = rig();
+    r.sched.start();
+    r.run(0.5);
+    const from = nextBarLine(r.sched.nextStep) + 32;
+    r.sched.setStepSec(NEW, from);
+    r.sched.pause();
+    r.clock.t += 2;
+    r.sched.resume();
+    r.run(12);
+    const at = r.recs.findIndex((e) => e.step === from);
+    expect(at).toBeGreaterThan(0);
+    const a = r.recs[at - 1];
+    const b = r.recs[at];
+    const c = r.recs[at + 1];
+    expect((b?.time ?? 0) - (a?.time ?? 0)).toBeCloseTo(STEP_SEC, 9);
+    expect((c?.time ?? 0) - (b?.time ?? 0)).toBeCloseTo(NEW, 9);
+  });
+
+  it('ignores a tempo that is not positive and finite', () => {
+    const r = rig();
+    r.sched.start();
+    r.sched.setStepSec(0, 16);
+    r.sched.setStepSec(Number.NaN, 16);
+    expect(r.sched.stepSecAt(100)).toBe(STEP_SEC);
+  });
+});
