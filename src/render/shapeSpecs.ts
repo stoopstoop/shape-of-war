@@ -4,7 +4,7 @@
 import { Kind } from '../game/world';
 import { hash01 } from './color';
 import { SLIME_RADIUS, SLIME_VARIANTS, slimeVariant } from './enemyFx';
-import type { PaletteKey } from './neon';
+import { weaponPaletteKey, type PaletteKey } from './neon';
 
 export type ShapePrim =
   | { readonly t: 'poly'; readonly pts: readonly number[] }
@@ -340,7 +340,7 @@ function pickupSpec(tint: PaletteKey, mark: readonly ShapeLayer[]): ShapeSpec {
 export const PICKUP_SPECS: readonly ShapeSpec[] = [
   pickupSpec('white', []),
   // Rapid: two parallel bars, the twin stream.
-  pickupSpec('rapid', [
+  pickupSpec(weaponPaletteKey('rapid'), [
     layer(
       [
         { t: 'line', pts: [-6, -3, 6, -3] },
@@ -351,7 +351,7 @@ export const PICKUP_SPECS: readonly ShapeSpec[] = [
     ),
   ]),
   // Pierce: an arrow through the centre, the lance.
-  pickupSpec('pierce', [
+  pickupSpec(weaponPaletteKey('pierce'), [
     layer(
       [
         { t: 'line', pts: [-7, 0, 7, 0] },
@@ -362,7 +362,7 @@ export const PICKUP_SPECS: readonly ShapeSpec[] = [
     ),
   ]),
   // Orbit: a ring around a dot, the blades around the ship.
-  pickupSpec('orbit', [
+  pickupSpec(weaponPaletteKey('orbit'), [
     layer([{ t: 'circle', r: 5.5 }], 1.6, { glow: false }),
     layer([{ t: 'circle', r: 2 }], 0, { fill: 1, glow: false }),
   ]),
