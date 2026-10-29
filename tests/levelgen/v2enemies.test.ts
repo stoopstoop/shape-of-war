@@ -15,6 +15,7 @@ import {
   MAX_RETRIES,
   V1_GEN_CONFIG,
   V2_ENEMY_KINDS,
+  V2_GEN_CONFIG,
   fmix32,
   levelSeed,
 } from '../../src/levelgen/leveldef';
@@ -43,10 +44,13 @@ const SEEDS = 1000;
 const HAZARD_NAMES = ['mine', 'slime'];
 const isV2 = (k: string): boolean => (V2_ENEMY_KINDS as readonly string[]).includes(k);
 
-/** 1000 flag on levels of one band: seed i plays level lo + i mod (band width). */
+/**
+ * 1000 flag on levels of one band: seed i plays level lo + i mod (band width). V3: bosses off
+ * (V2_GEN_CONFIG), so this file keeps pinning v2.1; the boss flag has its own tests.
+ */
 function bandSweep(band: Band): LevelDef[] {
   const [lo, hi] = BAND_LEVELS[band];
-  return Array.from({ length: SEEDS }, (_, i) => gen.generateLevel(seedAt(i), lo + (i % (hi - lo + 1))));
+  return Array.from({ length: SEEDS }, (_, i) => gen.generateLevel(seedAt(i), lo + (i % (hi - lo + 1)), V2_GEN_CONFIG));
 }
 
 function namedKinds(roster: readonly { kind: string }[], ws: WaveSchedule): string[] {
@@ -228,7 +232,7 @@ describe('v2 enemy stage', { timeout: 60_000 }, () => {
     // changed: regenerate on purpose or find the regression.
     it('hard coded levelHash goldens for seeds 1, 42, 0xDEADBEEF at levels 7 and 20', () => {
       const got: Record<string, string> = {};
-      for (const s of [1, 42, 0xdeadbeef]) for (const n of [7, 20]) got[String(s) + ':' + String(n)] = gen.levelHash(gen.generateLevel(s, n));
+      for (const s of [1, 42, 0xdeadbeef]) for (const n of [7, 20]) got[String(s) + ':' + String(n)] = gen.levelHash(gen.generateLevel(s, n, V2_GEN_CONFIG));
       expect(got).toEqual({
         '1:7': 'C27F8965',
         '1:20': '28D09272',
@@ -367,7 +371,7 @@ describe('v2 enemy stage', { timeout: 60_000 }, () => {
     it('segments 0 to 2 (band 1) have no new kind; band 2 and up carry version 2 and validate', () => {
       for (let s = 0; s < 30; s++) {
         for (let k = 0; k <= 24; k++) {
-          const seg = gen.generateEndlessSegment(seedAt(s), k);
+          const seg = gen.generateEndlessSegment(seedAt(s), k, V2_GEN_CONFIG);
           expect(validateSegment(seg).errors).toEqual([]);
           if (seg.band === 1) {
             expect(namedKinds(seg.roster, seg.waves).some(isV2)).toBe(false);
@@ -411,7 +415,7 @@ describe('v2 enemy stage', { timeout: 60_000 }, () => {
   });
 
   describe('validator', () => {
-    const v2Level = (): LevelDef => structuredClone(gen.generateLevel(42, 20));
+    const v2Level = (): LevelDef => structuredClone(gen.generateLevel(42, 20, V2_GEN_CONFIG));
 
     it('accepts the new kinds in a version 2 level', () => {
       const d = v2Level();
@@ -435,7 +439,8 @@ describe('v2 enemy stage', { timeout: 60_000 }, () => {
 
     it('J3: unknown generator versions fail', () => {
       const d = v2Level();
-      d.generatorVersion = 3;
+      // V3: 3 (GENERATOR_VERSION_V3) is now known, so 4 is the first unknown version.
+      d.generatorVersion = 4;
       expect(validateLevel(d).errors.some((e) => e.startsWith('J3:'))).toBe(true);
     });
 

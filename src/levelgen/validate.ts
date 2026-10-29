@@ -10,6 +10,7 @@ import {
   ENEMY_KINDS,
   GENERATOR_VERSION,
   GENERATOR_VERSION_V2,
+  GENERATOR_VERSION_V3,
   LEVELDEF_VERSION,
   MAX_RETRIES,
   SPAWN_PATTERNS,
@@ -21,9 +22,11 @@ import {
   segmentSeed,
   speedScaleFor,
 } from './leveldef';
+import { BOSS_LEVEL_AT_SEC, BOSS_MAX_WELLS, BOSS_SEGMENT_AT_SEC, bossForLevel, bossForSegment, bossTierOf, sameBoss } from './boss';
 import type {
   ArenaDef,
   Band,
+  BossSpec,
   EndlessDef,
   EndlessSegmentDef,
   EnemyKind,
@@ -420,11 +423,75 @@ function checkJson(c: Collector, def: unknown): void {
 function checkVersions(c: Collector, version: number, generatorVersion: number): void {
   c.check('J3', (report) => {
     if (version !== LEVELDEF_VERSION) report(`version ${version} !== ${LEVELDEF_VERSION}`);
-    if (generatorVersion !== GENERATOR_VERSION && generatorVersion !== GENERATOR_VERSION_V2) {
-      report(`generatorVersion ${generatorVersion} not ${GENERATOR_VERSION} or ${GENERATOR_VERSION_V2}`);
+    if (generatorVersion !== GENERATOR_VERSION && generatorVersion !== GENERATOR_VERSION_V2 && generatorVersion !== GENERATOR_VERSION_V3) {
+      report(`generatorVersion ${generatorVersion} not ${GENERATOR_VERSION}, ${GENERATOR_VERSION_V2} or ${GENERATOR_VERSION_V3}`);
     }
   });
 }
+
+/**
+ * What the validator may know about the config that made a def. A GenConfig fits. Without it the
+ * boss checks cannot tell a flag off def from a flag on one, so a boss level with no boss passes
+ * B1 and J7 is skipped; every other boss check runs either way.
+ */
+export interface BossCheckOptions {
+  enableBosses: boolean;
+}
+
+interface BossRules {
+  /** What the schedule says for this level or segment (null: not a boss level or segment). */
+  want: BossSpec | null;
+  /** For messages: 'level' or 'segment', and its index. */
+  unit: 'level' | 'segment';
+  index: number;
+  atSec: number;
+  /** Seconds of objective time on a timed level (survive or scoreInTime), else null. */
+  timedSec: number | null;
+}
+
+/**
+ * B1 to B3 and J7 (docs/13 SPEC 3.3 rule 7). B1: a boss is present exactly when the schedule says
+ * so (both ways only when opts says the flag is on), equals the schedule's spec, and comes with
+ * GENERATOR_VERSION_V3, which nothing else carries. B2: id in BOSS_IDS and tier from the table.
+ * B3: atSec is the fixed entrance second and a timed level has at least 20 s left after it. J7:
+ * with the flag off there is no boss field and no version 3.
+ */
+function checkBoss(c: Collector, boss: BossSpec | undefined, generatorVersion: number, rules: BossRules, opts: BossCheckOptions | undefined): void {
+  c.check('B1', (report) => {
+    const { want, unit, index } = rules;
+    if (boss !== undefined) {
+      if (want === null) report(`boss ${String(boss.id)} on ${unit} ${index}, which is not a boss ${unit}`);
+      else if (!sameBoss(boss, want)) {
+        report(`boss ${String(boss.id)} tier ${boss.tier} at ${boss.atSec} s x${boss.hpMul} !== schedule ${want.id} tier ${want.tier} at ${want.atSec} s x${want.hpMul}`);
+      }
+      if (generatorVersion !== GENERATOR_VERSION_V3) report(`boss present with generatorVersion ${generatorVersion}, want ${GENERATOR_VERSION_V3}`);
+    } else {
+      if (generatorVersion === GENERATOR_VERSION_V3) report(`generatorVersion ${GENERATOR_VERSION_V3} without a boss`);
+      if (want !== null && opts?.enableBosses === true) report(`${unit} ${index} is a boss ${unit} (${want.id}) but has no boss`);
+    }
+  });
+  c.check('B2', (report) => {
+    if (boss === undefined) return;
+    const tier = bossTierOf(boss.id);
+    if (tier === null) report(`boss id ${String(boss.id)} not in BOSS_IDS`);
+    else if (boss.tier !== tier) report(`boss ${boss.id} tier ${boss.tier} !== table tier ${tier}`);
+    if (!(boss.hpMul >= 1) || !Number.isFinite(boss.hpMul)) report(`boss hpMul ${boss.hpMul} not a finite number from 1`);
+  });
+  c.check('B3', (report) => {
+    if (boss === undefined) return;
+    if (boss.atSec !== rules.atSec) report(`boss atSec ${boss.atSec} !== ${rules.atSec}`);
+    const T = rules.timedSec;
+    if (T !== null && T - boss.atSec < BOSS_MIN_LEFT_SEC) report(`only ${T - boss.atSec} s of a ${T} s objective left after the boss at ${boss.atSec} s, want ${BOSS_MIN_LEFT_SEC}`);
+  });
+  c.check('J7', (report) => {
+    if (opts?.enableBosses !== false) return;
+    if (boss !== undefined) report(`boss field present with enableBosses off`);
+    if (generatorVersion === GENERATOR_VERSION_V3) report(`generatorVersion ${GENERATOR_VERSION_V3} with enableBosses off`);
+  });
+}
+
+/** B3: least objective time a survive or scoreInTime boss level keeps after the entrance. */
+export const BOSS_MIN_LEFT_SEC = 20;
 
 /**
  * J6: the generator version matches the content. Version 1 (the v1 algorithm alone) never names a
@@ -721,6 +788,12 @@ function checkHazards(c: Collector, def: LevelDef, band: Band): void {
     if (band === 1 && (hazards.wells.length > 0 || hazards.spawners.length > 0)) report('band 1 must have no hazards');
     if (band === 2 && hazards.spawners.length > 0) report('band 2 must have no spawners');
   });
+  c.check('B4', (report) => {
+    // Rule 12 (docs/13 SPEC 3.3 rule 5): a boss level has no spawners and at most one well.
+    if (def.boss === undefined) return;
+    if (hazards.spawners.length > 0) report(`boss level has ${hazards.spawners.length} spawners, want 0`);
+    if (hazards.wells.length > BOSS_MAX_WELLS) report(`boss level has ${hazards.wells.length} gravity wells, want 0 to ${BOSS_MAX_WELLS}`);
+  });
 }
 
 function checkLoadout(c: Collector, def: LevelDef): void {
@@ -732,8 +805,12 @@ function checkLoadout(c: Collector, def: LevelDef): void {
   });
 }
 
-/** Validates a LevelDef against every docs/02 section 11 invariant plus F1 (fold fit). */
-export function validateLevel(def: LevelDef): ValidationResult {
+/**
+ * Validates a LevelDef against every docs/02 section 11 invariant plus F1 (fold fit) and the v3
+ * boss invariants B1 to B4 and J7. Pass the GenConfig (or its enableBosses) that made the def to
+ * make B1 strict both ways and to run J7; generateLevel does.
+ */
+export function validateLevel(def: LevelDef, opts?: BossCheckOptions): ValidationResult {
   const c = new Collector();
   checkJson(c, def);
   checkVersions(c, def.version, def.generatorVersion);
@@ -758,6 +835,14 @@ export function validateLevel(def: LevelDef): ValidationResult {
   checkLoadout(c, def);
   checkSurface(c, def.surface);
   checkV2Content(c, def.generatorVersion, band, () => namedKinds(def.roster, def.waves));
+  const o = def.objective;
+  checkBoss(c, def.boss, def.generatorVersion, {
+    want: bossForLevel(def.levelIndex),
+    unit: 'level',
+    index: def.levelIndex,
+    atSec: BOSS_LEVEL_AT_SEC,
+    timedSec: o.kind === 'survive' ? o.durationSec : o.kind === 'scoreInTime' ? o.timeLimitSec : null,
+  }, opts);
   c.check('J5', (report) => {
     const r = def.retries;
     if (r === undefined || !isInt(r) || r < 0 || r > MAX_RETRIES) report(`retries ${String(r)} not an integer 0 to ${MAX_RETRIES}`);
@@ -806,8 +891,11 @@ export function validateEndless(def: EndlessDef): ValidationResult {
   return c.result();
 }
 
-/** Validates an Endless segment: J1 to J3, seeds, R1, R2, W1 to W8 on the fixed Endless arena, and S1. */
-export function validateSegment(seg: EndlessSegmentDef): ValidationResult {
+/**
+ * Validates an Endless segment: J1 to J3, seeds, R1, R2, W1 to W8 on the fixed Endless arena, S1,
+ * and the boss checks B1 to B3 and J7 against bossForSegment (atSec 10, no objective clock).
+ */
+export function validateSegment(seg: EndlessSegmentDef, opts?: BossCheckOptions): ValidationResult {
   const c = new Collector();
   checkJson(c, seg);
   checkVersions(c, seg.version, seg.generatorVersion);
@@ -833,5 +921,6 @@ export function validateSegment(seg: EndlessSegmentDef): ValidationResult {
     });
   });
   checkV2Content(c, seg.generatorVersion, band, () => namedKinds(seg.roster, seg.waves));
+  checkBoss(c, seg.boss, seg.generatorVersion, { want: bossForSegment(seg.segment), unit: 'segment', index: seg.segment, atSec: BOSS_SEGMENT_AT_SEC, timedSec: null }, opts);
   return c.result();
 }

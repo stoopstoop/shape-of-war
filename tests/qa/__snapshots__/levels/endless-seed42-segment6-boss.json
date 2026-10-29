@@ -1,0 +1,290 @@
+{
+  "hash": "80B24CF3",
+  "version": 1,
+  "generatorVersion": 3,
+  "endlessSeed": 42,
+  "segment": 6,
+  "seed": 2796746494,
+  "effectiveIndex": 13,
+  "band": 2,
+  "roster": [
+    {
+      "kind": "grunt",
+      "weight": 30
+    },
+    {
+      "kind": "wanderer",
+      "weight": 20
+    },
+    {
+      "kind": "dart",
+      "weight": 15
+    },
+    {
+      "kind": "splime",
+      "weight": 8
+    }
+  ],
+  "speedScale": 1.05,
+  "boss": {
+    "id": "warden",
+    "tier": 1,
+    "atSec": 10,
+    "hpMul": 1
+  },
+  "waveCount": 10,
+  "firstWave": {
+    "index": 0,
+    "atSec": 0,
+    "pattern": "edges",
+    "entries": [
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0,
+        "mode": "fixed",
+        "x": -302,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 306
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.15,
+        "mode": "fixed",
+        "x": -262,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 137
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.3,
+        "mode": "fixed",
+        "x": -222,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 218
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.45,
+        "mode": "fixed",
+        "x": -182,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 240
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.6,
+        "mode": "fixed",
+        "x": -142,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 237
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.75,
+        "mode": "fixed",
+        "x": -102,
+        "y": -440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 143
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.5,
+        "mode": "fixed",
+        "x": 740,
+        "y": -213.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 311
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.65,
+        "mode": "fixed",
+        "x": 740,
+        "y": -173.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 270
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.8,
+        "mode": "fixed",
+        "x": 740,
+        "y": -133.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 252
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.95,
+        "mode": "fixed",
+        "x": 740,
+        "y": -93.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 340
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 1.1,
+        "mode": "fixed",
+        "x": 740,
+        "y": -53.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 205
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 1.25,
+        "mode": "fixed",
+        "x": 740,
+        "y": -13.2,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 320
+      }
+    ]
+  },
+  "lastWave": {
+    "index": 9,
+    "atSec": 27,
+    "pattern": "corners",
+    "entries": [
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0,
+        "mode": "fixed",
+        "x": 720,
+        "y": 420,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 255
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.15,
+        "mode": "fixed",
+        "x": -720,
+        "y": 420,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 308
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.3,
+        "mode": "fixed",
+        "x": -720,
+        "y": -420,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 131
+      },
+      {
+        "kind": "wanderer",
+        "tOffsetSec": 0.45,
+        "mode": "fixed",
+        "x": 720,
+        "y": -420,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 188
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 0.5,
+        "mode": "fixed",
+        "x": -740,
+        "y": -456.9,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 0.65,
+        "mode": "fixed",
+        "x": -740,
+        "y": -416.9,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 0.8,
+        "mode": "fixed",
+        "x": -740,
+        "y": -376.9,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 0.95,
+        "mode": "fixed",
+        "x": -740,
+        "y": -336.9,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 1,
+        "mode": "fixed",
+        "x": 131.4,
+        "y": 440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 1.15,
+        "mode": "fixed",
+        "x": 171.4,
+        "y": 440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 1.3,
+        "mode": "fixed",
+        "x": 211.4,
+        "y": 440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      },
+      {
+        "kind": "grunt",
+        "tOffsetSec": 1.45,
+        "mode": "fixed",
+        "x": 251.4,
+        "y": 440,
+        "angleDeg": 0,
+        "radius": 0,
+        "headingDeg": 0
+      }
+    ]
+  }
+}

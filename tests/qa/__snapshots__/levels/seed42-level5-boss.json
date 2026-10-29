@@ -1,0 +1,209 @@
+{
+  "hash": "43F4A6DA",
+  "identity": {
+    "version": 1,
+    "generatorVersion": 3,
+    "runSeed": 42,
+    "levelIndex": 5,
+    "seed": 3824075370,
+    "band": 1,
+    "retries": 0,
+    "surface": "flat"
+  },
+  "arena": {
+    "shape": "rect",
+    "width": 1040,
+    "height": 700,
+    "cornerRadius": 0,
+    "obstacles": [],
+    "spawnPoint": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "roster": [
+    {
+      "kind": "grunt",
+      "weight": 40
+    },
+    {
+      "kind": "wanderer",
+      "weight": 35
+    },
+    {
+      "kind": "pinwheel",
+      "weight": 25
+    }
+  ],
+  "speedScale": 1,
+  "drone": "attack",
+  "superType": "turbo",
+  "lives": 3,
+  "bombs": 3,
+  "objective": {
+    "kind": "scoreInTime",
+    "target": 4000,
+    "timeLimitSec": 60
+  },
+  "hazards": {
+    "wells": [],
+    "spawners": []
+  },
+  "par": 5000,
+  "stars": [
+    5000,
+    10000,
+    20000
+  ],
+  "schedule": {
+    "maxLiveEnemies": 60,
+    "intervalStartSec": 6,
+    "intervalEndSec": 4,
+    "rampSec": 60,
+    "rampExponent": 1,
+    "budgetStart": 3,
+    "budgetEnd": 8,
+    "waveCount": 27,
+    "loopFromIndex": 12,
+    "loopPeriodSec": 60,
+    "spawnTotal": 188,
+    "spawnsByKind": {
+      "grunt": 77,
+      "wanderer": 56,
+      "weaver": 0,
+      "pinwheel": 55,
+      "dart": 0,
+      "snake": 0
+    },
+    "firstWave": {
+      "index": 0,
+      "atSec": 2.5,
+      "pattern": "edges",
+      "entries": [
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": 460,
+          "y": 33.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": 460,
+          "y": 73.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        },
+        {
+          "kind": "grunt",
+          "tOffsetSec": 0.3,
+          "mode": "fixed",
+          "x": 460,
+          "y": 113.7,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 0
+        }
+      ]
+    },
+    "lastWave": {
+      "index": 26,
+      "atSec": 117.8,
+      "pattern": "edges",
+      "entries": [
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0,
+          "mode": "fixed",
+          "x": 460,
+          "y": 127.9,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 153
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.15,
+          "mode": "fixed",
+          "x": -460,
+          "y": -278.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 199
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.3,
+          "mode": "fixed",
+          "x": -460,
+          "y": -238.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 259
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.45,
+          "mode": "fixed",
+          "x": -460,
+          "y": -198.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 240
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.6,
+          "mode": "fixed",
+          "x": -460,
+          "y": -158.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 292
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.75,
+          "mode": "fixed",
+          "x": -460,
+          "y": -118.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 186
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 0.9,
+          "mode": "fixed",
+          "x": -460,
+          "y": -78.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 127
+        },
+        {
+          "kind": "pinwheel",
+          "tOffsetSec": 1.05,
+          "mode": "fixed",
+          "x": -460,
+          "y": -38.4,
+          "angleDeg": 0,
+          "radius": 0,
+          "headingDeg": 11
+        }
+      ]
+    }
+  },
+  "boss": {
+    "id": "warden",
+    "tier": 1,
+    "atSec": 20,
+    "hpMul": 1
+  }
+}

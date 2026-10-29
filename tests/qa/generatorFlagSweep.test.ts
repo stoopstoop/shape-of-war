@@ -7,19 +7,21 @@
 // The v1 hashes in tests/qa/golden/v1-hashes.json were produced by running the generator and core
 // sources of git tag v1.0.0 unmodified over the same seed spread (see the file header fields).
 // Same seed spread and level cycle as generatorSweep.test.ts. No browser, no Math.random.
+// V3-A: the flag on side is V2_GEN_CONFIG (v2 enemies on, bosses off), so this file keeps pinning
+// v2.1 now that the default turns bosses on. The boss flag has generatorBossFlagSweep.test.ts.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { canonicalJson, generateEndless, generateEndlessSegment, generateLevel, levelHash } from '../../src/levelgen/generator';
 import {
   BANDS,
-  DEFAULT_GEN_CONFIG,
   ENEMY_KINDS,
   GENERATOR_VERSION,
   GENERATOR_VERSION_V2,
   MAX_RETRIES,
   V1_GEN_CONFIG,
   V2_ENEMY_KINDS,
+  V2_GEN_CONFIG,
   bandOf,
   effectiveIndexOf,
   fmix32,
@@ -194,7 +196,7 @@ function runSweep(golden: Golden): Sweep {
     const t0 = performance.now();
     const off = generateLevel(runSeed, levelIndex, V1_GEN_CONFIG);
     const t1 = performance.now();
-    const on = generateLevel(runSeed, levelIndex, DEFAULT_GEN_CONFIG);
+    const on = generateLevel(runSeed, levelIndex, V2_GEN_CONFIG);
     const t2 = performance.now();
     offMs += t1 - t0;
     onMs += t2 - t1;
@@ -307,7 +309,7 @@ describe('Endless with the flag false and true', { timeout: 120_000 }, () => {
   });
 
   it('flag on: Endless def carries version 2 and the band 4 catalogue, flag off version 1 and the v1 six', () => {
-    const on = generateEndless(12345, DEFAULT_GEN_CONFIG);
+    const on = generateEndless(12345, V2_GEN_CONFIG);
     const off = generateEndless(12345, V1_GEN_CONFIG);
     expect(on.generatorVersion).toBe(GENERATOR_VERSION_V2);
     expect(off.generatorVersion).toBe(GENERATOR_VERSION);
@@ -320,7 +322,7 @@ describe('Endless with the flag false and true', { timeout: 120_000 }, () => {
     for (let k = 0; k < 200; k++) {
       const seed = seedAt(k * 25);
       for (const s of ENDLESS_BAND_SEGMENTS) {
-        const seg = generateEndlessSegment(seed, s, DEFAULT_GEN_CONFIG);
+        const seg = generateEndlessSegment(seed, s, V2_GEN_CONFIG);
         const band = bandOf(effectiveIndexOf(s));
         const names = [...seg.roster.map((r) => r.kind), ...seg.waves.waves.flatMap((w) => w.entries.map((e) => e.kind))];
         const ok = eligible(band);
