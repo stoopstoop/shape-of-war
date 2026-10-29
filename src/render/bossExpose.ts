@@ -1,11 +1,14 @@
-// Pure boss weak point cue (G3A device feedback: "poorly indicated it was weak for shooting"). No
-// pixi.js import. While a boss core takes damage (exposed) the core shifts to a hot white yellow,
-// pulses at 4 Hz (8 Hz in the last 0.6 s of a known window), sheds a thin expanding ring, and a
-// small "HIT" glyph with a chevron sits just above the body, pointing at the core. While not
-// exposed the core stays dim and the shell keeps its colour (the prebuilt closed openness step).
+// Pure boss weak point cue (G3A device feedback: "poorly indicated it was weak for shooting"; ED1:
+// the HIT glyph was "too obvious"). No pixi.js import. While a boss core takes damage (exposed)
+// the shell flickers hot red, the boss shakes a few pixels, and the core breaks into hot fragments
+// that drift out, orbit and pulse at 4 Hz (8 Hz in the last 0.6 s of a known window), then
+// reassemble when the window shuts. While not exposed the core stays dim and the shell keeps its
+// colour (the prebuilt closed openness step). No text, no ring.
 // Exposure source, best first: the 'sim:bossExposed' event (Swarm, parallel run), then the sim's
 // open flag (bossOpen in src/game/bosses/core.ts, read only), then the render contract mode.
-// Everything is written into a SpriteBuf (fxSprites.ts): one pooled geometry, no allocation.
+// The fragments are written into a SpriteBuf (fxSprites.ts): one pooled geometry, no allocation.
+// The flicker is a tint on the coreless shell (bossShapes.ts exposedBossSpec), the shake a render
+// offset on the boss view and the cue; neither touches the sim.
 import type { Bus, EventKey } from '../core/events';
 import { BROOD, STAGGER_SEC, WARDEN } from '../game/bosses/table';
 import {
@@ -21,7 +24,7 @@ import {
   MODE_VULNERABLE,
 } from './bossLook';
 import { clampNum } from './color';
-import { F_DOT, F_GLOW, pushArc, pushLine, pushSprite, type FxHalo, type SpriteBuf } from './fxSprites';
+import { F_GLOW, pushLine, pushSprite, type FxHalo, type SpriteBuf } from './fxSprites';
 
 /** Tri state of an exposure source: unknown (no data yet), closed or exposed. */
 export const EXPOSE_UNKNOWN = -1;
@@ -117,143 +120,225 @@ export function exposePulse(phase: number): number {
   return 0.5 + 0.5 * Math.cos((Number.isFinite(phase) ? phase : 0) * Math.PI * 2);
 }
 
-/** Expanding ring: one every EXPOSE_RING_SEC, from the core out to EXPOSE_RING_OUT body radii. */
-export const EXPOSE_RING_SEC = 0.75;
-export const EXPOSE_RING_OUT = 1.4;
-export const EXPOSE_RING_ALPHA = 0.75;
+// ED1 device feedback: the HIT glyph read "too obvious", so the cue is now the boss itself. While
+// exposed the shell flickers hot red, the whole boss shakes a little (a render offset, never the
+// sim position) and the core breaks into a few fragments that drift out and slowly orbit, then
+// reassemble when the window closes. The 4 Hz core pulse stays.
 
-export interface ExposeRing {
-  r: number;
-  alpha: number;
+/** Shell flicker: rate and the share of each cycle spent hot red. */
+export const FLICKER_HZ = 5;
+export const FLICKER_DUTY = 0.3;
+
+/** Pure: is the shell hot red at t seconds into an exposure (hot at the start of each cycle). */
+export function flickerOn(t: number): boolean {
+  if (!Number.isFinite(t) || t < 0) return false;
+  const u = t * FLICKER_HZ;
+  return u - Math.floor(u) < FLICKER_DUTY;
 }
 
-/** Pure: the ring at an exposure age, eased out, fading as it grows. */
-export function exposeRing(age: number, coreR: number, bodyR: number, out: ExposeRing): ExposeRing {
+/** White share mixed into the palette red for the hot shell; tier 3 bosses are red already. */
+export const FLICKER_RED_WHITE = 0.15;
+export const FLICKER_RED_WHITE_HOT = 0.45;
+
+/** Pure: white share of the hot red for a boss tier (more white on tier 3 and up so it still reads). */
+export function flickerRedWhite(tier: number): number {
+  return tier >= 3 ? FLICKER_RED_WHITE_HOT : FLICKER_RED_WHITE;
+}
+
+/**
+ * Long exposures (Spindle is open for most of its fight): the flicker and shake are news, not
+ * wallpaper, so after EXPOSE_SETTLE_SEC of one exposure they fade out over EXPOSE_SETTLE_FADE_SEC.
+ * Warden (2 s) and Brood (5 s) windows close before this; the fragments and pulse never settle.
+ */
+export const EXPOSE_SETTLE_SEC = 6;
+export const EXPOSE_SETTLE_FADE_SEC = 1;
+
+/** Pure: flicker and shake strength 0 to 1 at an exposure age (1 until EXPOSE_SETTLE_SEC). */
+export function exposeAlarm(age: number): number {
   const t = Number.isFinite(age) && age > 0 ? age : 0;
-  const u = (t % EXPOSE_RING_SEC) / EXPOSE_RING_SEC;
-  const ease = 1 - (1 - u) * (1 - u);
-  const r0 = Math.max(1, coreR);
-  const r1 = Math.max(r0, bodyR * EXPOSE_RING_OUT);
-  out.r = r0 + (r1 - r0) * ease;
-  out.alpha = EXPOSE_RING_ALPHA * (1 - u);
+  return 1 - clampNum((t - EXPOSE_SETTLE_SEC) / EXPOSE_SETTLE_FADE_SEC, 0, 1);
+}
+
+/** Pure: is the shell hot red now, with the settle applied (no flicker once settled past half). */
+export function shellHot(age: number): boolean {
+  return exposeAlarm(age) > 0.5 && flickerOn(age);
+}
+
+/** Boss shake: rate, and the amplitude in screen pixels per tier (tier 3 and the top boss a touch more). */
+export const SHAKE_HZ = 12;
+export const SHAKE_PX = 2.2;
+export const SHAKE_PX_T3 = 2.6;
+export const SHAKE_PX_TOP = 3;
+/** Second axis frequency ratio and phase, so the shake is a jitter, not a circle. */
+const SHAKE_Y_RATIO = 1.31;
+const SHAKE_Y_PHASE = 1.1;
+
+/** Pure: shake amplitude in screen pixels for a boss tier. */
+export function exposeShakePx(tier: number): number {
+  if (tier >= 4) return SHAKE_PX_TOP;
+  if (tier >= 3) return SHAKE_PX_T3;
+  return SHAKE_PX;
+}
+
+export interface Offset {
+  x: number;
+  y: number;
+}
+
+/**
+ * Pure: shake offset at t seconds for amplitude amp (any unit). The x axis runs at SHAKE_HZ, the y
+ * axis a little faster; the result is clamped so its length never exceeds amp.
+ */
+export function exposeShake(t: number, amp: number, out: Offset): Offset {
+  const a = Number.isFinite(amp) && amp > 0 ? amp : 0;
+  if (a === 0) {
+    out.x = 0;
+    out.y = 0;
+    return out;
+  }
+  const tt = Number.isFinite(t) ? t : 0;
+  const w = Math.PI * 2 * SHAKE_HZ * tt;
+  let x = a * Math.sin(w);
+  let y = a * Math.sin(w * SHAKE_Y_RATIO + SHAKE_Y_PHASE);
+  const m = Math.sqrt(x * x + y * y);
+  if (m > a && m > 0) {
+    x *= a / m;
+    y *= a / m;
+  }
+  out.x = x;
+  out.y = y;
   return out;
 }
 
-/** HIT cue: fades in fast, full for the first HIT_FULL_SEC of an exposure, then settles low. */
-export const HIT_FADE_IN_SEC = 0.12;
-export const HIT_FULL_SEC = 6;
-export const HIT_SETTLE_SEC = 1;
-export const HIT_SETTLED_ALPHA = 0.35;
+/** Core fragments: count per tier, drift distance range (arena units), orbit rate and spread times. */
+export const FRAG_COUNT = 3;
+export const FRAG_COUNT_T3 = 4;
+export const FRAG_COUNT_TOP = 5;
+export const FRAG_MAX = FRAG_COUNT_TOP;
+export const FRAG_DRIFT_MIN = 8;
+export const FRAG_DRIFT_MAX = 14;
+/** Orbit, cycles per second (slow). */
+export const FRAG_ORBIT_HZ = 0.3;
+/** Shard spin on top of the orbit, radians per orbit cycle. */
+const FRAG_SPIN = 3;
+/** Seconds to drift fully out when the core opens, and to reassemble when it shuts. */
+export const FRAG_OPEN_SEC = 0.2;
+export const FRAG_CLOSE_SEC = 0.3;
+/** Golden ratio step: spreads the per fragment drift through the range without a PRNG. */
+const GOLDEN = 0.6180339887;
 
-/**
- * Pure: HIT cue alpha at an exposure age. An always open core (Spindle) keeps its pulsing core but
- * the glyph settles to HIT_SETTLED_ALPHA, so the cue stays news, not wallpaper.
- */
-export function hitCueAlpha(age: number): number {
-  const t = Number.isFinite(age) && age > 0 ? age : 0;
-  const fadeIn = clampNum(t / HIT_FADE_IN_SEC, 0, 1);
-  const settle = clampNum((t - HIT_FULL_SEC) / HIT_SETTLE_SEC, 0, 1);
-  return fadeIn * (1 - (1 - HIT_SETTLED_ALPHA) * settle);
+/** Pure: fragment count for a boss tier. */
+export function fragmentCount(tier: number): number {
+  if (tier >= 4) return FRAG_COUNT_TOP;
+  if (tier >= 3) return FRAG_COUNT_T3;
+  return FRAG_COUNT;
+}
+
+/** Pure: fully spread drift distance of fragment k, in [FRAG_DRIFT_MIN, FRAG_DRIFT_MAX). */
+export function fragmentDrift(k: number): number {
+  const u = (Number.isFinite(k) ? k : 0) * GOLDEN + 0.25;
+  return FRAG_DRIFT_MIN + (FRAG_DRIFT_MAX - FRAG_DRIFT_MIN) * (u - Math.floor(u));
+}
+
+/** Pure: fragment radius as a share of the core radius, so the pieces add up to about the core. */
+export function fragmentSizeFrac(n: number): number {
+  return 0.85 / Math.sqrt(Math.max(1, Number.isFinite(n) ? n : 1));
 }
 
 /**
- * HIT glyph strokes in letter units (cap height 1, y down), centred on x: H, I, T, then a chevron
- * below the letters pointing down at the core. Flat x0, y0, x1, y1 quadruples.
+ * Pure: advance the spread (0 assembled, 1 fully out): up over FRAG_OPEN_SEC while exposed, down
+ * over FRAG_CLOSE_SEC after. Linear in time; fragmentEase shapes it.
  */
-export const HIT_STROKES: readonly number[] = [
-  -0.95, 0, -0.95, 1, // H left
-  -0.35, 0, -0.35, 1, // H right
-  -0.95, 0.5, -0.35, 0.5, // H bar
-  0, 0, 0, 1, // I
-  0.35, 0, 0.95, 0, // T top
-  0.65, 0, 0.65, 1, // T stem
-  -0.3, 1.35, 0, 1.65, // chevron left
-  0, 1.65, 0.3, 1.35, // chevron right
-];
-export const HIT_STROKE_COUNT = HIT_STROKES.length / 4;
-/** Glyph cap height and stroke in arena units (readable on the cover screen at fit scale 0.3). */
-export const HIT_CAP_U = 30;
-export const HIT_STROKE_U = 4.5;
-/** Gap between the body rim and the chevron tip, arena units. */
-export const HIT_GAP_U = 10;
-/** Lowest glyph point (the chevron tip) in letter units. */
-export const HIT_TIP = 1.65;
+export function stepSpread(spread: number, exposed: boolean, dt: number): number {
+  const s = Number.isFinite(spread) ? spread : 0;
+  const d = Number.isFinite(dt) && dt > 0 ? dt : 0;
+  return clampNum(exposed ? s + d / FRAG_OPEN_SEC : s - d / FRAG_CLOSE_SEC, 0, 1);
+}
 
-/** Pure: top y of the HIT glyph above a body of radius bodyR centred at y (y down). */
-export function hitGlyphTop(y: number, bodyR: number): number {
-  return y - bodyR * 1.18 - HIT_GAP_U - HIT_TIP * HIT_CAP_U;
+/** Pure: smoothstep of the spread, so the pieces leave and return without a jolt. */
+export function fragmentEase(spread: number): number {
+  const s = clampNum(Number.isFinite(spread) ? spread : 0, 0, 1);
+  return s * s * (3 - 2 * s);
+}
+
+/** Pure: angle of fragment k of n at an orbit phase (cycles): evenly spaced, turning together. */
+export function fragmentAngle(k: number, n: number, orbit: number): number {
+  const u = k / Math.max(1, n) + (Number.isFinite(orbit) ? orbit : 0);
+  return (u - Math.floor(u)) * Math.PI * 2;
+}
+
+/** Pure: offset of fragment k of n from the core centre at an eased spread and orbit phase. */
+export function fragmentOffset(k: number, n: number, ease: number, orbit: number, out: Offset): Offset {
+  const a = fragmentAngle(k, n, orbit);
+  const r = fragmentDrift(k) * clampNum(Number.isFinite(ease) ? ease : 0, 0, 1);
+  out.x = Math.cos(a) * r;
+  out.y = Math.sin(a) * r;
+  return out;
 }
 
 /** Everything the planner needs for one frame of the cue. */
 export interface ExposeInput {
+  /** Core centre, shake already applied. */
   x: number;
   y: number;
-  /** Drawn core radius and body radius, arena units. */
+  /** Drawn core radius, arena units. */
   coreR: number;
-  bodyR: number;
   /** Pulse level 0 to 1 (exposePulse). */
   pulse: number;
-  /** Seconds since the core became exposed. */
-  age: number;
+  /** Spread 0 to 1 (stepSpread); the centre glow fades with it as the core reassembles. */
+  spread: number;
+  /** Orbit phase in cycles. */
+  orbit: number;
+  /** Fragment count (fragmentCount), clamped to 1 to FRAG_MAX. */
+  count: number;
   /** Body alpha (fades the cue with the body). */
   alpha: number;
-  /** Hot core colour and the glyph colour, 0xRRGGBB. */
+  /** Fragment and glow colour, 0xRRGGBB. */
   hot: number;
-  glyph: number;
 }
 
-const ring: ExposeRing = { r: 0, alpha: 0 };
+const frag: Offset = { x: 0, y: 0 };
 
-/** Cue ring segment target length (arena units) and bounds, so a small ring stays round and cheap. */
-export const EXPOSE_SEG_U = 24;
-export const EXPOSE_SEG_MIN = 12;
-export const EXPOSE_SEG_MAX = 32;
+/** Most instances one cue writes: the centre glow, then per fragment a glow, a halo and a shard. */
+export const EXPOSE_MAX_INSTANCES = 1 + 3 * FRAG_MAX;
 
-/** Pure: segments for the cue ring of radius r. */
-export function exposeRingSegments(r: number): number {
-  if (!(r > 0)) return 0;
-  return clampNum(Math.ceil((r * Math.PI * 2) / EXPOSE_SEG_U), EXPOSE_SEG_MIN, EXPOSE_SEG_MAX);
-}
-
-/** Most instances one cue writes: glow, dot, ring (halo and core per segment), glyph strokes. */
-export const EXPOSE_MAX_INSTANCES = 2 + 2 * EXPOSE_SEG_MAX + 2 * HIT_STROKE_COUNT;
-
-/** Pure on the buffer: write the exposed core cue. Returns the number of instances written. */
+/** Pure on the buffer: write the broken core cue. Returns the number of instances written. */
 export function planBossExpose(e: ExposeInput, b: SpriteBuf, halo: Readonly<FxHalo>): number {
   const a = clampNum(Number.isFinite(e.alpha) ? e.alpha : 0, 0, 1);
   if (!(a > 0) || !(e.coreR > 0)) return 0;
-  const p = clampNum(e.pulse, 0, 1);
+  const p = clampNum(Number.isFinite(e.pulse) ? e.pulse : 0, 0, 1);
+  const s = clampNum(Number.isFinite(e.spread) ? e.spread : 0, 0, 1);
+  const orbit = Number.isFinite(e.orbit) ? e.orbit : 0;
+  const ease = fragmentEase(s);
+  const n = clampNum(Math.round(Number.isFinite(e.count) ? e.count : FRAG_COUNT), 1, FRAG_MAX);
   const d = 2 * e.coreR;
-  let n = 0;
-  // Hot halo and disc over the white core: the halo breathes with the pulse, the disc throbs.
-  const gd = d * (2.2 + 0.8 * p);
-  if (pushSprite(b, F_GLOW, e.x, e.y, 0, gd, gd, a * (0.35 + 0.65 * p), e.hot)) n++;
-  const dd = d * (1 + 0.15 * p);
-  if (pushSprite(b, F_DOT, e.x, e.y, 0, dd, dd, a * (0.7 + 0.3 * p), e.hot)) n++;
-  // Thin expanding ring.
-  exposeRing(e.age, e.coreR, e.bodyR, ring);
-  if (ring.alpha > 0.01) n += pushArc(b, e.x, e.y, ring.r, 0, Math.PI * 2, exposeRingSegments(ring.r), 1.8, a * ring.alpha, e.hot, halo);
-  // HIT glyph and chevron above the body, pointing at the core.
-  const ga = a * hitCueAlpha(e.age) * (0.7 + 0.3 * p);
-  if (ga > 0.01) {
-    const top = hitGlyphTop(e.y, e.bodyR);
-    for (let k = 0; k < HIT_STROKE_COUNT; k++) {
-      const x0 = HIT_STROKES[k * 4] ?? 0;
-      const y0 = HIT_STROKES[k * 4 + 1] ?? 0;
-      const x1 = HIT_STROKES[k * 4 + 2] ?? 0;
-      const y1 = HIT_STROKES[k * 4 + 3] ?? 0;
-      n += pushLine(b, e.x + x0 * HIT_CAP_U, top + y0 * HIT_CAP_U, e.x + x1 * HIT_CAP_U, top + y1 * HIT_CAP_U, HIT_STROKE_U, ga, e.glyph, halo);
-    }
+  let w = 0;
+  // Centre glow breathing at the pulse rate where the core was, so the target still reads.
+  const gd = d * (1.8 + 0.8 * p);
+  if (pushSprite(b, F_GLOW, e.x, e.y, 0, gd, gd, a * (0.25 + 0.5 * p) * (0.4 + 0.6 * s), e.hot)) w++;
+  // Shards: a soft glow and a short spinning bar each, throbbing with the pulse.
+  const rf = e.coreR * fragmentSizeFrac(n) * (1 + 0.15 * p);
+  const half = rf * 1.1;
+  const thick = rf * 1.2;
+  const fa = a * (0.75 + 0.25 * p);
+  for (let k = 0; k < n; k++) {
+    fragmentOffset(k, n, ease, orbit, frag);
+    const cx = e.x + frag.x;
+    const cy = e.y + frag.y;
+    if (pushSprite(b, F_GLOW, cx, cy, 0, rf * 3, rf * 3, fa * 0.5, e.hot)) w++;
+    const spin = fragmentAngle(k, n, orbit) + orbit * FRAG_SPIN + k;
+    const hx = Math.cos(spin) * half;
+    const hy = Math.sin(spin) * half;
+    w += pushLine(b, cx - hx, cy - hy, cx + hx, cy + hy, thick, fa, e.hot, halo);
   }
-  return n;
+  return w;
 }
 
-/** White share mixed into the palette yellow for the hot core, and for the HIT glyph. */
+/** White share mixed into the palette yellow for the hot core fragments. */
 export const EXPOSE_HOT_WHITE = 0.45;
-export const EXPOSE_GLYPH_WHITE = 0.7;
 
 /** Sprite capacity of the cue layer (one boss at a time, with headroom). */
-export const EXPOSE_SPRITE_CAP = 160;
+export const EXPOSE_SPRITE_CAP = 32;
 
 // Boss adds (summoned through spawnAdd): a hostile look so they read as a threat, not scenery.
 
