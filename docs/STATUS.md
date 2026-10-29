@@ -60,4 +60,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-G2.1 on build afa6332 if Ryan has not pasted (symmetry both ways, melody 1 to 5, button reach both screens, fps_standard; also glance at B10 ship blink after respawn, B11 geom blink, B13 results line, B14 label colours). On pass: tag v2.1.0. Then v3: review docs/12-v3-plan.md Questions with Ryan, Scribe docs/13 v3 SPEC addendum, Scribe docs/01 drift pass, small run for the respawn cue.
+If G2.1 not pasted: ask for it (build afa6332 or later; symmetry both ways, melody 1 to 5, button reach both screens, fps_standard). If Ryan approves docs/12 and docs/13: dispatch V3-W0 (Scribe: v3 contract stubs from the docs/12 stubs table) then wave V3-A (Forge bullet pool, Swarm boss core and tier 1, Foundry schedule, Glow visuals, Ledger boss HUD) from the docs/12 briefs. Credits: first pool nearly spent; use the $200 pool.
