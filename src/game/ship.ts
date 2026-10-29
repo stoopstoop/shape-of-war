@@ -23,6 +23,8 @@ export interface ShipState {
   fireCooldown: number;
   /** 1 normally, 2 during Turbo (Swarm sets it). */
   fireRateScale: number;
+  /** Speed cap multiplier: 1 normally, 1.25 during Turbo (Swarm sets it). Acceleration is unchanged. */
+  speedScale: number;
   /** Last aim angle in radians. */
   aimAngle: number;
   /** True on steps where the aim stick is held past its dead zone. */
@@ -43,6 +45,7 @@ export function createShipState(): ShipState {
     invuln: INVULN_SEC,
     fireCooldown: 0,
     fireRateScale: 1,
+    speedScale: 1,
     aimAngle: -Math.PI / 2,
     firing: false,
     space: 'off',
@@ -100,12 +103,18 @@ export function stepShip(w: World, dt: number, input: InputState): void {
     mx *= k;
     my *= k;
   }
+  // Turbo raises the speed cap (speedScale 1.25); at 1 every path below is the exact v2 arithmetic.
+  const cap = s.speedScale > 0 ? s.speedScale : 1;
   let vx = mx * SHIP_SPEED;
   let vy = my * SHIP_SPEED;
+  if (cap !== 1) {
+    vx *= cap;
+    vy *= cap;
+  }
   if (s.space !== 'off') {
     // Thrust (docs/11 "Space physics"): velocity integrates from the stored post slide velocity.
     const held = input.move.active && (mx !== 0 || my !== 0);
-    const slow = w.time < s.slowUntil ? s.slowFactor : 1;
+    const slow = (w.time < s.slowUntil ? s.slowFactor : 1) * cap;
     stepThrust(s.space, w.vx[SHIP_ID] ?? 0, w.vy[SHIP_ID] ?? 0, mx, my, held, s.holdT, dt, slow, thrust);
     vx = thrust.vx;
     vy = thrust.vy;

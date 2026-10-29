@@ -9,7 +9,7 @@ import { createGame, setInvulnerable, stepGame } from '../../src/game/game';
 import { SUPER_CHARGE_MAX } from '../../src/game/geoms';
 import { killShip } from '../../src/game/player';
 import { gs } from '../../src/game/state';
-import { triggerSuper } from '../../src/game/supers';
+import { triggerSuper, TURBO_SPEED_SCALE } from '../../src/game/supers';
 import { respawnShip, SHIP_SPEED, stepShip } from '../../src/game/ship';
 import { createWorld, inlineRectLevel, type World } from '../../src/game/world';
 import type { InputState } from '../../src/input/types';
@@ -122,7 +122,9 @@ describe('B9 no Swarm state slows an unhit ship', () => {
   const drones: DroneKind[] = ['attack', 'collect', 'ram'];
   for (const superType of supers) {
     for (const drone of drones) {
-      it(`super ${superType} active with drone ${drone}, aiming and firing: 420 u in 1 s`, () => {
+      // G3A: Turbo raises the speed cap 25 percent, so it covers 525 u; nothing ever slows the ship.
+      const expected = superType === 'turbo' ? 420 * TURBO_SPEED_SCALE : 420;
+      it(`super ${superType} active with drone ${drone}, aiming and firing: ${expected} u in 1 s`, () => {
         const { w } = makeGame({ superType, drone });
         placeShip(w, -600, 0);
         stepGame(w, DT, idle()); // drone spawns
@@ -132,7 +134,7 @@ describe('B9 no Swarm state slows an unhit ship', () => {
         input.aim = { active: true, x: 0, y: -1 };
         const x0 = w.x[0] ?? 0;
         for (let i = 0; i < 120; i++) stepGame(w, DT, input);
-        expect((w.x[0] ?? 0) - x0).toBeCloseTo(420, 2);
+        expect((w.x[0] ?? 0) - x0).toBeCloseTo(expected, 2);
       });
     }
   }

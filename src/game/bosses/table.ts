@@ -21,7 +21,7 @@ export interface BossRow {
 export const BOSS_TABLE: Readonly<Record<BossId, BossRow>> = {
   warden: { tier: 1, hp: 360, phases: 2, radius: 56, colour: 'bossBlue' },
   brood: { tier: 1, hp: 400, phases: 2, radius: 52, colour: 'bossGreen' },
-  spindle: { tier: 1, hp: 400, phases: 2, radius: 48, colour: 'bossYellow' },
+  spindle: { tier: 1, hp: 500, phases: 2, radius: 48, colour: 'bossYellow' },
   ember: { tier: 2, hp: 600, phases: 3, radius: 44, colour: 'bossOrange' },
   mirage: { tier: 2, hp: 640, phases: 3, radius: 50, colour: 'bossMagenta' },
   gravitas: { tier: 2, hp: 700, phases: 3, radius: 60, colour: 'bossViolet' },
@@ -112,13 +112,48 @@ export const WARDEN = {
   entryHome: 0.55,
 } as const;
 
-/** Brood (tier 1, level 10). */
+/**
+ * Brood (tier 1, level 10). G3A rework (Ryan: "more like a level obstacle than a boss"): it hunts
+ * the ship and charges across the arena instead of hugging the boundary, its adds are Darts
+ * launched at the ship, and its open core is a flagged window (BossState.exposed).
+ */
 export const BROOD = {
-  speed: 50,
+  /** Prowl: seek the ship, turn limited. */
+  prowlSpeed: 75,
+  prowlSpeedP2: 90,
+  turnRate: 90 * DEG,
+  /** Prowl seconds before each charge wind up (attack clock, so enrage shortens it). */
+  prowlSec: 3.0,
+  prowlSecP2: 2.2,
+  /** First wind up this long after the entrance ends. */
+  firstCharge: 1.5,
+  /**
+   * Charge: heading locked toward the ship when the wind up starts. The wind up lasts the tier
+   * telegraph (1.0 s at tier 1) and shows a lane marker along the path. The body then runs at
+   * chargeSpeed for at most chargeSec or until a wall stops it.
+   */
+  chargeSpeed: 320,
+  chargeSpeedP2: 360,
+  chargeSec: 1.8,
+  /** Pause after a charge before it prowls again. */
+  recoverSec: 0.6,
+  /** Marker half width (the lane cap, 30 u). The body is wider: the marker shows the line. */
+  markerHalfWidth: 30,
+  /**
+   * While the core is open it never charges and flees from the ship at this speed (turn limited),
+   * so the window is a chase, not a sitting target.
+   */
+  exposedSpeed: 80,
   addEvery: 6,
+  addEveryP2: 5,
   /** First adds this long after the entrance ends. */
   firstAdds: 2,
   addsPerWave: 3,
+  addsPerWaveP2: 4,
+  /** Adds launch from the side facing the ship, this far apart. */
+  addSpreadDeg: 30,
+  /** Nearer than this, adds launch from the rear flanks instead (never point blank). */
+  addFrontMinDist: 220,
   podCount: 3,
   podOrbit: 90,
   /** 1 HP in tenths of a hit. */
@@ -126,7 +161,8 @@ export const BROOD = {
   podRadius: 12,
   podSpin: 1.2,
   openSec: 5,
-  regrowSec: 10,
+  /** Pods regrow this long after the last one died (10 at G3A; 9 keeps the fight in 35 to 50 s). */
+  regrowSec: 9,
   /** Adds spawn this far outside the body. */
   addPad: 24,
   /** Entrance slide distance in from the wall, u. */

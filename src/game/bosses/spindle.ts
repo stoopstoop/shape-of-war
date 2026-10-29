@@ -37,6 +37,7 @@ export function reset(w: World, id: number, bs: BossState, first: boolean): void
   bs.t0 = 0;
   bs.retry = 0;
   bs.open = true;
+  bs.openLeft = -1;
   bs.mode = BossMode.Attacking;
 }
 
@@ -45,6 +46,7 @@ export function step(w: World, id: number, bs: BossState, dt: number, adt: numbe
   stepToward(w, id, Math.cos(bs.angle) * SPINDLE.orbitRadius, Math.sin(bs.angle) * SPINDLE.orbitRadius, SPINDLE.approachSpeed * dt);
   w.rot[id] = wrapPi(bs.angle + Math.PI / 2);
   bs.open = true;
+  bs.openLeft = -1;
   bs.mode = BossMode.Attacking;
 
   const old = liveSweep(w, bs);

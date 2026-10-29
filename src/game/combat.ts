@@ -5,7 +5,7 @@
 import { bus } from '../core/events';
 import { bossBodyContact, bossDamageForStyle, bossHittable, damageBoss, damageBossPart } from './bosses/core';
 import { BOSS_DAMAGE, ORBIT_BOSS_COOLDOWN } from './bosses/table';
-import { BULLET_RADIUS, hasHit, killBullet, recordHit, STYLE_ORBIT, STYLE_PIERCE, STYLE_SPREAD, styleRadius } from './bullets';
+import { BULLET_RADIUS, hasHit, killBullet, passThrough, recordHit, STYLE_ORBIT, STYLE_PIERCE, STYLE_SPREAD, styleRadius } from './bullets';
 import { queryCircleInto } from './collide';
 import { defOf } from './defs';
 import { isWarping } from './enemies/blink';
@@ -145,7 +145,8 @@ export function shielded(w: World, id: number, px: number, py: number): boolean 
 }
 
 /**
- * Bullet vs enemy. Spread and rapid bullets hit one entity and stop. Pierce bullets hit up to 4
+ * Bullet vs enemy. Spread and rapid bullets hit one entity and stop (during Turbo they pass through
+ * one enemy first, BulletPool.extra). Pierce bullets hit up to 4
  * different enemies and are stopped by a snake segment. Orbit blades are handled in orbitHits.
  * Wells are handled in gravitywell.ts.
  */
@@ -179,8 +180,11 @@ export function bulletHits(w: World): void {
           if (stopped) break;
           continue;
         }
-        killBullet(p, b);
+        if (p.lastHit[b] === id) continue; // passed through it already (Turbo)
+        const through = passThrough(p, b, id);
+        if (!through) killBullet(p, b);
         damageBossPart(w, id, bossDamageForStyle(style), bx, by);
+        if (through) continue;
         break;
       }
       if (!isTargetable(w, id)) continue;
@@ -201,6 +205,14 @@ export function bulletHits(w: World): void {
         hurt(w, id, 1, bx, by);
         if (stopped) break;
         continue;
+      }
+      if (k !== Kind.SnakeBody) {
+        // Turbo: a spread, rapid or drone bullet with an extra hit passes through one enemy.
+        if (p.lastHit[b] === id) continue;
+        if (passThrough(p, b, id)) {
+          hurt(w, id, 1, bx, by);
+          continue;
+        }
       }
       killBullet(p, b);
       if (k !== Kind.SnakeBody) hurt(w, id, 1, bx, by);

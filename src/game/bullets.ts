@@ -42,6 +42,13 @@ export interface BulletPool {
   pierce: Uint8Array;
   /** Last enemy id this bullet hit, -1 for none. */
   lastHit: Int32Array;
+  /**
+   * Extra enemies a spread, rapid or drone bullet passes through before it stops (Turbo: 1).
+   * 0 for the v1 rule. Pierce bullets use pierce instead.
+   */
+  extra: Uint8Array;
+  /** extra given to every bullet spawned now (Turbo sets 1 while it runs, 0 otherwise). */
+  spawnExtra: number;
   /** Every enemy id a pierce bullet has hit, PIERCE_HITS slots per bullet, -1 empty. */
   hitLog: Int32Array;
   /** Orbit blade angle in radians, written each step from the ship. */
@@ -72,6 +79,8 @@ export function createBulletPool(cap: number = BULLET_CAP): BulletPool {
     style: new Uint8Array(cap),
     pierce: new Uint8Array(cap),
     lastHit: new Int32Array(cap).fill(-1),
+    extra: new Uint8Array(cap),
+    spawnExtra: 0,
     hitLog: new Int32Array(cap * PIERCE_HITS).fill(-1),
     phase: new Float32Array(cap),
     free,
@@ -103,6 +112,7 @@ export function spawnBullet(p: BulletPool, x: number, y: number, vx: number, vy:
   p.style[id] = STYLE_SPREAD;
   p.pierce[id] = 0;
   p.lastHit[id] = -1;
+  p.extra[id] = p.spawnExtra;
   p.phase[id] = 0;
   p.liveCount++;
   return id;
@@ -150,6 +160,21 @@ export function hasHit(p: BulletPool, id: number, e: number): boolean {
   const base = id * PIERCE_HITS;
   for (let k = 0; k < PIERCE_HITS; k++) if (p.hitLog[base + k] === e) return true;
   return false;
+}
+
+/**
+ * A spread, rapid or drone bullet touching enemy e: true when it passes through (it has an extra
+ * hit left and e is not the enemy it just passed), which spends the extra hit and remembers e.
+ * False when it should stop as in v1. A bullet still overlapping the enemy it passed returns true
+ * without spending anything. Pierce and orbit bullets never come here.
+ */
+export function passThrough(p: BulletPool, id: number, e: number): boolean {
+  if (p.lastHit[id] === e) return true;
+  const left = p.extra[id] ?? 0;
+  if (left === 0) return false;
+  p.extra[id] = left - 1;
+  p.lastHit[id] = e;
+  return true;
 }
 
 /**

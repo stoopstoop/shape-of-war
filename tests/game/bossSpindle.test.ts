@@ -32,7 +32,7 @@ describe('spindle', () => {
     expect(w.vy[h]).toBe(2);
     expect(sweepGap(w.vy[h] ?? 0)).toBeCloseTo(Math.PI);
     bs(w).open = true;
-    damageBoss(w, 2001, 0, 0);
+    damageBoss(w, 2501, 0, 0);
     run(w, 1.2); // phase change pause, then the rebuild
     const h2 = liveSweep(w, bs(w));
     expect(w.vy[h2]).toBe(3);
