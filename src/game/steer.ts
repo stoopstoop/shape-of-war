@@ -43,6 +43,31 @@ export function targetOf(w: World, id: number): number {
   return 0;
 }
 
+/** Angle from entity a to entity b (boss code takes every vector between entities from here). */
+export function angleBetween(w: World, a: number, b: number): number {
+  return Math.atan2((w.y[b] ?? 0) - (w.y[a] ?? 0), (w.x[b] ?? 0) - (w.x[a] ?? 0));
+}
+
+/** Distance between entities a and b. */
+export function distBetween(w: World, a: number, b: number): number {
+  const dx = (w.x[b] ?? 0) - (w.x[a] ?? 0);
+  const dy = (w.y[b] ?? 0) - (w.y[a] ?? 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Move id toward the point (tx, ty) by at most maxStep, confined. Returns the distance left before the move. */
+export function stepToward(w: World, id: number, tx: number, ty: number, maxStep: number): number {
+  const x = w.x[id] ?? 0;
+  const y = w.y[id] ?? 0;
+  const dx = tx - x;
+  const dy = ty - y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1e-6) return 0;
+  const s = Math.min(d, maxStep);
+  moveTo(w, id, x + (dx / d) * s, y + (dy / d) * s);
+  return d;
+}
+
 /** Angle from id to the ship. */
 export function angleToShip(w: World, id: number): number {
   return Math.atan2((w.y[0] ?? 0) - (w.y[id] ?? 0), (w.x[0] ?? 0) - (w.x[id] ?? 0));

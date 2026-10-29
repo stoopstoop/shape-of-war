@@ -2,7 +2,9 @@
 // wells, absent while the ship is dead. Attack orbits and fires; Collect trails and vacuums
 // geoms; Ram orbits and charges.
 import { BULLET_LIFE, BULLET_SPEED, spawnBullet } from './bullets';
-import { damage, isTargetable } from './combat';
+import { BOSS_DAMAGE } from './bosses/table';
+import { isBossTarget } from './bosses/core';
+import { damageAny, isTargetable } from './combat';
 import type { EnemyDef } from './enemies/types';
 import { collectNear, PICKUP_RADIUS } from './geoms';
 import { removeEntity } from './remove';
@@ -29,7 +31,7 @@ export function nearestEnemy(w: World, x: number, y: number, range: number): num
   let best = -1;
   let bestD = range * range;
   for (let id = 1; id < w.cap; id++) {
-    if (!isTargetable(w, id)) continue;
+    if (!isTargetable(w, id) && !isBossTarget(w, id)) continue;
     const k = w.kind[id] ?? 0;
     if (k === Kind.SnakeBody || k === Kind.GravityWell) continue;
     const dx = (w.x[id] ?? 0) - x;
@@ -109,12 +111,12 @@ function stepRam(w: World, id: number, dt: number): void {
   if (g.droneCooldown > 0) g.droneCooldown -= dt;
   if (g.dronePhase === 1) {
     const t = g.droneTarget;
-    if (t <= 0 || !isTargetable(w, t)) {
+    if (t <= 0 || !(isTargetable(w, t) || isBossTarget(w, t))) {
       g.dronePhase = 2;
     } else {
       const left = moveToward(w, id, w.x[t] ?? 0, w.y[t] ?? 0, RAM_CHARGE, dt);
       if (left <= def.radius + (w.radius[t] ?? 0)) {
-        damage(w, t, RAM_DAMAGE);
+        damageAny(w, t, RAM_DAMAGE, BOSS_DAMAGE.ram);
         g.dronePhase = 2;
         g.droneCooldown = RAM_COOLDOWN;
       }

@@ -3,6 +3,8 @@
 // Scored kills call the scoring port's awardKill and emit 'fx:kill'. Scratch buffers are module
 // level, so nothing here allocates per step.
 import { bus } from '../core/events';
+import { bossBodyContact, bossDamageForStyle, bossHittable, damageBoss, damageBossPart } from './bosses/core';
+import { BOSS_DAMAGE, ORBIT_BOSS_COOLDOWN } from './bosses/table';
 import { BULLET_RADIUS, hasHit, killBullet, recordHit, STYLE_ORBIT, STYLE_PIERCE, STYLE_SPREAD, styleRadius } from './bullets';
 import { queryCircleInto } from './collide';
 import { defOf } from './defs';
@@ -118,6 +120,17 @@ function hurt(w: World, id: number, n: number, hx: number, hy: number): boolean 
   return false;
 }
 
+/**
+ * Drone shot or Ram damage on any target: a boss or a boss part takes bossAmount tenths of a hit
+ * (BOSS_DAMAGE), anything else n hits. Returns true if the target died.
+ */
+export function damageAny(w: World, id: number, n: number, bossAmount: number): boolean {
+  const k = w.kind[id] ?? 0;
+  if (k === Kind.Boss) return damageBoss(w, bossAmount, w.x[id] ?? 0, w.y[id] ?? 0);
+  if (k === Kind.BossPart) return damageBossPart(w, id, bossAmount, w.x[id] ?? 0, w.y[id] ?? 0);
+  return damage(w, id, n);
+}
+
 /** A target that bullets and the ship can touch: hostile, not telegraphing, not a warping Blink. */
 export function isTargetable(w: World, id: number): boolean {
   if (w.alive[id] !== 1) return false;
@@ -138,6 +151,9 @@ export function shielded(w: World, id: number, px: number, py: number): boolean 
  */
 export function bulletHits(w: World): void {
   const p = w.bullets;
+  // V3 bosses: the body is too large for the grid query, so it gets a direct circle test. Any
+  // bullet that touches it stops there, pierce included. -1 in every boss free world.
+  const boss = bossHittable(w);
   for (let b = 0; b < p.cap; b++) {
     if (p.alive[b] !== 1) continue;
     const style = p.style[b] ?? STYLE_SPREAD;
@@ -145,10 +161,29 @@ export function bulletHits(w: World): void {
     const r = style === STYLE_SPREAD ? BULLET_RADIUS : styleRadius(style);
     const bx = p.x[b] ?? 0;
     const by = p.y[b] ?? 0;
+    if (boss > 0 && bossBodyContact(w, boss, bx, by, r)) {
+      killBullet(p, b);
+      damageBoss(w, bossDamageForStyle(style), bx, by);
+      continue;
+    }
     const n = queryCircleInto(w.grid, w, bx, by, r, hits);
     for (let i = 0; i < n; i++) {
       const id = hits[i] ?? 0;
-      if (id === 0 || !isTargetable(w, id)) continue;
+      if (id === 0) continue;
+      if (w.kind[id] === Kind.BossPart) {
+        // Pods, anchors and turrets: hit like an enemy (a pierce bullet passes on), BOSS_DAMAGE.
+        if (style === STYLE_PIERCE) {
+          if (hasHit(p, b, id)) continue;
+          const stopped = recordHit(p, b, id);
+          damageBossPart(w, id, bossDamageForStyle(style), bx, by);
+          if (stopped) break;
+          continue;
+        }
+        killBullet(p, b);
+        damageBossPart(w, id, bossDamageForStyle(style), bx, by);
+        break;
+      }
+      if (!isTargetable(w, id)) continue;
       const k = w.kind[id] ?? 0;
       if (k === Kind.GravityWell) continue;
       if (k === Kind.Bulwark) {
@@ -183,6 +218,7 @@ export function orbitHits(w: World, dt: number): void {
   if (s.kind !== 'orbit') return;
   const p = w.bullets;
   const r = WEAPONS.orbit.radius;
+  const boss = bossHittable(w);
   for (let i = 0; i < ORBIT_BLADES; i++) {
     const cool = (s.bladeCool[i] ?? 0) - dt;
     s.bladeCool[i] = cool > 0 ? cool : 0;
@@ -191,10 +227,23 @@ export function orbitHits(w: World, dt: number): void {
     if (b < 0 || p.alive[b] !== 1 || p.style[b] !== STYLE_ORBIT) continue;
     const bx = p.x[b] ?? 0;
     const by = p.y[b] ?? 0;
+    if (boss > 0 && bossBodyContact(w, boss, bx, by, r)) {
+      // Against a boss body a blade rests 0.25 s (boss rule 8), 0.12 s against everything else.
+      damageBoss(w, BOSS_DAMAGE.orbit, bx, by);
+      s.bladeCool[i] = ORBIT_BOSS_COOLDOWN;
+      continue;
+    }
     const n = queryCircleInto(w.grid, w, bx, by, r, hits);
     for (let j = 0; j < n; j++) {
       const id = hits[j] ?? 0;
-      if (id === 0 || !isTargetable(w, id) || w.kind[id] === Kind.SnakeBody) continue;
+      if (id === 0) continue;
+      if (w.kind[id] === Kind.BossPart) {
+        p.lastHit[b] = id;
+        damageBossPart(w, id, BOSS_DAMAGE.orbit, bx, by);
+        s.bladeCool[i] = BLADE_COOLDOWN;
+        break;
+      }
+      if (!isTargetable(w, id) || w.kind[id] === Kind.SnakeBody) continue;
       p.lastHit[b] = id;
       // A blade on a Bulwark's front arc is absorbed: it rests without dealing damage.
       if (shielded(w, id, bx, by)) emitHit(gs(w), bx, by, Kind.Bulwark, id, true);

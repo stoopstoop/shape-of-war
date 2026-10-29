@@ -1,6 +1,7 @@
 // Lives, death, respawn and bombs (docs/01 sections 4.1, 4.3, 7). Ship movement and firing stay
 // in Forge's ship.ts; this module decides when the ship dies and comes back.
 import { bus } from '../core/events';
+import { bossOnBomb, bossOnShipDeath } from './bosses/core';
 import { resetWell } from './enemies/gravitywell';
 import { clearGeoms } from './geoms';
 import { removeEntity } from './remove';
@@ -31,8 +32,11 @@ export function killShip(w: World): void {
     if (w.alive[id] !== 1) continue;
     const k = w.kind[id] ?? 0;
     if (k === Kind.GravityWell || k === Kind.Spawner || k === Kind.Geom || k === Kind.WeaponPickup) continue;
+    // V3 boss rule 6: the boss keeps its hit points and its parts; adds and hazards are cleared.
+    if (k === Kind.Boss || k === Kind.BossPart) continue;
     removeEntity(w, id); // enemies, telegraphs, segments and the drone
   }
+  bossOnShipDeath(w);
   clearGeoms(w);
   resetWeapon(w); // docs/11 SPEC 3.5 rule 4: death returns to spread
   deactivateShip(w);
@@ -56,6 +60,7 @@ export function triggerBomb(w: World): boolean {
     if (k === Kind.GravityWell) resetWell(w, id);
     else if (isHostile(k) || k === Kind.Slime) removeEntity(w, id); // v2 kinds, Mines and every Slime too
   }
+  bossOnBomb(w); // V3 boss rule 7: hazards cleared, the boss staggered, no damage
   g.pointFx.x = w.x[0] ?? 0;
   g.pointFx.y = w.y[0] ?? 0;
   bus.emit('fx:bomb', g.pointFx);

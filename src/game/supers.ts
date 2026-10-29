@@ -9,6 +9,7 @@
 import { bus } from '../core/events';
 import type { SuperKind } from '../levelgen/leveldef';
 import { STYLE_ORBIT } from './bullets';
+import { bossDetonate, isBossTarget } from './bosses/core';
 import { isTargetable, killEnemy } from './combat';
 import { SUPER_CHARGE_MAX } from './geoms';
 import { removeEntity } from './remove';
@@ -95,6 +96,7 @@ export function detonate(w: World): number {
     killEnemy(w, id, true);
     n++;
   }
+  bossDetonate(w, x, y); // V3: 10 percent of the boss's maximum hit points within 260 u
   g.pointFx.x = x;
   g.pointFx.y = y;
   bus.emit('fx:bomb', g.pointFx);
@@ -113,7 +115,7 @@ export function collectTargets(w: World): number {
   const g = gs(w);
   let n = 0;
   for (let id = 1; id < w.cap; id++) {
-    if (!isTargetable(w, id)) continue;
+    if (!isTargetable(w, id) && !isBossTarget(w, id)) continue;
     const k = w.kind[id] ?? 0;
     if (k === Kind.SnakeBody || k === Kind.GravityWell) continue;
     g.targets[n++] = id;
