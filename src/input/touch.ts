@@ -5,6 +5,7 @@ import {
   createMoveDebug,
   formatMoveDebug,
   noteMoveBegin,
+  noteClamp,
   noteMoveSample,
   noteOffCanvasDown,
   PAINT_INTERVAL_MS,
@@ -75,6 +76,8 @@ function release(canvas: HTMLCanvasElement, id: number): void {
 interface DebugView {
   begin(landX: number, landY: number): void;
   sample(dx: number, dy: number): void;
+  /** Copy both sticks' anchor clamp offsets into the readout. */
+  clamp(m: TouchModel): void;
   paint(cssW: number, cssH: number): void;
   detach(): void;
 }
@@ -103,6 +106,11 @@ function createDebugView(canvas: HTMLCanvasElement, state: InputState): DebugVie
   return {
     begin: (landX, landY) => noteMoveBegin(d, now(), landX, landY),
     sample: (dx, dy) => noteMoveSample(d, dx, dy, state.move.x, state.move.y, now()),
+    clamp(m): void {
+      const mv = m.move;
+      const am = m.aim;
+      noteClamp(d, mv.active ? mv.cx : 0, mv.active ? mv.cy : 0, am.active ? am.cx : 0, am.active ? am.cy : 0);
+    },
     paint(cssW, cssH): void {
       const t = now();
       if (t - lastPaint < PAINT_INTERVAL_MS) return;
@@ -133,6 +141,7 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
     if (r !== 'ignored') capture(canvas, e.pointerId);
     syncSticks(model, state);
     if (dbg !== null && r === 'move') dbg.begin(model.move.lx, model.move.ly);
+    dbg?.clamp(model);
     dbg?.paint(frame.w, frame.h);
   };
   const move = (e: PointerEvent): void => {
@@ -141,8 +150,9 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
     const y = e.clientY - frame.top;
     pointerMove(model, e.pointerId, x, y);
     syncSticks(model, state);
-    if (dbg !== null && e.pointerId === model.move.id) {
-      dbg.sample(x - model.move.ox, y - model.move.oy);
+    if (dbg !== null && e.pointerId === model.move.id) dbg.sample(x - model.move.ox, y - model.move.oy);
+    if (dbg !== null && (e.pointerId === model.move.id || e.pointerId === model.aim.id)) {
+      dbg.clamp(model);
       dbg.paint(frame.w, frame.h);
     }
   };
@@ -150,6 +160,7 @@ export function attachTouch(canvas: HTMLCanvasElement, opts: TouchOptions = {}):
     e.preventDefault();
     pointerUp(model, e.pointerId);
     syncSticks(model, state);
+    dbg?.clamp(model);
   };
   const lost = (e: PointerEvent): void => {
     pointerUp(model, e.pointerId);

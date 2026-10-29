@@ -8,12 +8,15 @@ import type { ButtonVisual, StickVisual, StickVisuals } from './types';
 function trackVisual(t: Track): StickVisual | null {
   if (!t.active) return null;
   return {
-    ring: { x: t.ox, y: t.oy, r: STICK_RADIUS },
-    knob: { x: t.px, y: t.py, r: KNOB_RADIUS },
+    ring: { x: t.ox + t.cx, y: t.oy + t.cy, r: STICK_RADIUS },
+    knob: { x: t.px + t.cx, y: t.py + t.cy, r: KNOB_RADIUS },
   };
 }
 
-/** Ring at the stick centre (radius 120, it follows a finger past the ring) and knob at the clamped finger, canvas local CSS px. */
+/**
+ * Ring at the stick centre (radius 120, it follows a finger past the ring) and knob at the clamped
+ * finger, both shifted by the anchor clamp offset so the ring never covers a button. Canvas local CSS px.
+ */
 export function stickVisuals(m: TouchModel): StickVisuals {
   return { move: trackVisual(m.move), aim: trackVisual(m.aim) };
 }
