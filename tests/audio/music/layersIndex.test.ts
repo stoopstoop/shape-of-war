@@ -46,7 +46,7 @@ function advance(sec: number, check?: () => void): void {
 
 function install(extra: Partial<MusicOptions> = {}): void {
   uninstall?.();
-  uninstall = initMusic({
+  uninstall = initMusic({ tune: 'neon',
     bus,
     graph: () => graph,
     timer,

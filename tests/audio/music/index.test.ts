@@ -50,7 +50,7 @@ beforeEach(() => {
   bus = new Bus();
   doc = new FakeDoc();
   graph = { ctx, master: new FakeNode() };
-  uninstall = initMusic({ bus, graph: () => graph, timer, visibility: doc, volume: 50 });
+  uninstall = initMusic({ tune: 'neon', bus, graph: () => graph, timer, visibility: doc, volume: 50 });
 });
 
 afterEach(() => {

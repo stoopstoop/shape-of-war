@@ -8,8 +8,14 @@
 // Audio node is made inside the scheduler tick, between frames. Every melodic pitch (motifs,
 // entrance phrases, kill notes, resolutions, chord hits) comes from the harmonic plan in
 // harmony.ts, so the contributions always agree with the bed.
+//
+// Tunes (v2.1): a session plays one tune from tunes.ts, chosen from the level seed (select.ts),
+// so a level always has its tune and consecutive levels differ. Endless rotates to a new tune
+// every 3 segments of play: the switch is booked a few bars ahead on a bar line, a 2 bar fill
+// leads into it and the scheduler changes tempo from that step. A threat phase change (the lift
+// turning on or off) also earns a 2 bar fill, and every odd pass of the loop ends in one.
 import { bus as coreBus, type Bus } from '../../core/events';
-import type { EnemyKind } from '../../levelgen/leveldef';
+import type { BossTier, EnemyKind } from '../../levelgen/leveldef';
 import { getAudioGraph } from '../synth';
 import { createMusicEngine, voiceLength, type MusicContext, type MusicEngine, type NodeLike, type Span, type VoiceTrace } from './engine';
 import {
@@ -78,8 +84,10 @@ import {
   takeStingers,
   type LayerSet,
 } from './lifecycle';
-import { createScheduler, planStep, realTimer, type Scheduler, type Timer } from './scheduler';
-import { buildBar, STEP_SEC, STEPS_PER_BAR, type BarPattern, type Layer } from './track';
+import { createScheduler, LOOKAHEAD_SEC, planStep, realTimer, type Scheduler, type Timer } from './scheduler';
+import { endlessBlock, endlessTune, startTune, type RunMode } from './select';
+import { buildBar, STEPS_PER_BAR, structuralFill, type BarPattern, type FillBar, type Layer } from './track';
+import { bossTuneFor, DEFAULT_TUNE, FILL_BARS, tuneById, type Tune, type TuneId } from './tunes';
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
@@ -96,6 +104,8 @@ export interface NoteLog {
   readonly time: number;
   readonly midi: number | null;
   readonly gain: number;
+  /** The tune the note belongs to. */
+  readonly tune?: TuneId;
 }
 
 export interface MusicGraph {
@@ -127,6 +137,11 @@ export interface MusicOptions {
    * weaver); every other kind keeps its stinger and gets an empty motif.
    */
   motifKinds?: readonly EnemyKind[];
+  /**
+   * Tests and debugging: play this tune on every level instead of the level's own (Endless
+   * still rotates from it). Default: selection by level (select.ts).
+   */
+  tune?: TuneId;
   /** Called for every note handed to the engine. */
   onNote?: (n: NoteLog) => void;
   /** Voice spans from the engine (tests and debugging). */
@@ -146,9 +161,24 @@ interface MotifCache {
   notes: readonly MotifNote[];
 }
 
+/** A tune that plays from an absolute bar on; its own bar 0 is `fromBar`. */
+interface TuneSpan {
+  readonly fromBar: number;
+  readonly tune: Tune;
+}
+
 interface Session {
   readonly seed: number;
+  readonly mode: RunMode;
   readonly engine: MusicEngine;
+  /** Tunes in play order; the last span whose fromBar is at or before a bar plays it. */
+  readonly tunes: TuneSpan[];
+  /** First bar of the last runtime fill (a phase change), or null. */
+  fillStart: number | null;
+  /** Seconds of music scheduled (play time; pause and a hidden tab do not count). */
+  playSec: number;
+  /** Endless rotation block of the last tune booked. */
+  block: number;
   barIndex: number;
   bar: BarPattern | null;
   lastTick: number | null;
@@ -181,6 +211,9 @@ let timer: Timer = realTimer;
 let playing: Playing | null = null;
 let registry: LayerRegistry = LAYERS_FULL;
 let noteHook: ((n: NoteLog) => void) | null = null;
+/** Mode of the last 'game:start' (Next, Retry and Restart keep it). */
+let runMode: RunMode = 'adventure';
+let forcedTune: TuneId | null = null;
 let voiceTrace: VoiceTrace | undefined;
 /** Source of the last fx:kill; the 'explode' sfx that follows a scored kill consumes it. */
 let pendingKill: KillSource | null = null;
@@ -192,19 +225,109 @@ function defaultVisibility(): VisibilitySource | null {
   return typeof document === 'undefined' ? null : document;
 }
 
+/** The tune span playing an absolute bar. */
+function spanAt(s: Session, bar: number): TuneSpan {
+  for (let i = s.tunes.length - 1; i >= 0; i--) {
+    const t = s.tunes[i];
+    if (t && t.fromBar <= bar) return t;
+  }
+  return s.tunes[0] ?? { fromBar: 0, tune: DEFAULT_TUNE };
+}
+
+/** The tune playing an absolute bar. */
+function tuneAt(s: Session, bar: number): Tune {
+  return spanAt(s, bar).tune;
+}
+
+/** The bar inside its tune (the tune's own bar count from where it started). */
+function localBar(s: Session, bar: number): number {
+  return bar - spanAt(s, bar).fromBar;
+}
+
+/** Seconds per step at an absolute step. */
+function secAt(s: Session, step: number): number {
+  return tuneAt(s, Math.floor(step / STEPS_PER_BAR)).stepSec;
+}
+
+/** The tune and local step of an absolute step, for every pitch decision. */
+function where(s: Session, step: number): { tune: Tune; step: number; bar: number } {
+  const bar = Math.floor(step / STEPS_PER_BAR);
+  const span = spanAt(s, bar);
+  const local = step - span.fromBar * STEPS_PER_BAR;
+  return { tune: span.tune, step: local, bar: Math.floor(local / STEPS_PER_BAR) };
+}
+
+/** The fill bar an absolute bar plays, structural or runtime (a lift change, an Endless rotation). */
+function fillAt(s: Session, bar: number): FillBar {
+  // A runtime fill wins: it leads into a change that is about to happen.
+  if (s.fillStart !== null) {
+    const k = bar - s.fillStart;
+    if (k === 0 || k === 1) return k;
+  }
+  return structuralFill(tuneAt(s, bar), localBar(s, bar));
+}
+
+function makeBar(s: Session, index: number): BarPattern {
+  return buildBar(s.seed, localBar(s, index), tuneAt(s, index), fillAt(s, index));
+}
+
 function barFor(s: Session, index: number): BarPattern {
   if (s.bar === null || s.barIndex !== index) {
-    s.bar = buildBar(s.seed, index);
+    s.bar = makeBar(s, index);
     s.barIndex = index;
   }
   return s.bar;
+}
+
+function logNote(tune: Tune, n: NoteLog): void {
+  noteHook?.({ ...n, tune: tune.id });
+}
+
+/** Bars after a runtime fill before another may start. */
+const FILL_COOLDOWN_BARS = 4;
+/** Bars from the first bar past the lookahead to a booked Endless switch (the fill sits in between). */
+const SWITCH_LEAD_BARS = FILL_BARS + 1;
+
+/** The first bar no step of which can be scheduled yet: changes are booked from here. */
+function freeBar(sched: Scheduler, now: number): number {
+  return Math.floor(sched.stepAtOrAfter(now + LOOKAHEAD_SEC + 0.05) / STEPS_PER_BAR) + 1;
+}
+
+/** Book a 2 bar fill from the first free bar, unless one played recently. */
+function bookFill(s: Session, sched: Scheduler, now: number): void {
+  const from = freeBar(sched, now);
+  if (s.fillStart !== null && from < s.fillStart + FILL_BARS + FILL_COOLDOWN_BARS) return;
+  s.fillStart = from;
+}
+
+/** Endless: book the next tune when the play time reaches the next rotation block. */
+function maybeRotate(s: Session, sched: Scheduler, now: number): void {
+  if (s.mode !== 'endless') return;
+  const last = s.tunes[s.tunes.length - 1];
+  const cur = last?.tune ?? DEFAULT_TUNE;
+  // Lead time: the fill bars plus the lookahead, so the switch lands on the segment line.
+  const lead = (SWITCH_LEAD_BARS + 1) * STEPS_PER_BAR * cur.stepSec;
+  const block = endlessBlock(s.playSec + lead);
+  if (block <= s.block || (last !== undefined && last.fromBar >= freeBar(sched, now))) return;
+  const fromBar = freeBar(sched, now) + FILL_BARS;
+  const tune = endlessTune(s.seed, block);
+  s.block = block;
+  s.fillStart = fromBar - FILL_BARS;
+  // Consecutive blocks always differ; only a forced start tune can match its successor.
+  if (tune.id === cur.id) return;
+  s.tunes.push({ fromBar, tune });
+  sched.setStepSec(tune.stepSec, fromBar * STEPS_PER_BAR);
 }
 
 function onTick(s: Session, now: number, sched: Scheduler): void {
   const dt = s.lastTick === null ? 0 : now - s.lastTick;
   s.lastTick = now;
   level = smoothThreat(level, target, dt);
-  s.lift = nextLift(s.lift, level);
+  const lift = nextLift(s.lift, level);
+  // A threat phase change (the lift turning on or off) earns a 2 bar fill.
+  if (lift !== s.lift) bookFill(s, sched, now);
+  s.lift = lift;
+  maybeRotate(s, sched, now);
   const hz = masterCutoff(level, s.lift);
   // Only meaningful changes reach the AudioParam: 40 setTargetAtTime calls a second grew the
   // automation list for nothing.
@@ -230,12 +353,13 @@ function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
     const time = sched.timeOf(step);
     const barIndex = Math.floor(step / STEPS_PER_BAR);
     const inBar = step % STEPS_PER_BAR;
-    const bar = s.bar !== null && s.barIndex === barIndex ? s.bar : buildBar(s.seed, barIndex);
-    for (const n of planStep(bar, inBar, mix, time)) out.push({ start: time, end: time + voiceLength(n.layer, n.dur) });
+    const sec = secAt(s, step);
+    const bar = s.bar !== null && s.barIndex === barIndex ? s.bar : makeBar(s, barIndex);
+    for (const n of planStep(bar, inBar, mix, time, sec)) out.push({ start: time, end: time + voiceLength(n.layer, n.dur) });
     for (const l of s.layers) {
       if (!motifActive(l, step) || envelopeAt(l, step) <= 0) continue;
       for (const n of motifBar(s, l.kind, barIndex)) {
-        if (n.step === inBar) out.push({ start: time, end: time + n.durSteps * STEP_SEC });
+        if (n.step === inBar) out.push({ start: time, end: time + n.durSteps * sec });
       }
     }
   }
@@ -245,7 +369,7 @@ function upcomingSpans(s: Session, sched: Scheduler, until: number): Span[] {
 /** Free accent voices for `steps` sixteenths from `step`. */
 function roomAt(s: Session, sched: Scheduler, step: number, steps: number): number {
   const t = sched.timeOf(step);
-  const len = steps * STEP_SEC;
+  const len = steps * secAt(s, step);
   return s.engine.accentRoom(t, len, upcomingSpans(s, sched, t + len));
 }
 
@@ -254,33 +378,34 @@ function applyGate(s: Session, sched: Scheduler, r: GateResult, source: KillSour
   const a = r.action;
   if (a.type === 'note' && source !== null) {
     const spec = KILL_SPECS[source];
-    const bar = Math.floor(a.step / STEPS_PER_BAR);
+    const w = where(s, a.step);
     // The kind's voice, the chord's arpeggio: climbing with the kill count in the bar.
-    const midi = killNoteMidi(bar, a.index);
+    const midi = killNoteMidi(w.bar, a.index, w.tune);
     const time = sched.timeOf(a.step);
     const gain = spec.noteGain * (0.8 + 0.2 * level);
-    s.engine.playVoice({ time, dur: a.dur * STEP_SEC, midi, fromMidi: null, gain, timbre: spec.noteTimbre }, 'accent');
+    s.engine.playVoice({ time, dur: a.dur * w.tune.stepSec, midi, fromMidi: null, gain, timbre: spec.noteTimbre }, 'accent');
     s.stats.notes++;
-    noteHook?.({ role: 'kill', layer: null, kind: enemyOf(source), source, step: a.step, time, midi, gain, at });
+    if (noteHook) logNote(w.tune, { role: 'kill', layer: null, kind: enemyOf(source), source, step: a.step, time, midi, gain, at });
     if (a.resolveAt !== null) {
       // The third kill note of the bar: the run resolves to the next chord's root on the bar line.
+      const r = where(s, a.resolveAt);
       const rTime = sched.timeOf(a.resolveAt);
-      const rMidi = resolveMidi(Math.floor(a.resolveAt / STEPS_PER_BAR));
-      s.engine.playVoice({ time: rTime, dur: RESOLVE_STEPS * STEP_SEC, midi: rMidi, fromMidi: null, gain: RESOLVE_GAIN, timbre: RESOLVE_TIMBRE }, 'accent');
-      noteHook?.({ role: 'resolve', layer: null, kind: null, step: a.resolveAt, time: rTime, midi: rMidi, gain: RESOLVE_GAIN, at });
+      const rMidi = resolveMidi(r.bar, r.tune);
+      s.engine.playVoice({ time: rTime, dur: RESOLVE_STEPS * r.tune.stepSec, midi: rMidi, fromMidi: null, gain: RESOLVE_GAIN, timbre: RESOLVE_TIMBRE }, 'accent');
+      if (noteHook) logNote(r.tune, { role: 'resolve', layer: null, kind: null, step: a.resolveAt, time: rTime, midi: rMidi, gain: RESOLVE_GAIN, at });
     }
   } else if (a.type === 'chord') {
-    const bar = Math.floor(a.step / STEPS_PER_BAR);
+    const w = where(s, a.step);
     const time = sched.timeOf(a.step);
-    const hit = chordHit(bar, a.big, a.withResolve);
+    const hit = chordHit(w.bar, a.big, a.withResolve, w.tune);
     const all = hit.midis;
     const room = roomAt(s, sched, a.step, CHORD_STEPS);
     // Fewer free voices than notes: drop from the bottom (the big chord's low note goes first).
     const notes = all.slice(Math.max(0, all.length - room));
     const gain = hit.gain / Math.max(1, notes.length);
     for (const midi of notes) {
-      s.engine.playVoice({ time, dur: CHORD_STEPS * STEP_SEC, midi, fromMidi: null, gain, timbre: CHORD_TIMBRE }, 'accent');
-      noteHook?.({ role: 'chord', layer: null, kind: null, step: a.step, time, midi, gain, at });
+      s.engine.playVoice({ time, dur: CHORD_STEPS * w.tune.stepSec, midi, fromMidi: null, gain, timbre: CHORD_TIMBRE }, 'accent');
+      if (noteHook) logNote(w.tune, { role: 'chord', layer: null, kind: null, step: a.step, time, midi, gain, at });
     }
     s.stats.chords++;
   }
@@ -367,24 +492,24 @@ function drainHits(s: Session, now: number, sched: Scheduler): void {
   }
   const t = now + KILL_LEAD_SEC;
   const step = stepContaining(sched, t);
-  const bar = Math.max(0, Math.floor(step / STEPS_PER_BAR));
+  const w = where(s, Math.max(0, step));
   for (const q of hitOrder(s.hits, s.hitGate)) {
     if (q.blocked) {
       const r = gateDeflect(s.hitGate, t, () => roomAtTime(s, sched, t, DEFLECT_DUR_SEC));
       s.hitGate = r.gate;
       if (!r.ok) continue;
-      const midi = deflectMidi(bar);
+      const midi = deflectMidi(w.bar, w.tune);
       s.engine.playVoice({ time: t, dur: DEFLECT_DUR_SEC, midi, fromMidi: midi + DEFLECT_DROP, gain: DEFLECT_GAIN, timbre: DEFLECT_TIMBRE }, 'accent');
-      noteHook?.({ role: 'deflect', layer: null, kind: null, step, time: t, midi, gain: DEFLECT_GAIN, at: now });
+      if (noteHook) logNote(w.tune, { role: 'deflect', layer: null, kind: null, step, time: t, midi, gain: DEFLECT_GAIN, at: now });
     } else {
       const source = q.source;
       const r = gateHit(s.hitGate, source, t, () => roomAtTime(s, sched, t, HIT_DUR_SEC));
       s.hitGate = r.gate;
       if (!r.ok) continue;
-      const midi = hitMidi(source, bar);
+      const midi = hitMidi(source, w.bar, w.tune);
       const gain = hitGain(source);
       s.engine.playVoice({ time: t, dur: HIT_DUR_SEC, midi, fromMidi: null, gain, timbre: hitTimbreFor(source) }, 'accent');
-      noteHook?.({ role: 'hit', layer: null, kind: enemyOf(source), source, step, time: t, midi, gain, at: now });
+      if (noteHook) logNote(w.tune, { role: 'hit', layer: null, kind: enemyOf(source), source, step, time: t, midi, gain, at: now });
     }
   }
   s.hits.length = 0;
@@ -400,7 +525,7 @@ function queueHit(h: QueuedHit): void {
 function motifBar(s: Session, kind: EnemyKind, bar: number): readonly MotifNote[] {
   const c = s.motifs.get(kind);
   if (c && c.bar === bar) return c.notes;
-  const notes = registry[kind].motif(s.seed, bar);
+  const notes = registry[kind].motif(s.seed, localBar(s, bar), tuneAt(s, bar));
   s.motifs.set(kind, { bar, notes });
   return notes;
 }
@@ -428,25 +553,30 @@ function onStep(p: Session, step: number, time: number): void {
   p.layers = pruneLayers(p.layers, step);
   const take = takeStingers(p.layers, step);
   p.layers = take.set;
+  const w = where(p, step);
+  const sec = w.tune.stepSec;
+  p.playSec += sec;
   if (volume === 0) return;
   const barIndex = Math.floor(step / STEPS_PER_BAR);
   const inBar = step % STEPS_PER_BAR;
   const mix = mixFor(level, p.lift);
   const lm = layerMix(sumGains(mix.gains), p.layers, registry, step);
-  for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time)) {
-    p.engine.play(n);
-    noteHook?.({ role: 'bed', layer: n.layer, kind: null, step, time, midi: n.midi, gain: n.gain });
+  for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time, sec)) {
+    p.engine.play(n, w.tune.bed);
+    if (noteHook) logNote(w.tune, { role: 'bed', layer: n.layer, kind: null, step, time, midi: n.midi, gain: n.gain });
   }
   for (const kind of take.due) {
     // The kind's entrance phrase, whole, from this step: the same shape every time, each note
-    // in the chord of its own bar. Monophonic, so it holds one voice at a time.
+    // in the chord of its own bar, in the active tune's key. Monophonic, so it holds one voice
+    // at a time.
     const spec = registry[kind];
     const timbre = leadTimbre(spec.timbre);
-    for (const n of stingerPhrase(spec, step)) {
-      const t = time + (n.step - step) * STEP_SEC;
+    const offset = step - w.step;
+    for (const n of stingerPhrase(spec, w.step, w.tune)) {
+      const t = time + (n.step - w.step) * sec;
       const gain = STINGER_GAIN * n.vel;
-      p.engine.playVoice({ time: t, dur: n.dur * STEP_SEC, midi: n.midi, fromMidi: null, gain, timbre });
-      noteHook?.({ role: 'stinger', layer: null, kind, step: n.step, time: t, midi: n.midi, gain });
+      p.engine.playVoice({ time: t, dur: n.dur * sec, midi: n.midi, fromMidi: null, gain, timbre });
+      if (noteHook) logNote(w.tune, { role: 'stinger', layer: null, kind, step: n.step + offset, time: t, midi: n.midi, gain });
     }
   }
   for (const l of p.layers) {
@@ -456,8 +586,8 @@ function onStep(p: Session, step: number, time: number): void {
     for (const n of motifBar(p, l.kind, barIndex)) {
       if (n.step !== inBar) continue;
       const gain = spec.gain * lm.motifScale * env * n.vel;
-      p.engine.playVoice({ time, dur: n.durSteps * STEP_SEC, midi: n.midi, fromMidi: n.fromMidi, gain, timbre: spec.timbre });
-      noteHook?.({ role: 'motif', layer: null, kind: l.kind, step, time, midi: n.midi, gain });
+      p.engine.playVoice({ time, dur: n.durSteps * sec, midi: n.midi, fromMidi: n.fromMidi, gain, timbre: spec.timbre });
+      if (noteHook) logNote(w.tune, { role: 'motif', layer: null, kind: l.kind, step, time, midi: n.midi, gain });
     }
   }
 }
@@ -507,6 +637,8 @@ export function initMusic(opts: MusicOptions = {}): () => void {
   registry = opts.motifKinds === undefined ? LAYERS_FULL : cutMotifs(opts.motifKinds);
   noteHook = opts.onNote ?? null;
   voiceTrace = opts.trace;
+  forcedTune = opts.tune ?? null;
+  runMode = 'adventure';
   pendingKill = null;
   if (opts.volume !== undefined) volume = clampMusicVolume(opts.volume);
   const vis = opts.visibility === undefined ? defaultVisibility() : opts.visibility;
@@ -546,6 +678,15 @@ export function initMusic(opts: MusicOptions = {}): () => void {
       if (source !== null) queueHit({ blocked: false, source });
     }),
     b.on('fx:bomb', () => queueAccent({ type: 'bomb' })),
+    // The run mode picks the selection rule (a level's tune, or the Endless rotation). Next,
+    // Retry and Restart keep the mode, so only 'game:start' carries it. Glue may start the music
+    // inside this same emit, before this handler runs: a session still in its first bar with the
+    // other mode restarts with the right tune.
+    b.on('game:start', (p) => {
+      runMode = p.mode;
+      const cur = playing;
+      if (cur && cur.session.mode !== p.mode && cur.scheduler.nextStep <= STEPS_PER_BAR) startMusic(cur.session.seed);
+    }),
     b.on('game:pause', () => {
       gamePaused = true;
       suspend();
@@ -635,9 +776,16 @@ export function startMusic(seed: number): boolean {
   gamePaused = false;
   pendingKill = null;
   // Layers start empty: a new or restarted level re-announces its kinds through the sim.
+  const s32 = seed >>> 0;
+  const tune = forcedTune === null ? startTune(s32, runMode) : tuneById(forcedTune);
   const session: Session = {
-    seed: seed >>> 0,
+    seed: s32,
+    mode: runMode,
     engine,
+    tunes: [{ fromBar: 0, tune }],
+    fillStart: null,
+    playSec: 0,
+    block: 0,
     barIndex: -1,
     bar: null,
     lastTick: null,
@@ -654,6 +802,7 @@ export function startMusic(seed: number): boolean {
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
     timer,
+    stepSec: tune.stepSec,
     onStep: (step, time) => onStep(session, step, time),
     onTick: (now) => onTick(session, now, scheduler),
   });
@@ -709,13 +858,20 @@ export interface MusicState {
   readonly motifSteals: number;
   /** Kills seen (scored kills, pops, wells and burst segments), kill notes and chords played this session. */
   readonly kills: Readonly<KillStats>;
+  /** The tune at the next step to be scheduled, or null when nothing plays. */
+  readonly tune: TuneId | null;
+  /** That tune's tempo, or 0 when nothing plays. */
+  readonly bpm: number;
 }
 
 /** Read only snapshot for tests and the debug overlay. */
 export function musicState(): MusicState {
   const p = playing;
   const steals = p?.engine.steals;
+  const tune = p ? tuneAt(p.session, Math.floor(p.scheduler.nextStep / STEPS_PER_BAR)) : null;
   return {
+    tune: tune?.id ?? null,
+    bpm: tune?.bpm ?? 0,
     playing: p !== null,
     suspended: p?.scheduler.paused ?? false,
     level,
@@ -731,3 +887,15 @@ export function musicState(): MusicState {
   };
 }
 export { CUT1_KEEP, LAYER_KINDS } from './layers';
+export { TUNE_IDS, TUNES, type Tune, type TuneId } from './tunes';
+
+/**
+ * Boss hook for wave B (docs/12 "Design: boss music"): the tune a boss fight of `tier` plays
+ * over. Meant to become a dark, half time variant of the active tune; for now it returns the
+ * active tune (the default tune when nothing plays).
+ */
+export function selectBossTune(tier: BossTier): Tune {
+  const p = playing;
+  const active = p ? tuneAt(p.session, Math.floor(p.scheduler.nextStep / STEPS_PER_BAR)) : DEFAULT_TUNE;
+  return bossTuneFor(tier, active);
+}

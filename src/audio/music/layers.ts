@@ -24,7 +24,8 @@ import {
   type PlacedNote,
 } from './harmony';
 import { A4, pentatonicMidi } from './scale';
-import { chordForBar, loopBar, STEPS_PER_BAR } from './track';
+import { chordForBar, LOOP_BARS, loopBar, STEPS_PER_BAR } from './track';
+import { DEFAULT_TUNE, type Tune } from './tunes';
 
 export const PHRASE_BARS = 2;
 export const PHRASE_STEPS = STEPS_PER_BAR * PHRASE_BARS;
@@ -135,7 +136,7 @@ export interface MotifNote {
   readonly vel: number;
 }
 
-export type MotifBuilder = (seed: number, bar: number) => readonly MotifNote[];
+export type MotifBuilder = (seed: number, bar: number, tune?: Tune) => readonly MotifNote[];
 
 export interface LayerSpec {
   readonly kind: EnemyKind;
@@ -275,9 +276,9 @@ function lane(seed: number, kind: EnemyKind, salt: number): number {
   return (seed ^ Math.imul(salt, 0x27d4eb2d) ^ Math.imul(kindIndex(kind) + 1, SALT_KIND)) >>> 0;
 }
 
-/** Phrase inside the 8 bar loop, 0 to 3. */
-export function phraseOf(bar: number): number {
-  return Math.floor(loopBar(bar) / PHRASE_BARS);
+/** Phrase inside the loop: 0 to 3 in an 8 bar loop, 0 to 7 in a 16 bar one. */
+export function phraseOf(bar: number, loopBars: number = LOOP_BARS): number {
+  return Math.floor(loopBar(bar, loopBars) / PHRASE_BARS);
 }
 
 /** Pure: the pattern after the seed's variation for one phrase. Still sorted and monophonic. */
@@ -307,8 +308,8 @@ export function varyPattern(
     const k = Math.floor(hash01(lane(seed, kind, SALT_OFF), 0) * 4) * 2;
     out = out.map((x) => ({ ...x, step: (x.step + k) % PHRASE_STEPS })).sort((a, b) => a.step - b.step);
   }
-  // The last phrase of the loop answers: its final note moves one or two degrees, up or down by seed.
-  if (phrase === 3) {
+  // The last phrase of every 8 bars answers: its final note moves one or two degrees, up or down by seed.
+  if (phrase % 4 === 3) {
     const last = out[n - 1];
     const move = ANSWER_MOVES[Math.floor(hash01(lane(seed, kind, SALT_ANSWER), 3) * ANSWER_MOVES.length)] ?? 1;
     if (last) out[n - 1] = { ...last, rel: last.rel + move, answer: move };
@@ -321,12 +322,15 @@ export function buildMotifBar(
   spec: Pick<LayerSpec, 'kind' | 'register' | 'pattern' | 'variation'>,
   seed: number,
   bar: number,
+  tune: Tune = DEFAULT_TUNE,
 ): MotifNote[] {
   if (spec.pattern.length === 0) return [];
-  const lb = loopBar(bar);
-  const phrase = phraseOf(lb);
+  const key = tune.key;
+  const root = tune.root;
+  const lb = loopBar(bar, tune.loopBars);
+  const phrase = phraseOf(lb, tune.loopBars);
   const half = lb % PHRASE_BARS;
-  const anchor = chordForBar(lb).arpAnchor;
+  const anchor = chordForBar(lb, tune).arpAnchor;
   const notes = varyPattern(spec.pattern, spec.variation, seed >>> 0, spec.kind, phrase);
   const degreeOf = (x: PatternNote): number => spec.register + anchor + x.rel;
   const out: MotifNote[] = [];
@@ -338,15 +342,15 @@ export function buildMotifBar(
     if (x.glide) {
       const prev = notes[(i + notes.length - 1) % notes.length];
       const prevDeg = prev ? degreeOf(prev) : deg;
-      from = pentatonicMidi(prevDeg !== deg ? prevDeg : deg - 1);
+      from = pentatonicMidi(prevDeg !== deg ? prevDeg : deg - 1, root);
     }
     // Chord tone on a beat, scale tone between (a glide start is pentatonic, so in the scale).
     // An answering note on a beat moves by chord tones, so snapping never undoes the answer.
     const abs = lb * STEPS_PER_BAR + step;
     const midi =
       x.answer !== undefined && isStrongStep(abs)
-        ? stepChordTone(fitPitch(pentatonicMidi(deg - x.answer), abs), harmonyAtStep(abs), x.answer)
-        : fitPitch(pentatonicMidi(deg), abs);
+        ? stepChordTone(fitPitch(pentatonicMidi(deg - x.answer, root), abs, key), harmonyAtStep(abs, key), x.answer)
+        : fitPitch(pentatonicMidi(deg, root), abs, key);
     out.push({ step, midi, fromMidi: from, durSteps: x.dur, vel: x.vel });
   });
   return out;
@@ -358,17 +362,17 @@ export function stingerBase(register: number): number {
 }
 
 /** Pure: the first pitch of a kind's entrance phrase if it started on a bar's downbeat. */
-export function stingerMidi(spec: Pick<LayerSpec, 'register' | 'phrase'>, bar: number): number {
+export function stingerMidi(spec: Pick<LayerSpec, 'register' | 'phrase'>, bar: number, tune: Tune = DEFAULT_TUNE): number {
   const first = spec.phrase[0];
-  return chordToneMidi(harmonyForBar(bar), first?.deg ?? 0, stingerBase(spec.register));
+  return chordToneMidi(harmonyForBar(bar, tune.key), first?.deg ?? 0, stingerBase(spec.register));
 }
 
 /**
  * Pure: a kind's entrance phrase placed from an absolute step, every note in the chord of its
- * own bar. Monophonic: each note ends at or before the next starts.
+ * own bar (in the tune's key). Monophonic: each note ends at or before the next starts.
  */
-export function stingerPhrase(spec: Pick<LayerSpec, 'register' | 'phrase'>, start: number): PlacedNote[] {
-  return transposePhrase(spec.phrase, start, stingerBase(spec.register));
+export function stingerPhrase(spec: Pick<LayerSpec, 'register' | 'phrase'>, start: number, tune: Tune = DEFAULT_TUNE): PlacedNote[] {
+  return transposePhrase(spec.phrase, start, stingerBase(spec.register), tune.key);
 }
 
 function ph(at: number, deg: number, dur: number, vel = 1): PhraseNote {
@@ -443,7 +447,7 @@ function makeSpec(kind: EnemyKind, keepMotif: boolean): LayerSpec {
     pattern,
     variation: i.variation,
     character: i.character,
-    motif: (seed, bar) => buildMotifBar(shape, seed, bar),
+    motif: (seed, bar, tune) => buildMotifBar(shape, seed, bar, tune),
   };
 }
 

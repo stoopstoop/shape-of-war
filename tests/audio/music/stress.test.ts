@@ -12,6 +12,8 @@ import { HIT_DUR_SEC } from '../../../src/audio/music/hits';
 import { fitsHarmony, harmonyAtStep, inChord, inScale } from '../../../src/audio/music/harmony';
 import { isKillSlot, KILL_BUDGET_MAX } from '../../../src/audio/music/kills';
 import { STEPS_PER_BAR } from '../../../src/audio/music/track';
+import { TUNES, type TuneId } from '../../../src/audio/music/tunes';
+import { endlessTune, startTune } from '../../../src/audio/music/select';
 import { Bus, type Events } from '../../../src/core/events';
 import { hash01 } from '../../../src/core/rng';
 import type { EnemyKind } from '../../../src/levelgen/leveldef';
@@ -48,12 +50,16 @@ const KILLS: readonly [Kind, Events['fx:kill']['colour']][] = [
 /** Kinds that take non lethal hits; Bulwark hits are shield blocks one time in three. */
 const HIT_KINDS: readonly Kind[] = [Kind.Bulwark, Kind.Splime, Kind.SnakeHead, Kind.Charger, Kind.GravityWell, Kind.Spawner];
 
+const SLACK_SEC = 1e-6;
+
 /** Most spans sounding at once (start inclusive, end exclusive). */
 function peakConcurrency(list: readonly Span[]): number {
   const ev: [number, number][] = [];
   for (const s of list) {
     if (!(s.end > s.start)) continue;
-    ev.push([s.start, 1], [s.end, -1]);
+    // The engine pool counts a voice ending within a microsecond of a start as ended (float
+    // drift on a step length that is not a binary fraction, such as 112 BPM); so does this sweep.
+    ev.push([s.start, 1], [s.end - SLACK_SEC, -1]);
   }
   // Ends sort before starts at the same instant: a voice ending at t frees its slot for t.
   ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -66,7 +72,7 @@ function peakConcurrency(list: readonly Span[]): number {
   return best;
 }
 
-beforeEach(() => {
+function setup(tune?: TuneId): void {
   ctx = new FakeContext();
   timer = new FakeTimer();
   bus = new Bus();
@@ -87,11 +93,12 @@ beforeEach(() => {
     visibility: null,
     volume: 60,
     trace,
+    ...(tune ? { tune } : {}),
     onNote: (n) => notes.push({ ...n, now: ctx.currentTime }),
   });
-});
+}
 
-afterEach(() => uninstall());
+
 
 /**
  * Drive 60 s of play. Each timer tick lands 25 ms plus 0 to 30 ms late; about one tick in 40
@@ -178,7 +185,10 @@ function maxInWindow(list: readonly NoteLog[], width: number): number {
   return best;
 }
 
-describe('60 s of a 400 entity wave under timing jitter', () => {
+describe.each(TUNES.map((t) => [t.id, t] as const))('60 s of a 400 entity wave under timing jitter, tune %s', (id, tune) => {
+  beforeEach(() => setup(id));
+  afterEach(() => uninstall());
+
   it('never schedules in the past, never exceeds the voice cap, never drops a step', () => {
     const run = simulate(60);
     expect(run.bombs).toBe(4);
@@ -251,7 +261,10 @@ describe('60 s of a 400 entity wave under timing jitter', () => {
     expect(notes.filter((n) => n.role === 'resolve').length).toBeGreaterThan(3);
     const s = musicState().kills;
     expect(s.notes).toBeGreaterThan(20);
-    expect(s.chords).toBeGreaterThanOrEqual(4);
+    // Chord hits only take free voices (they never steal), so how many land with six motifs live
+    // depends on where the tune's motif notes fall against its downbeats: 4 on the original tune
+    // (unchanged since v2.1), at least 2 on every other.
+    expect(s.chords).toBeGreaterThanOrEqual(id === 'neon' ? 4 : 2);
     // Well balanced: a share of kills is heard, never all of them.
     expect(s.notes + s.chords).toBeLessThan(s.seen / 2);
   });
@@ -262,18 +275,19 @@ describe('60 s of a 400 entity wave under timing jitter', () => {
     const byRole = new Map<string, number>();
     for (const n of pitched) {
       const midi = n.midi ?? 0;
-      const h = harmonyAtStep(n.step);
+      const h = harmonyAtStep(n.step, tune.key);
+      expect(n.tune).toBe(id);
       const what = `${n.role} ${n.layer ?? n.kind ?? n.source ?? ''} step ${n.step} midi ${midi}`;
       byRole.set(n.role, (byRole.get(n.role) ?? 0) + 1);
-      // Everything is in A natural minor.
-      expect(inScale(midi), what).toBe(true);
+      // Everything is in the tune's scale.
+      expect(inScale(midi, tune.key), what).toBe(true);
       switch (n.role) {
         case 'bed':
-          if (n.layer === 'arp') expect(fitsHarmony(midi, n.step), what).toBe(true);
+          if (n.layer === 'arp') expect(fitsHarmony(midi, n.step, tune.key), what).toBe(true);
           else expect(inChord(midi, h), what).toBe(true);
           break;
         case 'motif':
-          expect(fitsHarmony(midi, n.step), what).toBe(true);
+          expect(fitsHarmony(midi, n.step, tune.key), what).toBe(true);
           break;
         case 'stinger':
         case 'kill':
@@ -300,8 +314,36 @@ describe('60 s of a 400 entity wave under timing jitter', () => {
     bus = new Bus();
     notes = [];
     const graph: MusicGraph = { ctx, master: new FakeNode() };
-    uninstall = initMusic({ bus, graph: () => graph, timer, visibility: null, volume: 60, onNote: (n) => notes.push({ ...n, now: ctx.currentTime }) });
+    uninstall = initMusic({ bus, graph: () => graph, timer, visibility: null, volume: 60, tune: id, onNote: (n) => notes.push({ ...n, now: ctx.currentTime }) });
     simulate(20);
     expect(notes.map((n) => `${n.role}:${n.layer ?? n.kind ?? n.source ?? ''}:${n.step}:${n.midi ?? ''}`)).toEqual(a);
+  });
+});
+
+describe('Endless under load: the tune rotates mid wave', () => {
+  beforeEach(() => setup());
+  afterEach(() => uninstall());
+
+  it('crosses a tune and tempo change with the cap, the clock and the beat intact', () => {
+    bus.emit('game:start', { mode: 'endless', levelIndex: 1 });
+    const first = startTune(0x5eed, 'endless');
+    const next = endlessTune(0x5eed, 1);
+    expect(next.id).not.toBe(first.id);
+    simulate(100);
+    expect(musicState().tune).toBe(next.id);
+    expect(notes.some((n) => n.tune === first.id)).toBe(true);
+    expect(notes.some((n) => n.tune === next.id && n.role === 'bed')).toBe(true);
+    for (const n of notes) expect(n.time).toBeGreaterThanOrEqual(n.now);
+    for (const s of spans.values()) expect(s.start).toBeGreaterThanOrEqual(s.scheduledAt);
+    expect(peakConcurrency([...spans.values()])).toBeLessThanOrEqual(MUSIC_VOICE_CAP);
+    // Every pitch is in its own tune's scale.
+    for (const n of notes) if (n.midi !== null) expect(inScale(n.midi, (n.tune === next.id ? next : first).key), `${n.role} ${n.step}`).toBe(true);
+    const st = musicState();
+    expect(st.skippedSteps).toBe(0);
+    expect(st.bedSteals).toBe(0);
+    expect(st.motifSteals).toBe(0);
+    // The pad still plays every bar across the switch.
+    const bars = new Set(notes.filter((n) => n.role === 'bed' && n.layer === 'pad').map((n) => Math.floor(n.step / STEPS_PER_BAR)));
+    for (let b = 0; b <= Math.max(...bars); b++) expect(bars.has(b)).toBe(true);
   });
 });

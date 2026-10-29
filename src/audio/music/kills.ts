@@ -25,6 +25,7 @@ import { chordToneMidi, harmonyForBar } from './harmony';
 import { brighten, LAYERS_FULL, TIMBRES, type Timbre } from './layers';
 import { A4, inPentatonic, pentatonicMidi } from './scale';
 import { chordForBar, STEPS_PER_BAR } from './track';
+import { DEFAULT_TUNE, type Tune } from './tunes';
 
 /** The fx:kill colour, taken from the bus type so audio never imports src/render. */
 export type KillColour = Events['fx:kill']['colour'];
@@ -262,8 +263,8 @@ export function isBigSource(s: KillSource): boolean {
  * Pure: a source's home pitch at a bar: its pentatonic degree moved with the bar's chord anchor.
  * Distinct per source; hit ticks are built on it (hits.ts). Kill notes use killNoteMidi.
  */
-export function killMidi(spec: Pick<KillSpec, 'degree'>, bar: number): number {
-  return pentatonicMidi(spec.degree + chordForBar(bar).arpAnchor);
+export function killMidi(spec: Pick<KillSpec, 'degree'>, bar: number, tune: Tune = DEFAULT_TUNE): number {
+  return pentatonicMidi(spec.degree + chordForBar(bar, tune).arpAnchor, tune.root);
 }
 
 /** Pure: the nearest pentatonic note at or below a MIDI note. */
@@ -277,21 +278,21 @@ export function snapDownPentatonic(midi: number): number {
  * Pure: the pitch of the kill note with this index in its bar (0 for the first): the bar
  * chord's arpeggio climbing from the root nearest A4 (root, third, fifth, root up, ...).
  */
-export function killNoteMidi(bar: number, index: number): number {
-  return chordToneMidi(harmonyForBar(bar), Math.max(0, Math.trunc(index)), KILL_BASE);
+export function killNoteMidi(bar: number, index: number, tune: Tune = DEFAULT_TUNE): number {
+  return chordToneMidi(harmonyForBar(bar, tune.key), Math.max(0, Math.trunc(index)), KILL_BASE);
 }
 
 /** Pure: the resolution at a bar line: the root of that bar's chord, an octave above the run's start. */
-export function resolveMidi(bar: number): number {
-  return chordToneMidi(harmonyForBar(bar), 3, KILL_BASE);
+export function resolveMidi(bar: number, tune: Tune = DEFAULT_TUNE): number {
+  return chordToneMidi(harmonyForBar(bar, tune.key), 3, KILL_BASE);
 }
 
 /**
  * Pure: a full chord hit at a bar: root, third, fifth and the root up, from the root nearest A4.
  * A big hit (bomb, big kill) adds the root an octave down.
  */
-export function chordMidis(bar: number, big: boolean): number[] {
-  const h = harmonyForBar(bar);
+export function chordMidis(bar: number, big: boolean, tune: Tune = DEFAULT_TUNE): number[] {
+  const h = harmonyForBar(bar, tune.key);
   const degs = big ? [-3, 0, 1, 2, 3] : [0, 1, 2, 3];
   return degs.map((d) => chordToneMidi(h, d, KILL_BASE));
 }
@@ -300,10 +301,10 @@ export function chordMidis(bar: number, big: boolean): number[] {
  * Pure: the notes and summed gain of a chord hit. When a resolution already sounds on the same
  * bar line the hit leaves the top root to it and shares what is left of the accent reserve.
  */
-export function chordHit(bar: number, big: boolean, withResolve: boolean): { midis: number[]; gain: number } {
-  const all = chordMidis(bar, big);
+export function chordHit(bar: number, big: boolean, withResolve: boolean, tune: Tune = DEFAULT_TUNE): { midis: number[]; gain: number } {
+  const all = chordMidis(bar, big, tune);
   if (!withResolve) return { midis: all, gain: CHORD_GAIN };
-  const top = resolveMidi(bar);
+  const top = resolveMidi(bar, tune);
   return { midis: all.filter((m) => m !== top), gain: ACCENT_GAIN_MAX - RESOLVE_GAIN };
 }
 

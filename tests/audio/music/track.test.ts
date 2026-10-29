@@ -67,10 +67,17 @@ describe('track determinism', () => {
     }
   });
 
-  it('is serialisable and loops every 8 bars', () => {
+  it('is serialisable; chords, pad and drums loop every 8 bars, the arp and bass vary by pass', () => {
     const b = buildBar(12345, 3);
     expect(JSON.parse(JSON.stringify(b))).toEqual(b);
-    expect(buildBar(12345, 3 + LOOP_BARS).notes).toEqual(b.notes);
+    const fixed = (bar: number): TrackNote[] => buildBar(12345, bar).notes.filter((n) => n.layer === 'pad' || n.layer === 'kick' || n.layer === 'hat' || n.layer === 'perc');
+    for (let pass = 1; pass < 6; pass++) {
+      expect(buildBar(12345, 3 + pass * LOOP_BARS).chord).toBe(b.chord);
+      expect(fixed(3 + pass * LOOP_BARS)).toEqual(fixed(3));
+    }
+    // Pass 0 and pass 4 voice the arp alike (four renderings); pass 1 is a varied pass.
+    expect(buildBar(12345, 3 + 4 * LOOP_BARS).notes).toEqual(b.notes);
+    expect(buildBar(12345, 3 + LOOP_BARS).variant).not.toBe('none');
   });
 
   it('different seeds differ in the arp only', () => {
