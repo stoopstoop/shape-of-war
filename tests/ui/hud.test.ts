@@ -17,9 +17,32 @@ import {
   type HudWeapon,
 } from '../../src/ui/hud';
 import type { Insets, Rect } from '../../src/input/types';
-import { BOSS_IDS } from '../../src/levelgen/leveldef';
-import { BOSS_NAMES, BOSS_TIER, bossColour, bossFill, type HudBoss } from '../../src/ui/boss';
-import { BOSS_PIPS_W, COVER_LEFT, COVER_RIGHT, hudFrame, MAIN_ROWS, mainTop, overlaps, type HudFrame } from '../../src/ui/hudFrame';
+import { BOSS_IDS, type BossId } from '../../src/levelgen/leveldef';
+import {
+  BANNER_FADE_IN_SEC,
+  BANNER_MAX_STEP_SEC,
+  BANNER_TOTAL_SEC,
+  BOSS_NAMES,
+  BOSS_TIER,
+  bossBannerText,
+  bossColour,
+  bossFill,
+  type HudBoss,
+} from '../../src/ui/boss';
+import {
+  BOSS_PIPS_W,
+  BOSS_TEXT_MIN,
+  COVER_BOSS_STRIP,
+  COVER_LEFT,
+  COVER_RIGHT,
+  hudFrame,
+  hudRects,
+  MAIN_ROWS,
+  mainTop,
+  overlaps,
+  type FrameOptions,
+  type HudFrame,
+} from '../../src/ui/hudFrame';
 import { asParent, FakeEl, installFakeDocument } from './fakeDom';
 
 describe('hud', () => {
@@ -647,6 +670,206 @@ describe('boss bar: DOM', () => {
   });
 });
 
+// Boss banner (G3A): "WARDEN" and a dot, fades in over 1.2 s on sim:bossEnter, then clears itself.
+
+describe('boss banner: DOM', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function build() {
+    const root = installFakeDocument();
+    const bus = new Bus();
+    let t = 0;
+    const hud = createHud(asParent(root), () => t);
+    const off = hud.listen(bus);
+    const banner = root.all().find((n) => n.getAttribute('data-hud') === 'boss-banner');
+    if (banner === undefined) throw new Error('no banner element');
+    const score = { score: 0, multiplier: 1, lives: 3, bombs: 3, superCharge: 0 };
+    return {
+      root,
+      bus,
+      hud,
+      off,
+      banner,
+      at: (ms: number) => {
+        t = ms;
+      },
+      /** The sim's hud:score at clock `ms`: this is what advances the banner. */
+      tick: (ms: number) => {
+        t = ms;
+        bus.emit('hud:score', score);
+      },
+    };
+  }
+
+  const shown = (e: FakeEl): boolean => e.style.display !== 'none';
+  const alpha = (e: FakeEl): number => Number(e.style.opacity);
+
+  it('is hidden before any boss arrives, and hud:score alone never shows it', () => {
+    const { banner, hud, tick } = build();
+    expect(shown(banner)).toBe(false);
+    expect(hud.bannerShown()).toBe(false);
+    tick(100);
+    expect(shown(banner)).toBe(false);
+  });
+
+  it('sim:bossEnter shows the one line "WARDEN" plus the dot, starting at opacity 0', () => {
+    const { bus, banner, hud } = build();
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    expect(shown(banner)).toBe(true);
+    expect(hud.bannerShown()).toBe(true);
+    expect(banner.textContent).toBe(bossBannerText('warden'));
+    expect(banner.textContent).toBe('WARDEN ●');
+    expect(alpha(banner)).toBe(0);
+  });
+
+  it('takes the boss colour for the text and the glow', () => {
+    const { bus, banner } = build();
+    bus.emit('sim:bossEnter', { id: 'ember', tier: 2 });
+    expect(banner.style.color).toBe(bossColour('ember'));
+    expect(banner.style.textShadow).toContain(bossColour('ember', 0.9));
+  });
+
+  it('fades in over 1.2 s as the sim ticks hud:score: half at 0.6 s, full at 1.2 s', () => {
+    const { bus, banner, at, tick } = build();
+    at(0);
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    for (let ms = 100; ms <= 600; ms += 100) tick(ms);
+    expect(alpha(banner)).toBeCloseTo(0.5, 2);
+    for (let ms = 700; ms <= 1200; ms += 100) tick(ms);
+    expect(alpha(banner)).toBe(1);
+    expect(BANNER_FADE_IN_SEC).toBe(1.2);
+  });
+
+  it('opacity never falls during the fade in, holds, falls, and the banner hides itself at the end', () => {
+    const { bus, banner, hud, at, tick } = build();
+    at(0);
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    const seen: number[] = [];
+    let ms = 0;
+    let ticks = 0;
+    while (hud.bannerShown() && ticks < 100) {
+      ms += 100;
+      ticks++;
+      tick(ms);
+      seen.push(alpha(banner));
+    }
+    const peak = seen.indexOf(1);
+    expect(peak).toBeGreaterThan(0);
+    for (let i = 1; i <= peak; i++) expect(seen[i] ?? 0).toBeGreaterThanOrEqual(seen[i - 1] ?? 0);
+    expect(Math.max(...seen)).toBe(1);
+    // 2.8 s of 100 ms ticks, give or take one for floating point in the running sum.
+    expect(ticks).toBeGreaterThanOrEqual(Math.round(BANNER_TOTAL_SEC * 10));
+    expect(ticks).toBeLessThanOrEqual(Math.round(BANNER_TOTAL_SEC * 10) + 1);
+    expect(shown(banner)).toBe(false);
+    expect(hud.bannerShown()).toBe(false);
+    tick(ms + 100); // more ticks after the end change nothing
+    expect(shown(banner)).toBe(false);
+  });
+
+  it('a pause skips no fade: no hud:score arrives, and the first tick after it moves one capped step', () => {
+    const { bus, banner, at, tick } = build();
+    at(0);
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    tick(100);
+    tick(200);
+    const before = alpha(banner);
+    tick(200 + 60_000); // a minute in the pause menu
+    expect(alpha(banner)).toBeCloseTo(before + BANNER_MAX_STEP_SEC / BANNER_FADE_IN_SEC, 2);
+    expect(shown(banner)).toBe(true);
+  });
+
+  it('sim:bossDown takes the banner away at once', () => {
+    const { bus, banner, hud, tick } = build();
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    tick(300);
+    bus.emit('sim:bossDown', { id: 'warden', x: 0, y: 0 });
+    expect(shown(banner)).toBe(false);
+    expect(hud.bannerShown()).toBe(false);
+  });
+
+  it('clearBoss (a new world) takes it away too', () => {
+    const { bus, banner, hud } = build();
+    bus.emit('sim:bossEnter', { id: 'brood', tier: 1 });
+    hud.clearBoss();
+    expect(shown(banner)).toBe(false);
+  });
+
+  it('the next boss in Endless gets its own banner from zero', () => {
+    const { bus, banner, at, tick } = build();
+    at(0);
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    for (let ms = 100; ms <= 1500; ms += 100) tick(ms);
+    bus.emit('sim:bossDown', { id: 'warden', x: 0, y: 0 });
+    at(60_000);
+    bus.emit('sim:bossEnter', { id: 'spindle', tier: 1 });
+    expect(banner.textContent).toBe('SPINDLE ●');
+    expect(alpha(banner)).toBe(0);
+    expect(shown(banner)).toBe(true);
+    tick(60_100);
+    expect(alpha(banner)).toBeCloseTo(0.1 / BANNER_FADE_IN_SEC, 2);
+  });
+
+  it('an enter after the first hud:boss still shows the banner, and leaves the bar as it was', () => {
+    const { bus, banner, hud } = build();
+    bus.emit('hud:boss', boss({ hp: 1800, phases: 3 }));
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    expect(shown(banner)).toBe(true);
+    expect(hud.bossShown()).toBe(true);
+  });
+
+  it('every boss id has a banner line that reaches the element', () => {
+    const { bus, banner } = build();
+    for (const id of BOSS_IDS) {
+      bus.emit('sim:bossEnter', { id, tier: BOSS_TIER[id] });
+      expect(banner.textContent, id).toBe(`${BOSS_NAMES[id].toUpperCase()} ●`);
+    }
+  });
+
+  it('an unknown id shows nothing', () => {
+    const { hud, banner } = build();
+    hud.showBanner('nobody' as BossId);
+    expect(shown(banner)).toBe(false);
+    expect(hud.bannerShown()).toBe(false);
+  });
+
+  it('layout puts it in the frame banner box on cover and on main, and leaves its visibility alone', () => {
+    const { bus, hud, banner } = build();
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    for (const f of [hudFrame(960, 411, ZERO, 1600, 1000), hudFrame(960, 411, ZERO, 1600, 1000, { bossStrip: false }), hudFrame(832, 750, ZERO, 1800, 1000)]) {
+      hud.layout(f, true);
+      expect(banner.style.left).toBe(`${f.banner.x}px`);
+      expect(banner.style.top).toBe(`${f.banner.y}px`);
+      expect(banner.style.width).toBe(`${f.banner.w}px`);
+      expect(banner.style.height).toBe(`${f.banner.h}px`);
+      expect(banner.style.fontSize).toBe(`${f.banner.size}px`);
+      expect(banner.style.textAlign).toBe('center');
+      expect(banner.style.overflow).toBe('visible'); // the glow is not clipped to the box
+      expect(shown(banner)).toBe(true);
+    }
+    hud.layout(hudFrame(960, 411, ZERO, 1600, 1000), false); // no touch input: the banner is not a button
+    expect(shown(banner)).toBe(true);
+  });
+
+  it('the unsubscribe function stops the banner too', () => {
+    const { bus, off, banner } = build();
+    off();
+    bus.emit('sim:bossEnter', { id: 'warden', tier: 1 });
+    expect(shown(banner)).toBe(false);
+  });
+
+  it('adds no pointer target: a plain div inside the HUD root, which has pointer-events none', () => {
+    const { root, banner } = build();
+    const hudRoot = root.children[0];
+    expect(banner.tag).toBe('div');
+    expect(hudRoot?.all()).toContain(banner);
+    expect(UI_CSS).toMatch(/\.sow-hud \{[^}]*pointer-events: none/);
+    expect(banner.getAttribute('data-hud')).toBe('boss-banner');
+    expect(root.all().filter((e) => ['button', 'input', 'a'].includes(e.tag))).toEqual([]);
+  });
+});
+
 describe('boss bar: layout against the buttons on cover and main', () => {
   const COVER_VIEWS: Array<[number, number]> = [
     [960, 411],
@@ -669,28 +892,33 @@ describe('boss bar: layout against the buttons on cover and main', () => {
     [1600, 1000],
   ];
 
-  function frames(views: Array<[number, number]>): HudFrame[] {
+  function frames(views: Array<[number, number]>, opts: FrameOptions = {}): HudFrame[] {
     const out: HudFrame[] = [];
-    for (const [w, h] of views) for (const ins of INSETS) for (const [aw, ah] of ARENAS) out.push(hudFrame(w, h, ins, aw, ah));
+    for (const [w, h] of views) for (const ins of INSETS) for (const [aw, ah] of ARENAS) out.push(hudFrame(w, h, ins, aw, ah, opts));
     return out;
   }
 
-  const label = (f: HudFrame): string => `${f.cssW}x${f.cssH} ${f.arrangement} insets ${JSON.stringify(f.insets)} arena ${Math.round(f.arena.w)}x${Math.round(f.arena.h)}`;
+  const label = (f: HudFrame): string =>
+    `${f.cssW}x${f.cssH} ${f.arrangement} insets ${JSON.stringify(f.insets)} arena ${Math.round(f.arena.w)}x${Math.round(f.arena.h)} play.y ${f.playRect.y}`;
   const bossBoxes = (f: HudFrame): Array<[string, Rect]> => [
     ['bossName', f.boxes.bossName],
     ['bossPips', f.boxes.bossPips],
     ['bossBar', f.boxes.bossBar],
   ];
+  /** Cover with the boss strip (the default, a boss run) and without it (a run with no boss), and main. */
   const cover = frames(COVER_VIEWS);
+  const coverColumn = frames(COVER_VIEWS, { bossStrip: false });
   const main = frames(MAIN_VIEWS);
+  const everyFrame = [...cover, ...coverColumn, ...main];
 
   it('both main arrangements are in the matrix, so the checks below cover the right column and the bottom band', () => {
     expect(new Set(main.map((f) => f.arrangement))).toEqual(new Set(['topRight', 'topBottom']));
     expect(new Set(cover.map((f) => f.arrangement))).toEqual(new Set(['sides']));
+    expect(new Set(coverColumn.map((f) => f.arrangement))).toEqual(new Set(['sides']));
   });
 
   it('never overlaps the bomb, super or pause button rects, on cover or main, in any arrangement', () => {
-    for (const f of [...cover, ...main]) {
+    for (const f of everyFrame) {
       for (const [id, b] of bossBoxes(f)) {
         for (const [name, r] of [
           ['bomb', f.buttons.bomb],
@@ -705,7 +933,7 @@ describe('boss bar: layout against the buttons on cover and main', () => {
 
   it('never overlaps the arena or the play rect, and stays on screen', () => {
     const screen = (f: HudFrame): Rect => ({ x: 0, y: 0, w: f.cssW, h: f.cssH });
-    for (const f of [...cover, ...main]) {
+    for (const f of everyFrame) {
       for (const [id, b] of bossBoxes(f)) {
         expect(overlaps(b, f.arena), `${label(f)} ${id} arena`).toBe(false);
         expect(overlaps(b, f.playRect), `${label(f)} ${id} play rect`).toBe(false);
@@ -716,7 +944,7 @@ describe('boss bar: layout against the buttons on cover and main', () => {
   });
 
   it('overlaps no other HUD box on cover; on main only the level line slot it replaces', () => {
-    for (const f of [...cover, ...main]) {
+    for (const f of everyFrame) {
       for (const [id, b] of bossBoxes(f)) {
         for (const [other, o] of Object.entries(f.boxes)) {
           if (other.startsWith('boss') || o.w <= 0 || o.h <= 0) continue;
@@ -752,8 +980,8 @@ describe('boss bar: layout against the buttons on cover and main', () => {
     }
   });
 
-  it('cover: in the left column below the level line, clear of the right column', () => {
-    for (const f of cover) {
+  it('cover with no boss run: the left column boxes under the level line, clear of the right column', () => {
+    for (const f of coverColumn) {
       const { bossName, bossPips, bossBar, par } = f.boxes;
       for (const b of [bossName, bossPips, bossBar]) {
         expect(b.x, label(f)).toBeGreaterThanOrEqual(f.insets.left);
@@ -767,7 +995,7 @@ describe('boss bar: layout against the buttons on cover and main', () => {
   });
 
   it('the bar is thick: at least 12 px on both screens, thicker than the 5 px weapon bar', () => {
-    for (const f of [...cover, ...main]) {
+    for (const f of everyFrame) {
       expect(f.boxes.bossBar.h, label(f)).toBeGreaterThanOrEqual(12);
       expect(f.boxes.bossBar.h, label(f)).toBeGreaterThan(f.boxes.weaponBar.h);
     }
@@ -775,7 +1003,7 @@ describe('boss bar: layout against the buttons on cover and main', () => {
 
   it('the name box fits the longest boss name and the pip box fits four pips', () => {
     const longest = Math.max(...BOSS_IDS.map((id) => BOSS_NAMES[id].length));
-    for (const f of [...cover, ...main]) {
+    for (const f of everyFrame) {
       const { bossName, bossPips } = f.boxes;
       // Bold sans-serif glyphs are about 0.6 em wide; allow 0.65.
       expect(bossName.w, label(f)).toBeGreaterThanOrEqual(longest * bossName.size * 0.65);
@@ -787,9 +1015,239 @@ describe('boss bar: layout against the buttons on cover and main', () => {
   it('the boss boxes are always in the frame, so a boss arriving never moves the arena: play rects stay as before', () => {
     expect(hudFrame(832, 750, ZERO, 1800, 1000).playRect).toEqual({ x: 0, y: 60, w: 832, h: 750 - 60 - 158 });
     expect(hudFrame(832, 750, ZERO, 960, 720).playRect).toEqual({ x: 0, y: 60, w: 832 - 92, h: 690 });
-    const c = hudFrame(960, 411, ZERO, 1600, 1000);
-    expect(c.playRect.x).toBe(160);
-    expect(c.playRect.y).toBe(0);
+    // Main ignores the strip option: the same play rect either way.
+    expect(hudFrame(832, 750, ZERO, 1800, 1000, { bossStrip: false })).toEqual(hudFrame(832, 750, ZERO, 1800, 1000, { bossStrip: true }));
+    // Cover with no boss run keeps the v2 play rect exactly; a boss run takes the strip off the top.
+    const plain = hudFrame(960, 411, ZERO, 1600, 1000, { bossStrip: false });
+    expect(plain.playRect).toEqual({ x: 160, y: 0, w: 688, h: 411 });
+    const strip = hudFrame(960, 411, ZERO, 1600, 1000);
+    expect(strip.playRect).toEqual({ x: 160, y: COVER_BOSS_STRIP, w: 688, h: 411 - COVER_BOSS_STRIP });
+  });
+});
+
+// G3A: the cover boss strip. The left column bar was unreadable on the folded screen.
+describe('cover boss strip (G3A)', () => {
+  const COVER_VIEWS: Array<[number, number]> = [
+    [960, 411],
+    [904, 388],
+    [1176, 504],
+    [840, 360],
+  ];
+  const INSETS: Insets[] = [ZERO, { top: 0, right: 0, bottom: 0, left: 32 }, { top: 24, right: 0, bottom: 16, left: 0 }, { top: 24, right: 20, bottom: 16, left: 32 }];
+  const ARENAS: Array<[number, number]> = [
+    [700, 700],
+    [1100, 1100],
+    [1260, 700],
+    [1800, 1000],
+    [1600, 1000],
+  ];
+  const all: HudFrame[] = [];
+  for (const [w, h] of COVER_VIEWS) for (const ins of INSETS) for (const [aw, ah] of ARENAS) all.push(hudFrame(w, h, ins, aw, ah));
+  const label = (f: HudFrame): string => `${f.cssW}x${f.cssH} insets ${JSON.stringify(f.insets)} arena ${Math.round(f.arena.w)}x${Math.round(f.arena.h)}`;
+
+  it('the boss row is one strip across the top of the play area: name, then the bar, then the pips', () => {
+    for (const f of all) {
+      const { bossName, bossBar, bossPips } = f.boxes;
+      expect(bossName.x + bossName.w, label(f)).toBeLessThanOrEqual(bossBar.x);
+      expect(bossBar.x + bossBar.w, label(f)).toBeLessThanOrEqual(bossPips.x);
+      for (const b of [bossName, bossBar, bossPips]) {
+        expect(b.y, label(f)).toBeGreaterThanOrEqual(f.insets.top);
+        expect(b.y + b.h, label(f)).toBeLessThanOrEqual(f.insets.top + COVER_BOSS_STRIP + 1e-6);
+        expect(b.y + b.h, label(f)).toBeLessThanOrEqual(f.playRect.y + 1e-6); // above the play rect, not in it
+      }
+      expect(bossBar.h, label(f)).toBe(12);
+    }
+  });
+
+  it('it sits between the two HUD columns, clear of the left and right column boxes and the pause button', () => {
+    for (const f of all) {
+      const lo = f.insets.left + COVER_LEFT;
+      const hi = f.cssW - f.insets.right - COVER_RIGHT;
+      for (const [id, b] of [
+        ['bossName', f.boxes.bossName],
+        ['bossBar', f.boxes.bossBar],
+        ['bossPips', f.boxes.bossPips],
+      ] as const) {
+        expect(b.x, `${label(f)} ${id}`).toBeGreaterThanOrEqual(lo);
+        expect(b.x + b.w, `${label(f)} ${id}`).toBeLessThanOrEqual(hi);
+      }
+    }
+  });
+
+  it('the bar runs the width of the play area: at least 340 px on every cover view, 516 px at 960 x 411', () => {
+    // The narrowest case is 840 wide with 52 px of side insets: 344 px, still 2.5 times the old 136 px bar.
+    for (const f of all) expect(f.boxes.bossBar.w, label(f)).toBeGreaterThanOrEqual(340);
+    expect(hudFrame(960, 411, ZERO, 1600, 1000).boxes.bossBar.w).toBe(960 - 160 - 112 - 2 * 8 - 92 - 52 - 2 * 6);
+    expect(hudFrame(960, 411, ZERO, 1600, 1000).boxes.bossBar.w).toBe(516);
+    // The old left column bar was 136 px wide: this one is nearly four times longer.
+    expect(hudFrame(960, 411, ZERO, 1600, 1000).boxes.bossBar.w).toBeGreaterThan(3.5 * 136);
+  });
+
+  it('the name is 14 px, over the 13 px floor, and still fits the longest name', () => {
+    const longest = Math.max(...BOSS_IDS.map((id) => BOSS_NAMES[id].length));
+    for (const f of all) {
+      expect(f.boxes.bossName.size, label(f)).toBe(14);
+      expect(f.boxes.bossName.size, label(f)).toBeGreaterThanOrEqual(BOSS_TEXT_MIN);
+      expect(f.boxes.bossName.w, label(f)).toBeGreaterThanOrEqual(longest * 14 * 0.65);
+    }
+  });
+
+  it('is fixed for the run: the strip is reserved from the first frame, so a boss arriving moves nothing', () => {
+    for (const [w, h] of COVER_VIEWS) {
+      for (const ins of INSETS) {
+        const f = hudFrame(w, h, ins, 1600, 1000);
+        expect(f.playRect.y, `${w}x${h}`).toBe(ins.top + COVER_BOSS_STRIP);
+        expect(f.playRect.h, `${w}x${h}`).toBe(h - ins.top - ins.bottom - COVER_BOSS_STRIP);
+      }
+    }
+  });
+
+  it('costs 5 percent of arena scale on a tall arena at 960 x 411 (6 percent at the smallest view) and nothing on a wide one', () => {
+    for (const [w, h] of COVER_VIEWS) {
+      for (const [aw, ah] of ARENAS) {
+        const withStrip = hudFrame(w, h, ZERO, aw, ah).fit.scale;
+        const without = hudFrame(w, h, ZERO, aw, ah, { bossStrip: false }).fit.scale;
+        expect(withStrip, `${w}x${h} ${aw}x${ah}`).toBeLessThanOrEqual(without + 1e-9);
+        expect(withStrip / without, `${w}x${h} ${aw}x${ah}`).toBeGreaterThanOrEqual(0.94);
+      }
+    }
+    for (const [aw, ah] of ARENAS) {
+      const ratio = hudFrame(960, 411, ZERO, aw, ah).fit.scale / hudFrame(960, 411, ZERO, aw, ah, { bossStrip: false }).fit.scale;
+      expect(ratio, `960x411 ${aw}x${ah}`).toBeGreaterThanOrEqual(0.95);
+    }
+    // 1800 x 1000 is width limited at 960 x 411, so the strip takes nothing from it.
+    expect(hudFrame(960, 411, ZERO, 1800, 1000).fit.scale).toBeCloseTo(hudFrame(960, 411, ZERO, 1800, 1000, { bossStrip: false }).fit.scale, 9);
+  });
+
+  it('the strip frame keeps the bomb, super and pause rects where Thumbs puts them', () => {
+    for (const [w, h] of COVER_VIEWS) {
+      for (const ins of INSETS) {
+        const a = hudFrame(w, h, ins, 1600, 1000);
+        const b = hudFrame(w, h, ins, 1600, 1000, { bossStrip: false });
+        expect(a.buttons, `${w}x${h}`).toEqual(b.buttons);
+        expect(a.buttonInsets, `${w}x${h}`).toEqual(b.buttonInsets);
+      }
+    }
+  });
+});
+
+describe('boss text size floor (G3A): 13 px on both screens', () => {
+  const frames: HudFrame[] = [];
+  for (const [w, h] of [
+    [960, 411],
+    [840, 360],
+    [832, 750],
+    [794, 716],
+    [1092, 984],
+  ] as const) {
+    for (const [aw, ah] of [
+      [1100, 1100],
+      [1800, 1000],
+    ] as const) {
+      frames.push(hudFrame(w, h, ZERO, aw, ah));
+      frames.push(hudFrame(w, h, ZERO, aw, ah, { bossStrip: false }));
+    }
+  }
+
+  it('the boss name box is at least 13 px in every layout, cover strip, cover column and both main arrangements', () => {
+    expect(new Set(frames.map((f) => f.arrangement))).toEqual(new Set(['sides', 'topRight', 'topBottom']));
+    for (const f of frames) expect(f.boxes.bossName.size, `${f.cssW}x${f.cssH} ${f.arrangement}`).toBeGreaterThanOrEqual(BOSS_TEXT_MIN);
+  });
+
+  it('the boss name line height fits its text, so a 13 px name is not clipped', () => {
+    for (const f of frames) expect(f.boxes.bossName.h, `${f.cssW}x${f.cssH} ${f.arrangement}`).toBeGreaterThanOrEqual(f.boxes.bossName.size + 1);
+  });
+
+  it('the banner text is at least 13 px', () => {
+    for (const f of frames) expect(f.banner.size).toBeGreaterThanOrEqual(BOSS_TEXT_MIN);
+    expect(BOSS_TEXT_MIN).toBe(13);
+  });
+});
+
+describe('boss banner box (G3A): one line, both screens, no overlap', () => {
+  const VIEWS: Array<[number, number]> = [
+    [960, 411],
+    [904, 388],
+    [1176, 504],
+    [840, 360],
+    [832, 750],
+    [794, 716],
+    [1092, 984],
+    [884, 800],
+  ];
+  const INSETS: Insets[] = [ZERO, { top: 0, right: 0, bottom: 0, left: 32 }, { top: 24, right: 0, bottom: 16, left: 0 }, { top: 24, right: 20, bottom: 16, left: 32 }];
+  const ARENAS: Array<[number, number]> = [
+    [700, 700],
+    [1100, 1100],
+    [1260, 700],
+    [1800, 1000],
+    [1600, 1000],
+  ];
+  const all: HudFrame[] = [];
+  for (const [w, h] of VIEWS) {
+    for (const ins of INSETS) {
+      for (const [aw, ah] of ARENAS) {
+        all.push(hudFrame(w, h, ins, aw, ah));
+        if (w / h >= 1.8) all.push(hudFrame(w, h, ins, aw, ah, { bossStrip: false }));
+      }
+    }
+  }
+  const label = (f: HudFrame): string => `${f.cssW}x${f.cssH} ${f.cls} ${f.arrangement} insets ${JSON.stringify(f.insets)} play.y ${f.playRect.y}`;
+
+  it('both screens and every arrangement are covered', () => {
+    expect(new Set(all.map((f) => f.cls))).toEqual(new Set(['cover', 'main']));
+    expect(new Set(all.map((f) => f.arrangement))).toEqual(new Set(['sides', 'topRight', 'topBottom']));
+  });
+
+  it('overlaps no HUD box, no bomb, super or pause button, and no boss strip box', () => {
+    for (const f of all) {
+      for (const r of hudRects(f)) expect(overlaps(f.banner, r), `${label(f)} vs ${JSON.stringify(r)}`).toBe(false);
+      for (const [id, b] of [
+        ['bossName', f.boxes.bossName],
+        ['bossBar', f.boxes.bossBar],
+        ['bossPips', f.boxes.bossPips],
+      ] as const) {
+        expect(overlaps(f.banner, b), `${label(f)} vs ${id}`).toBe(false);
+      }
+    }
+  });
+
+  it('sits at the top of the play rect, centred, inside the overlay content rect and on screen', () => {
+    for (const f of all) {
+      const b = f.banner;
+      expect(b.y, label(f)).toBeGreaterThanOrEqual(f.playRect.y);
+      expect(b.y + b.h, label(f)).toBeLessThanOrEqual(f.playRect.y + f.playRect.h);
+      expect(b.x, label(f)).toBeGreaterThanOrEqual(f.content.x);
+      expect(b.x + b.w, label(f)).toBeLessThanOrEqual(f.content.x + f.content.w + 1e-6);
+      expect(b.x + b.w / 2, label(f)).toBeCloseTo(f.playRect.x + f.playRect.w / 2, 6);
+      expect(b.x >= 0 && b.y >= 0 && b.x + b.w <= f.cssW && b.y + b.h <= f.cssH, label(f)).toBe(true);
+      expect(b.y - f.playRect.y, label(f)).toBeLessThanOrEqual(12); // top of the play area, not the middle
+    }
+  });
+
+  it('is one line: no wrap, centred, a single row tall enough for its text', () => {
+    for (const f of all) {
+      expect(f.banner.wrap, label(f)).toBe(false);
+      expect(f.banner.align, label(f)).toBe('center');
+      expect(f.banner.h, label(f)).toBeGreaterThanOrEqual(f.banner.size + 2);
+    }
+  });
+
+  it('fits the longest banner line: twelve capitals with the dot, wide tracking included', () => {
+    for (const f of all) {
+      // Bold capitals are about 0.75 em wide, the 0.14 em tracking adds to each of 14 characters.
+      const need = 14 * f.banner.size * (0.75 + 0.14);
+      expect(f.banner.w, label(f)).toBeGreaterThanOrEqual(need);
+    }
+    const longest = Math.max(...BOSS_IDS.map((id) => bossBannerText(id).length));
+    expect(longest).toBeLessThanOrEqual(14);
+  });
+
+  it('is not part of boxes or hudRects, so it adds nothing to the B6 no overlap checks', () => {
+    for (const f of all.slice(0, 40)) {
+      expect(Object.keys(f.boxes)).not.toContain('banner');
+      expect(hudRects(f)).not.toContain(f.banner);
+    }
   });
 });
 

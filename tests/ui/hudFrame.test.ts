@@ -248,7 +248,9 @@ describe('pause, results and intro overlays stay clear of the HUD rings', () => 
       const c = contentOf(f);
       for (const r of hudRects(f)) expect(overlaps(c, r), `${label(f)} ${JSON.stringify(r)}`).toBe(false);
       expect(c.w).toBeGreaterThan(300);
-      expect(c.h).toBeGreaterThan(300);
+      // G3A: a boss run on cover loses COVER_BOSS_STRIP px off the top, so the smallest view with the
+      // tallest insets (840 x 360, 24 + 16) is exactly 300 px. The real cover has no insets: 391 px.
+      expect(c.h).toBeGreaterThanOrEqual(300);
     }
   });
 
@@ -330,10 +332,12 @@ describe('V2-B weapon indicator boxes', () => {
   });
 
   it('does not move the arena: the play rect depends on the bands and columns, not on these boxes', () => {
-    // Zero inset, cover: side columns only. Zero inset, main: MAIN_ROWS top band.
-    const cover = hudFrame(960, 411, ZERO, 1600, 1000);
+    // Zero inset, cover: side columns only, plus the G3A boss strip on a boss run (the default).
+    // A run with no boss keeps the v2 play rect exactly. Zero inset, main: MAIN_ROWS top band.
+    const cover = hudFrame(960, 411, ZERO, 1600, 1000, { bossStrip: false });
     expect(cover.playRect.y).toBe(0);
     expect(cover.playRect.x).toBe(160);
+    expect(hudFrame(960, 411, ZERO, 1600, 1000).playRect.y).toBe(20);
     const main = hudFrame(832, 750, ZERO, 1800, 1000);
     expect(main.playRect.y).toBe(mainTop(main.buttons, ZERO));
   });

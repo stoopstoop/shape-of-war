@@ -27,7 +27,7 @@ import {
   type SpaceLevelSetting,
 } from './core/settings';
 import { capDpr, fmt3, readInsets, viewportLine } from './core/viewport';
-import { awardKill, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
+import { awardKill, bossBonus, collectGeom, resetScore, scoreOf, shipDied, stars } from './game/scoring';
 import { readBoss, type BossView } from './game/bosses/view';
 import { armBossFromSpec } from './game/bosses/index';
 import { bossTierOf } from './levelgen/boss';
@@ -58,7 +58,7 @@ import { aspectClass, createHud, due, type AspectClass } from './ui/hud';
 import { hudFrame, overlayPadding, type HudFrame } from './ui/hudFrame';
 import { pickLevel, parseLevelQuery, type GeneratorModule, type LevelPick } from './ui/levelSource';
 import { resolveAudio } from './ui/audioPort';
-import { bossBonusFor } from './ui/boss';
+import { needsBossStrip } from './ui/boss';
 import { endlessLabel, endlessLevel, endlessLine } from './ui/endless';
 import { createLevelSelect } from './ui/levelSelect';
 import { continueLabel, createMenuScreen } from './ui/menu';
@@ -371,6 +371,9 @@ async function boot(): Promise<void> {
   bus.on('sim:bossDown', () => {
     bossDown = true;
   });
+  // G3A: whether the cover screen reserves its boss strip for this run (ui/boss.ts needsBossStrip).
+  // Set in startLevel before the layout, so the arena is the same size from the first frame.
+  let bossStrip = false;
   const requestPause = (): void => {
     if (flow.screen === 'playing') bus.emit('game:pause');
   };
@@ -412,7 +415,9 @@ async function boot(): Promise<void> {
     // Temporary debug hook (docs/12 shared rule 8): ?boss=<id> forces that boss on this level at 10 s.
     const forcedBoss = new URLSearchParams(window.location.search).get('boss');
     const forcedTier = forcedBoss === null ? null : bossTierOf(forcedBoss);
-    if (forcedBoss !== null && forcedTier !== null) armBossFromSpec(world, { id: forcedBoss as BossId, tier: forcedTier, atSec: 10, hpMul: 1 }, 10);
+    const forcedOn = forcedBoss !== null && forcedTier !== null;
+    if (forcedOn) armBossFromSpec(world, { id: forcedBoss as BossId, tier: forcedTier, atSec: 10, hpMul: 1 }, 10);
+    bossStrip = needsBossStrip(mode, level, forcedOn);
     applySpacePhysics(settingsModel.state.spacePhysics); // new world: push the stored level to it
     applyWeaponPickups(settingsModel.state.weaponPickups); // and the stored pickups choice
     hud.clearWeapon(); // a new world starts on spread: drop any indicator left from the last run
@@ -454,10 +459,10 @@ async function boot(): Promise<void> {
    * gets insets that put bomb and super in the HUD column or band, and the HUD anchors every
    * element outside the arena. viewport:changed carries the same insets and fit.
    */
-  let frame: HudFrame = hudFrame(last.cssW, last.cssH, readInsets(), level.arena.width, level.arena.height);
+  let frame: HudFrame = hudFrame(last.cssW, last.cssH, readInsets(), level.arena.width, level.arena.height, { bossStrip });
   function relayout(): HudFrame {
     const insets = readInsets();
-    frame = hudFrame(last.cssW, last.cssH, insets, level.arena.width, level.arena.height);
+    frame = hudFrame(last.cssW, last.cssH, insets, level.arena.width, level.arena.height, { bossStrip });
     renderer?.setPlayRect(flow.screen === 'settings' ? previewRect(last.cssW, last.cssH, insets) : frame.playRect);
     touch?.reanchor(frame.buttonInsets);
     hud.layout(frame, touch !== null);
@@ -660,7 +665,8 @@ async function boot(): Promise<void> {
       hash: pick.hash,
       space: settingsModel.state.spacePhysics, // B13: the level in effect as the run ends
     };
-    if (success && bossDown) result.bossBonus = bossBonusFor(level.par); // the results "Boss defeated" line
+    // The results "Boss defeated" line reports the number the sim paid: scoring.bossBonus, the only copy.
+    if (success && bossDown) result.bossBonus = bossBonus(level.par, 'adventure', level.boss?.tier ?? 0);
     dispatch({ type: 'over', result });
   };
 

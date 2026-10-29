@@ -152,7 +152,7 @@ describe('boss results line', () => {
 
   it('main.ts reports the bonus only for a win where this run saw sim:bossDown', () => {
     const src = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8');
-    expect(src).toMatch(/if \(success && bossDown\) result\.bossBonus = bossBonusFor\(level\.par\)/);
+    expect(src).toMatch(/if \(success && bossDown\) result\.bossBonus = bossBonus\(level\.par, 'adventure', level\.boss\?\.tier \?\? 0\)/);
     expect(src).toMatch(/bus\.on\('sim:bossDown'/);
     expect(src).toMatch(/hud\.clearBoss\(\)/);
   });
