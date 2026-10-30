@@ -475,13 +475,19 @@ export function damageBoss(w: World, amount: number, hx: number, hy: number, ign
   if (bs === null || id < 0) return false;
   const g = gs(w);
   const gate = bs.def.gate;
-  const through = ignoreShield || (bossOpen(bs) && (gate === undefined || gate(w, id, bs, hx, hy)));
-  if (!(amount > 0) || !through) {
+  let through = ignoreShield || (bossOpen(bs) && (gate === undefined || gate(w, id, bs, hx, hy)));
+  let dmg = amount;
+  const leak = bs.def.leak;
+  if (!through && amount > 0 && leak !== undefined) {
+    dmg = leak(w, id, bs, amount);
+    through = dmg > 0;
+  }
+  if (!(dmg > 0) || !through) {
     emitHit(g, hx, hy, Kind.Boss, id, true);
     return false;
   }
   const clamp = bs.def.clampDamage;
-  const amt = clamp === undefined ? Math.round(amount) : Math.round(clamp(w, id, bs, Math.round(amount)));
+  const amt = clamp === undefined ? Math.round(dmg) : Math.round(clamp(w, id, bs, Math.round(dmg)));
   const left = (w.hp[id] ?? 0) - (amt > 0 ? amt : 0);
   const hp = left > 0 ? left : 0;
   w.hp[id] = hp;
