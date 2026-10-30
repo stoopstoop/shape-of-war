@@ -20,6 +20,10 @@ export const BOSS_SPINDLE = 2;
 export const BOSS_EMBER = 3;
 export const BOSS_MIRAGE = 4;
 export const BOSS_GRAVITAS = 5;
+/** Boss index of each wave C (tier 3) boss. */
+export const BOSS_BASTION = 6;
+export const BOSS_TEMPEST = 7;
+export const BOSS_TWINS = 8;
 
 /** Tier per boss index, docs/13 schedule: three tier 1, three tier 2, three tier 3, one tier 4. */
 export const BOSS_TIER_BY_ID: readonly BossTier[] = [1, 1, 1, 2, 2, 2, 3, 3, 3, 4];

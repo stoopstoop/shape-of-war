@@ -6,6 +6,7 @@
 // SpriteBuf (fxSprites.ts): one pooled geometry, no allocation, no Graphics.clear per frame.
 import { hazardTelegraph } from '../game/bosses/kit';
 import { tierOf, tierWeight } from './bossLook';
+import { isTier3, tetherPulse, tetherThick } from './bossTier3';
 import { clampNum } from './color';
 import { F_BAR, pushArc, pushBand, pushLine, pushSprite, type FxHalo, type SpriteBuf } from './fxSprites';
 
@@ -274,9 +275,13 @@ function planSweep(h: HazardInput, b: SpriteBuf, halo: Readonly<FxHalo>, f: Haza
 }
 
 function planTether(h: HazardInput, b: SpriteBuf, halo: Readonly<FxHalo>, f: HazardForm): number {
-  const hum = f.lethal ? 1 - TETHER_HUM + TETHER_HUM * Math.sin(h.timeSec * TETHER_HUM_HZ * Math.PI * 2) : 1;
+  // Tier 3 (the Twins tether) hums slower and deeper and swells; tiers 1 and 2 keep the quick hum.
+  const t3 = isTier3(h.tier);
+  const quick = 1 - TETHER_HUM + TETHER_HUM * Math.sin(h.timeSec * TETHER_HUM_HZ * Math.PI * 2);
+  const hum = f.lethal ? (t3 ? tetherPulse(h.timeSec) : quick) : 1;
   const a = f.alpha * hum;
-  const w = HAZARD_LINE * tierWeight(h.tier) * (f.lethal ? 2.4 : TELE_THICK * 2) * flashBoost(f);
+  const swell = f.lethal && t3 ? tetherThick(h.timeSec) : 1;
+  const w = HAZARD_LINE * tierWeight(h.tier) * (f.lethal ? 2.4 * swell : TELE_THICK * 2) * flashBoost(f);
   let n = pushBand(b, h.x, h.y, h.vx, h.vy, 2 * TETHER_HALF, a * (f.lethal ? ZONE_FILL : ZONE_FILL_TELE), h.tint);
   n += pushLine(b, h.x, h.y, h.vx, h.vy, w, a, h.tint, halo);
   return n;
