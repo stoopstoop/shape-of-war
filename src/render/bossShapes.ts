@@ -15,6 +15,7 @@ import {
   BOSS_EMBER,
   BOSS_GRAVITAS,
   BOSS_MIRAGE,
+  BOSS_PRISM,
   BOSS_RIM_ALPHA,
   BOSS_SPINDLE,
   BOSS_WARDEN,
@@ -24,6 +25,7 @@ import {
   tierHaloMul,
   tierWeight,
 } from './bossLook';
+import { prismOutline } from './bossPrism';
 import { MIRAGE_ARC_HALF } from './bossTier2';
 import type { PaletteKey } from './neon';
 import type { ShapeLayer, ShapePrim, ShapeSpec } from './shapeSpecs';
@@ -36,10 +38,10 @@ export const BOSS_RIM = 1.18;
 /**
  * Body radius each spec is drawn at. The renderer scales a view by BossView.radius over this, so a
  * boss of any size keeps its silhouette. Waves A and B have their own (tier 2 match the BOSS_TABLE
- * radii: Ember 44, Mirage 50, Gravitas 60; tier 3 too: Bastion 70, Tempest 46, Twins 44); the last id
- * shares 60. A well is 24 u, so the smallest boss body is 1.8 times a well and carries a second rim.
+ * radii: Ember 44, Mirage 50, Gravitas 60; tier 3 too: Bastion 70, Tempest 46, Twins 44; Prism 90). A
+ * well is 24 u, so the smallest boss body is 1.8 times a well and carries a second rim.
  */
-export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 44, 50, 60, 70, 46, 44, 60];
+export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 44, 50, 60, 70, 46, 44, 90];
 
 /** Pure: the body radius a boss index's specs are drawn at. */
 export function bossBodyR(id: number): number {
@@ -485,26 +487,23 @@ function twinsSpec(o: number): ShapeSpec {
   };
 }
 
-/** Side count of the placeholder outline for the bosses after wave C (Prism, until wave D). */
-const GENERIC_SIDES: readonly number[] = [6, 6, 4, 3, 10, 8, 4, 5, 7, 6];
-
 /**
- * Bosses built in later waves: a double polygon in the boss colour, a white core that opens when
- * vulnerable and the rim. Placeholder so every id draws a boss, never the magenta glyph.
+ * Prism (multicolour, tier 4): a faceted gem. This static spec is the dim base the hue cycling gem
+ * overlay (prismFx.ts, bossPrism.ts) draws over: the full 24 vertex outline (so the glow halo has the
+ * gem's silhouette), the white core that opens in the damage window, and the rim. The cycling hue, the
+ * chromatic ghost and the run to white are render effects, not part of any spec.
  */
-function genericSpec(id: number, o: number): ShapeSpec {
+function prismSpec(o: number): ShapeSpec {
+  const id = BOSS_PRISM;
   const R = bossBodyR(id);
-  const t = bossTierOf(id);
-  const w = BOSS_LINE * tierWeight(t);
-  const hm = tierHaloMul(t);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
   const c = bossColourOf(id);
-  const sides = GENERIC_SIDES[bossIndex(id)] ?? 6;
   return {
     tint: null,
     radius: r2(R * BOSS_RIM),
     layers: [
-      layer([{ t: 'regularPoly', r: R, sides, rot: 0 }], w, { colour: c, fill: 0.08, haloMul: hm }),
-      layer([{ t: 'regularPoly', r: r2(0.55 * R), sides, rot: Math.PI / sides }], w * 0.7, { colour: c, haloMul: hm }),
+      layer([{ t: 'poly', pts: prismOutline(24, R) }], w, { colour: c, fill: lerp(0.04, 0.1, o), alpha: 0.3, haloMul: hm }),
       whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],
@@ -524,7 +523,7 @@ export function buildBossSpec(id: number, step: number): ShapeSpec {
   if (b === BOSS_BASTION) return bastionSpec(o);
   if (b === BOSS_TEMPEST) return tempestSpec(o);
   if (b === BOSS_TWINS) return twinsSpec(o);
-  return genericSpec(b, o);
+  return prismSpec(o);
 }
 
 /** Every boss spec, indexed by id x BOSS_OPEN_STEPS + step. Built once. */
@@ -553,17 +552,29 @@ export const EXPOSED_BOSS_SPECS: readonly ShapeSpec[] = BOSS_SPECS.map(exposedBo
 export const PART_POD = 0;
 export const PART_ANCHOR = 1;
 export const PART_TURRET = 2;
+/**
+ * Twins' second body (sim PartType.Twin, src/game/bosses/types.ts): a full size boss body, not a small
+ * part. It has no part spec of its own: it draws with the Twins boss body spec (partVisualSlot).
+ */
+export const PART_TWIN = 3;
+/** Part types that have a part spec (pod, anchor, turret). The twin body draws as a boss body. */
 export const PART_TYPES = 3;
 /** Radius each part spec is drawn at; the renderer scales by w.radius over this. */
 export const PART_R: readonly number[] = [12, 14, 16];
 
-/** Pure: a valid part type for any number (pod for anything unknown). */
+/** Pure: a valid part type for any number (pod for anything unknown, and for the twin body). */
 export function partType(a: number): number {
   return a === PART_ANCHOR || a === PART_TURRET ? a : PART_POD;
 }
 
-/** Pure: the radius a part type's spec is drawn at. */
+/** Pure: true for the Twins second body (w.a is PART_TWIN). */
+export function isTwinPart(a: number): boolean {
+  return a === PART_TWIN;
+}
+
+/** Pure: the radius a part's spec is drawn at (the Twins body radius for the twin body). */
 export function partR(a: number): number {
+  if (isTwinPart(a)) return bossBodyR(BOSS_TWINS);
   return PART_R[partType(a)] ?? 12;
 }
 

@@ -2,8 +2,8 @@
 // shapes.ts turns each spec into a GraphicsContext. Sizes are arena units and match the
 // hitbox radii in docs/01-game-design.md section 6.2. Facing is +x at rot 0.
 import { Kind } from '../game/world';
-import { BOSS_COUNT, BOSS_OPEN_STEPS, tierOf } from './bossLook';
-import { BOSS_SPECS, buildBossSpec, EXPOSED_BOSS_SPECS, buildPartSpec, HAZARD_GLYPH, PART_SPECS, PART_TYPES, partType } from './bossShapes';
+import { BOSS_COUNT, BOSS_OPEN_STEPS, BOSS_TWINS, tierOf } from './bossLook';
+import { BOSS_SPECS, buildBossSpec, EXPOSED_BOSS_SPECS, buildPartSpec, HAZARD_GLYPH, isTwinPart, PART_SPECS, PART_TYPES, partType } from './bossShapes';
 import { hash01 } from './color';
 import { SLIME_RADIUS, SLIME_VARIANTS, slimeVariant } from './enemyFx';
 import { weaponPaletteKey, type PaletteKey } from './neon';
@@ -556,6 +556,16 @@ export function exposedBossSlot(id: number, step: number): number {
 /** Pure: visual slot for a boss part type (w.a) at a boss tier. */
 export function partSlot(a: number, tier: number): number {
   return PART_SLOT_BASE + partType(a) * 4 + (tierOf(tier) - 1);
+}
+
+/**
+ * Pure: the slot a boss part draws with. The Twins second body (w.a = PART_TWIN) is a full boss body:
+ * it takes the Twins body slot at the boss's openness step, or its exposed (coreless) variant while
+ * the boss shows it, so it looks exactly like the other twin. Every other part draws per type and tier.
+ */
+export function partVisualSlot(a: number, tier: number, step: number, coreless: boolean): number {
+  if (!isTwinPart(a)) return partSlot(a, tier);
+  return coreless ? exposedBossSlot(BOSS_TWINS, step) : bossSlot(BOSS_TWINS, step);
 }
 
 /** Pure: true for a boss body slot (the baked colour ones, not the exposed variants). */
