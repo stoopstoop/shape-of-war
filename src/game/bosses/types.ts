@@ -28,6 +28,8 @@ export const enum PartType {
   Pod = 0,
   Anchor = 1,
   Turret = 2,
+  /** Twins: the second body, a full size boss body of radius w.radius. */
+  Twin = 3,
 }
 
 /** Where a boss is in its life on this level or Endless segment. */
@@ -57,4 +59,15 @@ export interface BossDef {
    * shield arc). Absent means every hit in the window counts. Detonate skips it.
    */
   gate?(w: World, id: number, bs: BossState, hx: number, hy: number): boolean;
+  /**
+   * Optional: the 1 based phase the boss belongs in now (Bastion: from its turrets, Twins: from its
+   * bodies). Absent means from hit points (phaseFor). The core never lowers the phase.
+   */
+  phaseOf?(w: World, id: number, bs: BossState, hp: number): number;
+  /** Optional: the part of a hit of amount tenths on the core body that lands (Twins: the front body's own hit points). */
+  clampDamage?(w: World, id: number, bs: BossState, amount: number): number;
+  /** Optional: the core body took damage and lived (Twins: the front body falls). */
+  afterDamage?(w: World, id: number, bs: BossState): void;
+  /** Optional: part took applied tenths (at most its hit points); broke is true once it was removed. */
+  onPartDamage?(w: World, bs: BossState, part: number, applied: number, broke: boolean): void;
 }
