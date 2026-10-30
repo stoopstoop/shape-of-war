@@ -346,6 +346,67 @@ export const TWINS = {
   entryHome: 200,
 } as const;
 
+/**
+ * Prism (tier 4, multicolour, level 50; roster row 10). Drifts between four points at 90 u/s and
+ * quotes the others by phase: 1 ring and pods, 2 sweep arms and a dash lane, 3 a pull and warp lane
+ * bursts, 4 turret nodes and a tether. A 4 s damage cycle: 2.3 s colour, 0.5 s run to white, 1.2 s
+ * window. Full damage in the window, leak (25 percent) outside it. Its own hazard cap is 6.
+ */
+export const PRISM = {
+  driftSpeed: 90,
+  /** Drift points sit on the arena diagonals at this share of the wall distance. */
+  pointShare: 0.55,
+  /** Arrival distance at a drift point, u. */
+  arriveDist: 2,
+  /** Visual spin of the body, rad/s. */
+  spin: 0.3,
+  colourSec: 2.3,
+  whiteSec: 0.5,
+  windowSec: 1.2,
+  /** Share of a hit that gets through outside the window. */
+  leak: 0.25,
+  maxHazards: 6,
+  /** First attack this long after the entrance ends (and after each phase change). */
+  firstAttack: 1.5,
+  // Phase 1: ring and three pods.
+  ringEvery: 3.5,
+  gapDeg: 60,
+  ringStartPad: 10,
+  ringGrowth: 300,
+  pods: 3,
+  /** 2 HP in tenths of a hit. */
+  podHp: 20,
+  podRadius: 14,
+  podOrbit: 140,
+  podSpin: 1.0,
+  // Phase 2: two sweep arms and a dash lane.
+  sweepArms: 2,
+  sweepLength: 380,
+  sweepRate: 0.6,
+  laneEvery: 2.5,
+  laneLength: 600,
+  laneHalfWidth: 22,
+  // Phase 3: a pull and warp lane bursts.
+  pullRadius: 300,
+  pullStrength: 70,
+  warpEvery: 3.5,
+  /** The landing ring marker shows this long before the warp (at least the marker life, so it is gone). */
+  markSec: 0.6,
+  /** A landing waits while the ship is within the body radius plus this pad of the spot. */
+  landPad: 40,
+  burstLanes: 4,
+  /** Burst lanes sit this far off the ship's bearing, so the ship starts midway between two. */
+  burstOffsetDeg: 45,
+  // Phase 4: four turret nodes and a tether.
+  turrets: 4,
+  /** 6 HP in tenths of a hit. */
+  turretHp: 60,
+  turretRadius: 16,
+  turretOffset: 120,
+  turnEvery: 1.0,
+  entryHome: 0.5,
+} as const;
+
 export interface ShotRow {
   pattern: 'pellet' | 'fan' | 'turret';
   /** Bullet speed, u/s (clamped to ENEMY_BULLET_SPEED_MAX by the pool, phase speed ups included). */

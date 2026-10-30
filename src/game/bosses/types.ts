@@ -66,6 +66,11 @@ export interface BossDef {
   phaseOf?(w: World, id: number, bs: BossState, hp: number): number;
   /** Optional: the part of a hit of amount tenths on the core body that lands (Twins: the front body's own hit points). */
   clampDamage?(w: World, id: number, bs: BossState, amount: number): number;
+  /**
+   * Optional: tenths of a hit of amount that get through a closed core (Prism's shield leak). Absent
+   * means a closed core blocks every hit. Called only for a hit the window would block.
+   */
+  leak?(w: World, id: number, bs: BossState, amount: number): number;
   /** Optional: the core body took damage and lived (Twins: the front body falls). */
   afterDamage?(w: World, id: number, bs: BossState): void;
   /** Optional: part took applied tenths (at most its hit points); broke is true once it was removed. */
