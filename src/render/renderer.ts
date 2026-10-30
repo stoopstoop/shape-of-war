@@ -251,7 +251,21 @@ import {
   type WallFeature,
 } from './mapFx';
 import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
-import { bossSlot, isFloorSlot, KIND_NUM, partSlot, specFor } from './shapeSpecs';
+import { bossSlot, isFloorSlot, KIND_NUM, partVisualSlot, specFor } from './shapeSpecs';
+// V3 wave D: the Prism gem (hue cycle, chromatic ghost, run to white; bossPrism.ts, prismFx.ts).
+import {
+  BOSS_PRISM,
+  createPrismClock,
+  prismBodyColour,
+  prismCycle,
+  prismFlash,
+  prismGlowMul,
+  prismLodFor,
+  prismPhaseKey,
+  prismSaturation,
+  prismWhite,
+} from './bossPrism';
+import { createPrismFrame, createPrismLayer, type PrismLayer } from './prismFx';
 // V3 wave A: boss, parts, hazards and enemy bullets (bossLook.ts, bossShapes.ts, hazardFx.ts,
 // enemyBulletFx.ts). The boss is read through readBoss only; enemy bullets through enemyBulletsOf.
 import { createBossView, readBoss, type BossView } from '../game/bosses/view';
@@ -284,7 +298,7 @@ import {
   TIER_BULLET_KEY,
   type EntranceRing,
 } from './bossLook';
-import { bossBodyR, bossCoreFrac, EMBER_NOSE, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, PART_TURRET, partR, partType } from './bossShapes';
+import { BOSS_LINE, bossBodyR, bossCoreFrac, EMBER_NOSE, isTwinPart, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, PART_TURRET, partR, partType } from './bossShapes';
 // V3 wave C: tier 3 boss effects (Bastion turret alpha and keep heat, Tempest Slime drips and dash
 // afterimage, Twins tether hum and enrage, the wider tier 3 halo on the hazard layer). Render only.
 import {
@@ -988,6 +1002,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   // anchor count of the last frame (the lattice pull reads it before the parts are drawn).
   let bossDrawRot = 0;
   let bossDrawScale = 1;
+  // V3 wave D Prism: the pooled gem layer (made on first use), its cycle clock and frame, whether it
+  // drew this frame, and the glow sprite tint and boost it hands the entity pass.
+  let prismLayer: PrismLayer | null = null;
+  let prismDrawn = false;
+  let prismGlowTint = 0xffffff;
+  let prismGlow = 1;
+  const prismClock = createPrismClock();
+  const prismFrame = createPrismFrame();
   let bossLastX = Number.NaN;
   let bossLastY = Number.NaN;
   let bossSpeed = 0;
@@ -1866,6 +1888,32 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
   }
 
+  /**
+   * Wave D: draw the Prism gem for this frame from the sim clock (w.time) and the boss view: the hue
+   * cycle, the chromatic ghost, the phase tint and the run to white before the damage window. Sets
+   * prismGlowTint and prismGlow for the body's glow sprite. Colours follow applyNeon's saturation.
+   */
+  function drawPrism(w: World, x: number, y: number, rot: number, scale: number, alpha: number): void {
+    if (!prismLayer) prismLayer = createPrismLayer(entities, BOSS_LINE);
+    const c = prismCycle(prismClock, w.time, bossView.mode, bossView.exposed === true, bossView.exposedT ?? 0);
+    const white = prismWhite(c);
+    const f = prismFrame;
+    f.timeSec = w.time;
+    f.x = x;
+    f.y = y;
+    f.rot = rot;
+    f.scale = scale;
+    f.alpha = alpha;
+    f.white = white;
+    f.borrowed = palette[prismPhaseKey(bossView.phase)];
+    f.saturation = current.saturation;
+    f.lod = prismLodFor(getEffectsTier());
+    prismLayer.update(f);
+    prismDrawn = true;
+    prismGlowTint = prismBodyColour(w.time, prismSaturation(current.saturation), f.borrowed, white);
+    prismGlow = prismGlowMul(white, prismFlash(c));
+  }
+
   /** Wave C: the Tempest dash ghosts, pooled views on the exposed boss shell (no Graphics.clear). */
   function drawDashGhosts(): void {
     const live = bossView.active && bossIdx === BOSS_TEMPEST;
@@ -2449,6 +2497,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         : palette[bossColourOf(bossIdx)]
       : 0xffffff;
     let live = 0;
+    prismDrawn = false;
     for (let i = 0; i < w.cap; i++) {
       if (w.alive[i] !== 1) {
         hideSlot(i);
@@ -2473,7 +2522,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
           ? exposedBossSlot(bossIdx, opennessStep(bossOpen))
           : bossSlot(bossIdx, opennessStep(bossOpen))
         : isPart
-          ? partSlot(w.a[i] ?? 0, bossTier)
+          ? partVisualSlot(w.a[i] ?? 0, bossTier, opennessStep(bossOpen), coreless)
           : visualSlot(kind, w.a[i] ?? -1, kind === KIND_NUM.slime ? hash01(i) : 0);
       let v = views[i];
       if (!v) {
@@ -2494,14 +2543,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       // Parts are drawn white and take the boss colour; bosses bake theirs (tint stays white).
       // G3A: boss adds take a hostile hue (their own colour mixed toward red) and an angry pulse.
       const isAdd = addCount > 0 && !isBoss && !isPart && isBossAdd(i);
+      // The Twins second body is a full boss body: it takes the boss tint (baked red, or the exposed look).
       const baseTint = isPart
-        ? palette[bossColourOf(bossIdx)]
+        ? isTwinPart(w.a[i] ?? 0)
+          ? bossTint
+          : palette[bossColourOf(bossIdx)]
         : isBoss
           ? bossTint
           : spec.tint === null
             ? 0xffffff
             : palette[spec.tint];
       const tint = isAdd ? mixRgb(baseTint, palette.red, ADD_HUE_MIX) : baseTint;
+      // The glow sprite takes the body tint, except the Prism: its halo follows the cycling hue.
+      let glowTint = tint;
       if (viewTint[i] !== tint) {
         v.tint = tint;
         viewTint[i] = tint;
@@ -2529,7 +2583,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const a = w.a[i] ?? 0;
         const r = w.radius[i] ?? 0;
         if (r > 0) scale = r / partR(a);
-        if (partType(a) === PART_POD) scale *= podPulse(timeSec, hash01(i));
+        if (partType(a) === PART_POD && !isTwinPart(a)) scale *= podPulse(timeSec, hash01(i));
       }
       // Pickups spin on the render clock (phase per slot) and blink in their last 2 s (w.t).
       const rot = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);
@@ -2573,11 +2627,21 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
           ev.glowMul *= bastionGlow(bastionCoreHeat(turretsSeen, turretsLast, bossView.exposed === true));
         } else if (bossView.active && bossIdx === BOSS_TWINS) {
           ev.glowMul *= twinsEnrageGlow(bossView.phase, timeSec, getEffectsTier());
+        } else if (bossView.active && bossIdx === BOSS_PRISM) {
+          // Wave D: the gem overlay (hue cycle, ghost, run to white); the halo follows it.
+          drawPrism(w, ev.x, ev.y, ev.rot, scale, ev.alpha);
+          glowTint = prismGlowTint;
+          ev.glowMul *= prismGlow;
         }
       } else if (isPart) {
         // Parts (pods, anchors, turrets) shake with the body, so the whole boss moves as one.
         ev.x += bossShake.x;
         ev.y += bossShake.y;
+        if (isTwinPart(w.a[i] ?? 0)) {
+          // The Twins second body fades in and out with the boss and burns like it once the pair is one.
+          ev.alpha = bossView.active ? bossBodyAlpha(bossView.mode, bossView.modeT) : 1;
+          if (bossView.active) ev.glowMul *= twinsEnrageGlow(bossView.phase, timeSec, getEffectsTier());
+        }
         // Wave B: Gravitas anchors are joined by faint lines (planTier2 reads these positions).
         const pt = partType(w.a[i] ?? 0);
         if (pt === PART_ANCHOR && anchorCount < TETHER_ANCHORS_MAX) {
@@ -2633,13 +2697,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         glowKind[i] = slot;
       }
       if (!s.visible) s.visible = true;
-      s.tint = tint;
+      s.tint = glowTint;
       const ga = glowAlpha * ev.alpha * ev.glowMul;
       s.alpha = ga > 1 ? 1 : ga;
       s.position.set(ev.x, ev.y);
       s.rotation = ev.rot;
       s.scale.set(ev.scaleX * glowScale, ev.scaleY * glowScale);
     }
+    if (!prismDrawn && prismLayer) prismLayer.hide();
     drawPops(dt);
     stats.entities = live;
   }
