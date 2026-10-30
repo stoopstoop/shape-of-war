@@ -79,15 +79,21 @@ export const BASE_PALETTE = {
   // every weapon colour). Waves keep running at 0.6 of their budget during a fight, so Chargers,
   // Blinks and Splimes can share the screen; each key keeps at least 8 degrees from those too and
   // 25 from the nearest weapon hue. The rest of the separation is the x2.0 tier 2 line weight, the
-  // 44 to 60 u body, the second rim and the white core. Tier 3 and 4 keys are tuned in wave C.
+  // 44 to 60 u body, the second rim and the white core. Tier 3 (bossRed) is tuned in wave C, tier 4 later.
   /** Ember: amber orange, 10 off Dart orange (28) away from Charger (12), toward gold. */
   bossOrange: [38, 1.0, 0.6],
   /** Mirage: hot magenta, 10 off Pinwheel magenta (310), 12 short of Blink rose (332). */
   bossMagenta: [320, 0.95, 0.62],
   /** Gravitas: deep violet, 9 off Wanderer purple (275), 8 short of Splime (292), 26 from pierce. */
   bossViolet: [284, 0.95, 0.62],
-  /** Tier 3 bosses: bright red with a thick glow (the glow width is Glow's, through applyNeon). */
-  bossRed: [358, 0.9, 0.58],
+  /**
+   * Tier 3 bosses: bright red with a thick glow (the glow width is Glow's, through applyNeon). Hue
+   * cannot separate it from the gravity well ring (355) and Charger (12) without leaving red, so it
+   * sits 9 and 8 degrees off them, fully saturated and lighter than both (well 0.75 and 0.55, Charger
+   * 0.8 and 0.56). The rest is size (44 to 70 u against the well's 24), the x3.0 line weight, the
+   * second rim and the white core (bossShapes.ts), which a well never has at this scale.
+   */
+  bossRed: [4, 1.0, 0.62],
   /** Tier 4 boss (Prism): a shimmering multicolour, so a base hue is only the fallback tint. */
   bossPrism: [190, 0.8, 0.7],
   /** Drone pickup (Kind.DronePickup). Placeholder, apart from the weapon pickup white. */

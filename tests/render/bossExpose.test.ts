@@ -458,7 +458,9 @@ describe('core size helper', () => {
     expect(bossCoreFrac(BOSS_WARDEN, 1)).toBeCloseTo(0.24, 9);
     expect(bossCoreFrac(BOSS_BROOD, 1)).toBeCloseTo(0.28, 9);
     expect(bossCoreFrac(BOSS_SPINDLE, 1)).toBeCloseTo(0.17, 9);
-    expect(bossCoreFrac(7, 0.5)).toBeCloseTo(0.2, 9);
+    // Id 9 (Prism) still uses the generic fraction; ids 6 to 8 have their own since wave C.
+    expect(bossCoreFrac(9, 0.5)).toBeCloseTo(0.2, 9);
+    expect(bossCoreFrac(7, 0.5)).toBeCloseTo(0.165, 9);
     expect(bossCoreFrac(BOSS_WARDEN, Number.NaN)).toBeCloseTo(0.16, 9);
   });
 });

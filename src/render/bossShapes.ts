@@ -6,8 +6,11 @@
 // (bossLook.ts) and every boss has a second concentric rim at 0.6 alpha. A boss body radius is 44
 // to 90 u; the largest enemy is 24 u, so a boss never reads as an enemy even where hues are close.
 import {
+  BOSS_BASTION,
   BOSS_BROOD,
   BOSS_COUNT,
+  BOSS_TEMPEST,
+  BOSS_TWINS,
   BOSS_OPEN_STEPS,
   BOSS_EMBER,
   BOSS_GRAVITAS,
@@ -33,9 +36,10 @@ export const BOSS_RIM = 1.18;
 /**
  * Body radius each spec is drawn at. The renderer scales a view by BossView.radius over this, so a
  * boss of any size keeps its silhouette. Waves A and B have their own (tier 2 match the BOSS_TABLE
- * radii: Ember 44, Mirage 50, Gravitas 60); later ids share 60.
+ * radii: Ember 44, Mirage 50, Gravitas 60; tier 3 too: Bastion 70, Tempest 46, Twins 44); the last id
+ * shares 60. A well is 24 u, so the smallest boss body is 1.8 times a well and carries a second rim.
  */
-export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 44, 50, 60, 60, 60, 60, 60];
+export const BOSS_BODY_R: readonly number[] = [56, 60, 50, 44, 50, 60, 70, 46, 44, 60];
 
 /** Pure: the body radius a boss index's specs are drawn at. */
 export function bossBodyR(id: number): number {
@@ -50,6 +54,9 @@ const CORE_FRAC: readonly (readonly [number, number])[] = [
   [0.13, 0.2],
   [0.16, 0.26],
   [0.14, 0.22],
+  [0.12, 0.26],
+  [0.13, 0.2],
+  [0.16, 0.24],
 ];
 const CORE_FRAC_GENERIC: readonly [number, number] = [0.16, 0.24];
 
@@ -346,7 +353,139 @@ function gravitasSpec(o: number): ShapeSpec {
   };
 }
 
-/** Side count of the placeholder outline for the bosses after wave B (wave C replaces them). */
+// Tier 3 (wave C). Line weight is x3.0 and the outer glow stroke 1.5 times wider (haloMul), both on
+// the boss layer only; the glow alpha and width still come from applyNeon through shapes.ts. Every
+// detail layer is a fraction of the core weight so the thick lines stay readable on a 44 u body.
+
+/** Bastion keep: a square wall turned to the diagonals, where the four corner turrets sit. */
+export const BASTION_WALL = 1.0;
+export const BASTION_INNER = 0.72;
+
+/** Pure: the four wall to inner wall struts (one per corner) of the Bastion keep. */
+export function bastionStruts(R: number): ShapePrim[] {
+  const out: ShapePrim[] = [];
+  for (let k = 0; k < 4; k++) {
+    const a = Math.PI / 4 + (k * Math.PI) / 2;
+    out.push({ t: 'line', pts: [...polar(BASTION_INNER * R, a), ...polar(BASTION_WALL * R, a)] });
+  }
+  return out;
+}
+
+/**
+ * Bastion (bright red, tier 3): a fortress. A thick square wall, an inner wall joined to it by four
+ * corner struts, a keep ring and a core that burns hot when it opens (two turrets down). Corner
+ * turrets are BossPart entities (PART_TURRET); the keep heats as they fall (bossTier3.ts).
+ */
+function bastionSpec(o: number): ShapeSpec {
+  const id = BOSS_BASTION;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  const core = bossCoreFrac(id, o) * R;
+  return {
+    tint: null,
+    radius: r2(R * BOSS_RIM),
+    layers: [
+      layer([{ t: 'regularPoly', r: r2(BASTION_WALL * R), sides: 4, rot: Math.PI / 4 }], w, { colour: c, fill: lerp(0.1, 0.05, o), haloMul: hm }),
+      layer([{ t: 'regularPoly', r: r2(BASTION_INNER * R), sides: 4, rot: Math.PI / 4 }], w * 0.7, { colour: c, fill: lerp(0.06, 0.02, o), haloMul: hm }),
+      layer(bastionStruts(R), w * 0.5, { colour: c, alpha: 0.85, haloMul: hm }),
+      layer([{ t: 'circle', r: r2(0.4 * R) }], w * 0.6, { colour: c, fill: lerp(0.1, 0.45, o), haloMul: hm }),
+      layer([{ t: 'circle', r: r2(core * 1.7) }], 0, { colour: c, fill: lerp(0, 0.9, o), glow: o >= 0.5 }),
+      whiteCore(core, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Tempest kite: nose length, wing reach and tail length as multiples of the body radius. */
+export const TEMPEST_NOSE = 1.7;
+export const TEMPEST_WING = 0.72;
+export const TEMPEST_TAIL = 0.8;
+
+/** Pure: Tempest kite outline scaled by k, nose on +x (the facing): a long kite, widest ahead of centre. */
+export function tempestKite(R: number, k: number): ShapePrim {
+  const s = R * k;
+  return { t: 'poly', pts: [r2(TEMPEST_NOSE * s), 0, r2(0.15 * s), r2(TEMPEST_WING * s), r2(-TEMPEST_TAIL * s), 0, r2(0.15 * s), r2(-TEMPEST_WING * s)] };
+}
+
+/**
+ * Tempest (bright red, tier 3): a long kite with two streamers, an inner kite that fills as it rests
+ * and a Slime sac in the tail (the trail it drops). The view turns with the facing, so the nose
+ * leads the lap and the dash. The Slime drips and the hot dash afterimage are render effects.
+ */
+function tempestSpec(o: number): ShapeSpec {
+  const id = BOSS_TEMPEST;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  const streamers: ShapePrim[] = [1, -1].map((s) => ({
+    t: 'line' as const,
+    pts: [r2(0.15 * R), r2(s * TEMPEST_WING * R), r2(-1.05 * R), r2(s * 0.5 * R)],
+  }));
+  const sac: ShapePrim = { t: 'poly', pts: [r2(-0.2 * R), 0, r2(-0.42 * R), r2(0.2 * R), r2(-0.64 * R), 0, r2(-0.42 * R), r2(-0.2 * R)] };
+  return {
+    tint: null,
+    radius: r2(Math.max(R * BOSS_RIM, TEMPEST_NOSE * R)),
+    layers: [
+      layer([tempestKite(R, 1)], w, { colour: c, fill: lerp(0.1, 0.16, o), haloMul: hm }),
+      layer(streamers, w * 0.5, { colour: c, alpha: 0.85, haloMul: hm }),
+      layer([tempestKite(R, 0.5)], w * 0.7, { colour: c, fill: lerp(0.05, 0.4, o), haloMul: hm }),
+      layer([sac], w * 0.4, { colour: 'slime', fill: 0.7, alpha: 0.9, glow: false }),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Twins link lug reach (multiple of the body radius): the sockets the tether runs between. */
+export const TWINS_LUG = 1.32;
+/** Radius and offset (multiples of the body radius) of the two interlocked rings inside a body. */
+export const TWINS_LINK_R = 0.36;
+export const TWINS_LINK_OFF = 0.3;
+
+/** Pure: closed n point approximation of a circle of radius r centred at (cx, 0). */
+export function ringPoly(cx: number, r: number, n: number): ShapePrim {
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push(r2(cx + Math.cos(a) * r), r2(Math.sin(a) * r));
+  }
+  return { t: 'poly', pts };
+}
+
+/**
+ * Twins (bright red, tier 3): one body of the pair (the sim draws each body with this spec; their
+ * tether is a sim hazard drawn on the hazard layer). A round body carrying two interlocked rings,
+ * the sign of the pair, and a link lug at each side for the tether. Each body keeps its own core.
+ */
+function twinsSpec(o: number): ShapeSpec {
+  const id = BOSS_TWINS;
+  const R = bossBodyR(id);
+  const w = BOSS_LINE * tierWeight(bossTierOf(id));
+  const hm = tierHaloMul(bossTierOf(id));
+  const c = bossColourOf(id);
+  const lugs: ShapePrim[] = [1, -1].map((s) => ({ t: 'line' as const, pts: [r2(s * R), 0, r2(s * TWINS_LUG * R), 0] }));
+  return {
+    tint: null,
+    radius: r2(Math.max(R * BOSS_RIM, TWINS_LUG * R)),
+    layers: [
+      layer([{ t: 'circle', r: R }], w, { colour: c, fill: lerp(0.1, 0.16, o), haloMul: hm }),
+      layer(lugs, w * 0.9, { colour: c, haloMul: hm }),
+      layer([ringPoly(-TWINS_LINK_OFF * R, TWINS_LINK_R * R, 20), ringPoly(TWINS_LINK_OFF * R, TWINS_LINK_R * R, 20)], w * 0.5, {
+        colour: c,
+        fill: lerp(0.04, 0.3, o),
+        alpha: 0.85,
+        haloMul: hm,
+      }),
+      whiteCore(bossCoreFrac(id, o) * R, w, o),
+      rim(R, w, c, hm),
+    ],
+  };
+}
+
+/** Side count of the placeholder outline for the bosses after wave C (Prism, until wave D). */
 const GENERIC_SIDES: readonly number[] = [6, 6, 4, 3, 10, 8, 4, 5, 7, 6];
 
 /**
@@ -382,6 +521,9 @@ export function buildBossSpec(id: number, step: number): ShapeSpec {
   if (b === BOSS_EMBER) return emberSpec(o);
   if (b === BOSS_MIRAGE) return mirageSpec(o);
   if (b === BOSS_GRAVITAS) return gravitasSpec(o);
+  if (b === BOSS_BASTION) return bastionSpec(o);
+  if (b === BOSS_TEMPEST) return tempestSpec(o);
+  if (b === BOSS_TWINS) return twinsSpec(o);
   return genericSpec(b, o);
 }
 

@@ -284,7 +284,30 @@ import {
   TIER_BULLET_KEY,
   type EntranceRing,
 } from './bossLook';
-import { bossBodyR, bossCoreFrac, EMBER_NOSE, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, partR, partType } from './bossShapes';
+import { bossBodyR, bossCoreFrac, EMBER_NOSE, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, PART_TURRET, partR, partType } from './bossShapes';
+// V3 wave C: tier 3 boss effects (Bastion turret alpha and keep heat, Tempest Slime drips and dash
+// afterimage, Twins tether hum and enrage, the wider tier 3 halo on the hazard layer). Render only.
+import {
+  BASTION_TURRETS,
+  BOSS_BASTION,
+  BOSS_TEMPEST,
+  BOSS_TWINS,
+  DASH_GHOSTS,
+  DASH_GHOST_SEC,
+  bastionCoreHeat,
+  bastionGlow,
+  dashGhostAlpha,
+  dashGhostCount,
+  dashGhostDue,
+  dashGhostScale,
+  dashGhostWhite,
+  tempestDashing,
+  tempestDripRate,
+  tierHalo,
+  turretShown,
+  turretState,
+  twinsEnrageGlow,
+} from './bossTier3';
 // V3 wave B: tier 2 boss effects (Ember lane and trails, Mirage arc, afterimage and landing flash,
 // Gravitas tethers and lattice pull, the Mine pulse). Pure helpers and planners, render only.
 import {
@@ -982,6 +1005,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let anchorsLast = 3;
   const emberFlameEm: Emitter = { acc: 0 };
   const emberSparkEm: Emitter = { acc: 0 };
+  // V3 wave C tier 3 state. The boss layer halo (tier widened), the live turret count of this frame
+  // and of the last, the most turrets seen this fight, the Tempest drip emitter, the distance dashed
+  // since the last ghost and a fixed pool of dash ghosts (views share the exposed boss context).
+  const haloBoss: FxHalo = { alpha: 0, width: 0 };
+  let turretCount = 0;
+  let turretsLast = 0;
+  let turretsSeen = 0;
+  const tempestDripEm: Emitter = { acc: 0 };
+  let dashDist = 0;
+  let dashCursor = 0;
+  const dashGhosts: { x: number; y: number; rot: number; scale: number; age: number; slot: number; view: Graphics | null }[] = [];
+  for (let i = 0; i < DASH_GHOSTS; i++) dashGhosts.push({ x: 0, y: 0, rot: 0, scale: 1, age: DASH_GHOST_SEC, slot: -1, view: null });
+  let partPeak = new Float32Array(0);
   const halo: FxHalo = { alpha: 0, width: 0 };
   const hazardIn: HazardInput = { type: 0, x: 0, y: 0, rot: 0, radius: 0, vx: 0, vy: 0, age: 0, tier: 1, tint: 0xffffff, timeSec: 0 };
   const bulletTints: number[] = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff];
@@ -1097,6 +1133,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const np = new Float32Array(cap).fill(Number.NaN);
     np.set(enemyPhase);
     enemyPhase = np;
+    const pp = new Float32Array(cap);
+    pp.set(partPeak);
+    partPeak = pp;
     const lx = new Float32Array(cap).fill(Number.NaN);
     lx.set(lastDrawX);
     lastDrawX = lx;
@@ -1313,6 +1352,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       // Wave B: the Mirage afterimage shares a boss context, so it follows the new neon too.
       if (ghostView && ghostSlot >= 0) ghostView.context = contextForSlot(ghostSlot);
+      // Wave C: the Tempest dash ghosts share the exposed boss context, so they follow it too.
+      for (const g of dashGhosts) if (g.view && g.slot >= 0) g.view.context = contextForSlot(g.slot);
       retiredContexts = retiredContexts.concat(old);
       redrawWalls(r);
     },
@@ -1595,12 +1636,19 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     laneHazards = 0;
     anchorsLast = anchorCount;
     anchorCount = 0;
+    turretsLast = turretCount;
+    turretCount = 0;
+    for (const g of dashGhosts) g.age += dt;
     if (!bossView.active) {
       bossLastX = Number.NaN;
       bossLastY = Number.NaN;
       bossSpeed = 0;
       emberFlameEm.acc = 0;
       emberSparkEm.acc = 0;
+      tempestDripEm.acc = 0;
+      dashDist = 0;
+      turretsSeen = 0;
+      partPeak.fill(0);
       bossOpen = 0;
       exposed = false;
       exposeAge = 0;
@@ -1702,7 +1750,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     h.tier = bossTier;
     h.tint = palette[bossColourOf(bossIdx)];
     h.timeSec = timeSec;
-    planHazard(h, hazardBuf, halo);
+    planHazard(h, hazardBuf, haloBoss);
     if (h.type === HAZARD_LANE) laneHazards++;
     // A pull dimples the lattice like a well. Gravitas pulls from its own position instead (the
     // entity pass), so its pull hazard adds no second force.
@@ -1790,6 +1838,62 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         addForce(lattice.sim, x, y, GRAVITAS_LATTICE_R, accel);
         wellsSeen++;
       }
+    } else if (bossIdx === BOSS_TEMPEST) {
+      const dashing = tempestDashing(bossSpeed);
+      const R = bossBodyR(bossIdx) * scale;
+      const dx = Math.cos(rot);
+      const dy = Math.sin(rot);
+      // Slime drips off the tail on the lap (slow ooze at rest); the dash leaves hot ghosts instead.
+      const drip = tempestDripRate(bossView.mode, dashing, t);
+      if (drip > 0) emitEnemyTrail(tempestDripEm, drip, x - dx * R * 0.5, y - dy * R * 0.5, -dx * 40, -dy * 40, ENEMY_TRAIL_SWIRL, palette.slime, dt);
+      else tempestDripEm.acc = 0;
+      const ghosts = dashGhostCount(t);
+      if (dashing && ghosts > 0 && Number.isFinite(lx) && Number.isFinite(ly)) {
+        dashDist += Math.hypot(x - lx, y - ly);
+        if (dashGhostDue(dashDist)) {
+          dashDist = 0;
+          const g = dashGhosts[dashCursor % ghosts];
+          dashCursor = (dashCursor + 1) % ghosts;
+          if (g) {
+            g.x = x;
+            g.y = y;
+            g.rot = rot;
+            g.scale = scale;
+            g.age = 0;
+          }
+        }
+      } else dashDist = 0;
+    }
+  }
+
+  /** Wave C: the Tempest dash ghosts, pooled views on the exposed boss shell (no Graphics.clear). */
+  function drawDashGhosts(): void {
+    const live = bossView.active && bossIdx === BOSS_TEMPEST;
+    const eff = getEffectsTier();
+    const body = live ? bossBodyAlpha(bossView.mode, bossView.modeT) : 0;
+    const tint = palette[bossColourOf(BOSS_TEMPEST)];
+    for (const g of dashGhosts) {
+      const a = live ? dashGhostAlpha(g.age, eff) * body : 0;
+      if (a <= 0) {
+        if (g.view && g.view.visible) g.view.visible = false;
+        continue;
+      }
+      const slot = exposedBossSlot(BOSS_TEMPEST, 0);
+      if (!g.view) {
+        g.view = new Graphics(contextForSlot(slot));
+        g.view.label = 'bossDashGhost';
+        g.slot = slot;
+      } else if (g.slot !== slot) {
+        g.view.context = contextForSlot(slot);
+        g.slot = slot;
+      }
+      if (g.view.parent !== entities) entities.addChildAt(g.view, 0);
+      g.view.visible = true;
+      g.view.position.set(g.x, g.y);
+      g.view.rotation = g.rot;
+      g.view.scale.set(g.scale * dashGhostScale(g.age));
+      g.view.tint = mixRgb(tint, 0xffffff, dashGhostWhite(g.age));
+      g.view.alpha = a;
     }
   }
 
@@ -1821,7 +1925,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   function drawHazards(timeSec: number): void {
     if (bossView.active) {
       entranceRing(bossView.mode, bossView.modeT, bossView.radius, entrance);
-      if (entrance.alpha > 0) planEntranceRing(hazardBuf, bossDrawX, bossDrawY, entrance.r, entrance.alpha, palette[bossColourOf(bossIdx)], bossTier, halo);
+      if (entrance.alpha > 0) planEntranceRing(hazardBuf, bossDrawX, bossDrawY, entrance.r, entrance.alpha, palette[bossColourOf(bossIdx)], bossTier, haloBoss);
       planTier2(timeSec);
     }
     if (hazardBuf.count > 0 || hazardLayer.shown > 0) hazardLayer.sync(hazardBuf);
@@ -2464,15 +2568,33 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
         ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
         if (bossView.active) bossTier2Body(w, i, bossDrawX, bossDrawY, ev.rot, scale, dt);
+        // Wave C: the Bastion keep burns hotter as turrets fall; a surviving twin is hot and fluttering.
+        if (bossView.active && bossIdx === BOSS_BASTION) {
+          ev.glowMul *= bastionGlow(bastionCoreHeat(turretsSeen, turretsLast, bossView.exposed === true));
+        } else if (bossView.active && bossIdx === BOSS_TWINS) {
+          ev.glowMul *= twinsEnrageGlow(bossView.phase, timeSec, getEffectsTier());
+        }
       } else if (isPart) {
         // Parts (pods, anchors, turrets) shake with the body, so the whole boss moves as one.
         ev.x += bossShake.x;
         ev.y += bossShake.y;
         // Wave B: Gravitas anchors are joined by faint lines (planTier2 reads these positions).
-        if (partType(w.a[i] ?? 0) === PART_ANCHOR && anchorCount < TETHER_ANCHORS_MAX) {
+        const pt = partType(w.a[i] ?? 0);
+        if (pt === PART_ANCHOR && anchorCount < TETHER_ANCHORS_MAX) {
           anchorX[anchorCount] = ev.x;
           anchorY[anchorCount] = ev.y;
           anchorCount++;
+        } else if (pt === PART_TURRET) {
+          // Wave C: a turret's alpha follows its hit points (worn, then flickering); the count
+          // heats the Bastion keep next frame. The peak hit points are learned per part.
+          const hp = w.hp[i] ?? 0;
+          if (hp > (partPeak[i] ?? 0)) partPeak[i] = hp;
+          const body = bossView.active ? bossBodyAlpha(bossView.mode, bossView.modeT) : 1;
+          ev.alpha *= turretShown(turretState(hp, partPeak[i] ?? hp), body, timeSec, hash01(i), getEffectsTier());
+          if (hp > 0) {
+            turretCount++;
+            if (turretCount > turretsSeen) turretsSeen = Math.min(BASTION_TURRETS, turretCount);
+          }
         }
       }
       if (kind === KIND_NUM.mine && !teleNow && bossView.active && bossIdx === BOSS_EMBER) {
@@ -2620,10 +2742,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // V3: boss state and the hazard buffer for this frame; the halo follows applyNeon's settings.
     updateBoss(w, fxDt);
     fxHalo(currentRender, bloomOn, halo);
+    tierHalo(halo, bossTier, haloBoss);
     resetSpriteBuf(hazardBuf);
     drawEntities(w, a, nowSec, fxDt);
     drawHazards(nowSec);
     drawGhost();
+    drawDashGhosts();
     drawBossCue();
     const shipX = interp(w.prevX[0] ?? 0, w.x[0] ?? 0, a);
     const shipY = interp(w.prevY[0] ?? 0, w.y[0] ?? 0, a);
@@ -2738,6 +2862,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     anchorsLast = 3;
     emberFlameEm.acc = 0;
     emberSparkEm.acc = 0;
+    tempestDripEm.acc = 0;
+    dashDist = 0;
+    turretCount = 0;
+    turretsLast = 0;
+    turretsSeen = 0;
+    partPeak.fill(0);
+    for (const g of dashGhosts) {
+      g.age = DASH_GHOST_SEC;
+      if (g.view) g.view.visible = false;
+    }
     turboK = 0;
     turboPrevActive = null;
     turboPrevTimer = 0;
