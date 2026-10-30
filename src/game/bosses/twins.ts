@@ -12,14 +12,14 @@
 // and the part goes, so the survivor is always the boss entity and its death alone ends the fight
 // through defeatBoss: one sim:bossDown, one bonus.
 // Scratch: angle orbit angle, t0 ring clock, t1 separation clock, t2 1 once a body fell, t3 the
-// tether recheck, n0 tether id, n2 the second body's id, dir the body whose ring is next (0 front).
+// tether recheck, n0 tether id, n2 the second body's id, dir the body whose ring is next (0 front), 2 once the front body fell first.
 import { killShip } from '../player';
 import { removeEntity } from '../remove';
 import { SHIP_RADIUS } from '../ship';
 import { gs } from '../state';
 import { angleBetween, distBetween, moveTo, stepToward } from '../steer';
 import { Kind, type World } from '../world';
-import { bossBurst, HAZARD_OVERLAP, livePart, spawnPart, spawnRing, spawnTether } from './core';
+import { bossBurst, crackBody, HAZARD_OVERLAP, livePart, spawnPart, spawnRing, spawnTether } from './core';
 import { circlesOverlap, hazardTelegraph, wrapPi } from './kit';
 import type { BossState } from './state';
 import { HAZARD, HAZARD_RECHECK_SEC, TWINS } from './table';
@@ -186,6 +186,7 @@ export function afterDamage(w: World, id: number, bs: BossState): void {
   bs.parts[0] = -1;
   bs.n2 = -1;
   bs.t2 = 1;
+  bs.dir = 2; // the boss entity is now the second body (cracks read its slot)
   moveTo(w, id, bx, by);
   w.prevX[id] = w.x[id] ?? bx;
   w.prevY[id] = w.y[id] ?? by;
@@ -209,4 +210,23 @@ export function entryHome(d: number): number {
   return d < TWINS.entryHome ? d : TWINS.entryHome;
 }
 
-export const def: BossDef = { reset, step, onPhase, entryHome, phaseOf, clampDamage, afterDamage, onPartDamage };
+/**
+ * Cracks per body: crack slot 0 is the front body (its own hit points of maxHp less half), slot 1
+ * the second body (half). After a fall the survivor is the boss entity: slot 1 when dir is 2.
+ */
+export function cracks(w: World, id: number, bs: BossState): void {
+  const half = Math.floor(bs.maxHp / 2);
+  const b = secondBody(w, bs);
+  const hp = w.hp[id] ?? 0;
+  if (b > 0) {
+    const hb = w.hp[b] ?? 0;
+    crackBody(bs, 0, hp - hb, bs.maxHp - half, w.x[id] ?? 0, w.y[id] ?? 0);
+    crackBody(bs, 1, hb, half, w.x[b] ?? 0, w.y[b] ?? 0);
+    return;
+  }
+  if (bs.t2 !== 1) return;
+  const slot = bs.dir === 2 ? 1 : 0;
+  crackBody(bs, slot, hp, slot === 1 ? half : bs.maxHp - half, w.x[id] ?? 0, w.y[id] ?? 0);
+}
+
+export const def: BossDef = { reset, step, onPhase, entryHome, phaseOf, clampDamage, afterDamage, onPartDamage, cracks };

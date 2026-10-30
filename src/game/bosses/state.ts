@@ -108,6 +108,13 @@ export interface BossState {
   downEv: { id: BossId; x: number; y: number };
   hudEv: { id: BossId; hp: number; maxHp: number; phase: number; phases: number; mode: number };
   exposedEv: { id: BossId; exposed: boolean };
+  /** Crack stage (0, 1 or 2) per body: slot 0 the boss, slot 1 the Twins second body. */
+  crack: Uint8Array;
+  crackEv: { id: BossId; stage: 1 | 2; x: number; y: number };
+  windowEv: { id: BossId; open: boolean; secondsLeft: number };
+  /** True while a run up to the window is being reported; winTimer counts to the next report. */
+  winLead: boolean;
+  winTimer: number;
 }
 
 const states = new WeakMap<World, BossState>();
@@ -179,6 +186,11 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     downEv: { id: spec.id, x: 0, y: 0 },
     hudEv: { id: spec.id, hp: 0, maxHp: 0, phase: 1, phases: row.phases, mode: 0 },
     exposedEv: { id: spec.id, exposed: false },
+    crack: new Uint8Array(2),
+    crackEv: { id: spec.id, stage: 1, x: 0, y: 0 },
+    windowEv: { id: spec.id, open: false, secondsLeft: 0 },
+    winLead: false,
+    winTimer: 0,
   };
 }
 
@@ -246,5 +258,10 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.hudEv.phases = row.phases;
   s.exposedEv.id = spec.id;
   s.exposedEv.exposed = false;
+  s.crack.fill(0);
+  s.crackEv.id = spec.id;
+  s.windowEv.id = spec.id;
+  s.winLead = false;
+  s.winTimer = 0;
   return s;
 }

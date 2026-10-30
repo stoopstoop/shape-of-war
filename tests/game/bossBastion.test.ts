@@ -74,7 +74,8 @@ describe('bastion', () => {
     expect(countParts(w, s)).toBe(0);
     run(w, 1.2);
     damageBoss(w, 400, 0, 0);
-    expect(w.hp[boss]).toBe(hp0 - 800);
+    // G3C phase 3: the woken core keeps at most BASTION.wakeHpShare of its hit points.
+    expect(w.hp[boss]).toBe(Math.min(hp0 - 400, Math.round(s.maxHp * BASTION.wakeHpShare)) - 400);
   });
 
   it('a Bulwark joins every 12 s', () => {
