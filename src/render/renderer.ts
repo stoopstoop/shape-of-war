@@ -289,6 +289,7 @@ import {
   bossIndex,
   bossPhaseFlash,
   bossTierOf,
+  tierWeight,
   createBossHitThrottle,
   entranceRing,
   OPEN_RATE,
@@ -386,6 +387,39 @@ import {
 } from './turboFx';
 import { createSpriteBuf, fxHalo, resetSpriteBuf, type FxHalo } from './fxSprites';
 import { createFxSpriteLayer, makeBossFxAtlas } from './fxSpriteLayer';
+// G3C boss identity (run 0288): Prism window from 'sim:bossWindow', per boss hit flash, cracks from
+// 'sim:bossCrack', owner hue attacks, the tier 3 halo and the Twins enrage flare (bossIdentity.ts).
+import {
+  BOSS_OUTLINES,
+  bossAttackKey,
+  bossFlashAllow,
+  createBossCracks,
+  createBossFlashThrottle,
+  createBossWindow,
+  crackEvent,
+  CRACK_PTS,
+  hitFlashAlpha,
+  hitSparkCount,
+  onBossCrack,
+  onBossWindow,
+  pieceAlpha,
+  pieceDrift,
+  pieceWedge,
+  PIECE_LIFE,
+  resetBossCracks,
+  resetBossWindow,
+  stepBossWindow,
+  tier3HaloAlpha,
+  tier3Pulse,
+  TIER3_HALO_WIDTH,
+  twinsFlare,
+  windowFlash,
+  windowRing,
+  windowEvent,
+  windowWhite,
+  type WindowRing,
+} from './bossIdentity';
+import type { ShapePrim } from './shapeSpecs';
 import { createEnemyBulletLayer } from './enemyBullets';
 import type { EnemyBulletFrame, EnemyBulletsLike } from './enemyBulletFx';
 import { HAZARD_LANE, HAZARD_PULL, HAZARD_SPRITE_CAP, planEntranceRing, planHazard, type HazardInput } from './hazardFx';
@@ -973,6 +1007,35 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let bossEdgeAge = Number.POSITIVE_INFINITY;
   let bossEdgeKey: PaletteKey = 'bossBlue';
   const bossHitThrottle = createBossHitThrottle();
+  // G3C identity state. The window, the per boss flash throttle and age, the crack state, two
+  // broken pieces (world space), the drawn body transforms (boss plus up to two Twins bodies), and
+  // two Graphics: the tier 3 halo under the bodies, the flash, cracks, ring and pieces over them.
+  const bossWin = createBossWindow();
+  const bossFlashT = createBossFlashThrottle();
+  let bossFlashAge = Number.POSITIVE_INFINITY;
+  let bossSparkSeq = 0;
+  const bossCracks = createBossCracks();
+  const PIECES = 2;
+  const pieceAge = new Float64Array(PIECES).fill(Number.POSITIVE_INFINITY);
+  const pieceX = new Float64Array(PIECES);
+  const pieceY = new Float64Array(PIECES);
+  const pieceDx = new Float64Array(PIECES);
+  const pieceDy = new Float64Array(PIECES);
+  const pieceA = new Float64Array(PIECES);
+  const pieceScale = new Float64Array(PIECES);
+  const pieceStage = new Uint8Array(PIECES);
+  const wedge = new Float32Array(6);
+  const winRing: WindowRing = { r: 0, alpha: 0, width: 0 };
+  const BODIES = 3;
+  const bodyX = new Float64Array(BODIES);
+  const bodyY = new Float64Array(BODIES);
+  const bodyRot = new Float64Array(BODIES);
+  const bodyScale = new Float64Array(BODIES);
+  let bodyCount = 1;
+  let bossSeen = false;
+  const bossUnder = new Graphics({ label: 'bossUnder' });
+  const bossOver = new Graphics({ label: 'bossOver' });
+  let bossOverShown = false;
   /** G3A weak point cue: 'sim:bossExposed' state (EXPOSE_UNKNOWN until the event arrives). */
   let exposeEvent = EXPOSE_UNKNOWN;
   /** Resolved exposure this frame, seconds since it began, and the pulse phase in cycles. */
@@ -1567,6 +1630,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
    * the body instead, so the player sees the shot did nothing. No allocation.
    */
   function onBossHit(x: number, y: number, blocked: boolean): void {
+    // G3C: a 60 ms white outline flash and 2 to 3 sparks in the boss hue, at most 20 per second per
+    // boss, on every tier, so damage reads on Bastion and Tempest at full speed.
+    if (!blocked && bossFlashAllow(bossFlashT, bossIdx, hitClockMs)) {
+      bossFlashAge = 0;
+      bossSparkSeq = (bossSparkSeq + 1) | 0;
+      burstBoss(x, y, palette[bossColourOf(bossIdx)], hitSparkCount(bossSparkSeq), 140, 360, 0.15, 0.3);
+    }
     if (!bossHitAllow(bossHitThrottle, hitClockMs)) return;
     if (!blocked) bossHitAge = 0;
     if (!hitFxOn(getEffectsTier())) return;
@@ -1595,6 +1665,45 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossEdgeKey = bossColourOf(b);
     if (mapEffectsOn(getEffectsTier())) bossEdgeAge = 0;
     exposeEvent = EXPOSE_UNKNOWN;
+    resetIdentity();
+  }
+
+  /** G3C: drop the window, cracks, pieces and flash (boss enter, boss down, new level). */
+  function resetIdentity(): void {
+    resetBossWindow(bossWin);
+    resetBossCracks(bossCracks);
+    pieceAge.fill(Number.POSITIVE_INFINITY);
+    bossFlashAge = Number.POSITIVE_INFINITY;
+  }
+
+  /** 'sim:bossWindow': the Prism run up (open false, secondsLeft) and the open window. */
+  function onWindow(id: string, open: boolean, secondsLeft: number): void {
+    if (id !== '' && payloadBoss(id) !== bossIdx) return;
+    windowEvent(bossWin, open, secondsLeft);
+  }
+
+  /**
+   * 'sim:bossCrack' at 66 and 33 percent: lay the crack (kept until the boss dies) and break a
+   * wedge off at (x, y), which drifts 40 u outward and dissolves in 0.8 s.
+   */
+  function onCrack(id: string, stage: number, x: number, y: number): void {
+    if (id !== '' && payloadBoss(id) !== bossIdx) return;
+    const px = Number.isFinite(x) ? x : bossDrawX + 1;
+    const py = Number.isFinite(y) ? y : bossDrawY;
+    const wa = Math.atan2(py - bossDrawY, px - bossDrawX);
+    const rot = bossSeen ? (bodyRot[0] ?? 0) : bossView.rot;
+    const s = stage >= 2 ? 2 : 1;
+    if (!crackEvent(bossCracks, s, wa - rot, bossIdx * 17 + s)) return;
+    const k = s - 1;
+    pieceAge[k] = 0;
+    pieceX[k] = bossDrawX;
+    pieceY[k] = bossDrawY;
+    pieceDx[k] = Math.cos(wa);
+    pieceDy[k] = Math.sin(wa);
+    pieceA[k] = wa;
+    pieceScale[k] = (bossSeen ? (bodyScale[0] ?? 1) : 1) * bossBodyR(bossIdx);
+    pieceStage[k] = s;
+    burstBoss(px, py, palette[bossColourOf(bossIdx)], 10 * s, 120, 380, 0.3, 0.7);
   }
 
   /**
@@ -1622,6 +1731,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
    */
   function onBossDown(id: string, x: number, y: number): void {
     exposeEvent = EXPOSE_UNKNOWN;
+    resetIdentity();
     const b = payloadBoss(id);
     const t = getEffectsTier();
     const key = bossColourOf(b);
@@ -1653,6 +1763,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossHitAge += dt;
     bossPhaseAge += dt;
     bossEdgeAge += dt;
+    bossFlashAge += dt;
+    for (let k = 0; k < PIECES; k++) pieceAge[k] = (pieceAge[k] ?? 0) + dt;
+    stepBossWindow(bossWin, dt);
     addCount = 0;
     ghostAge += dt;
     laneHazards = 0;
@@ -1895,8 +2008,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
    */
   function drawPrism(w: World, x: number, y: number, rot: number, scale: number, alpha: number): void {
     if (!prismLayer) prismLayer = createPrismLayer(entities, BOSS_LINE);
-    const c = prismCycle(prismClock, w.time, bossView.mode, bossView.exposed === true, bossView.exposedT ?? 0);
-    const white = prismWhite(c);
+    // G3C: whiteness and flash come from 'sim:bossWindow' (run up and open), never from a cycle
+    // guessed off w.time. Before the first event, only the exposed flag of the view counts.
+    const isOpen = bossView.exposed === true;
+    const c = prismCycle(prismClock, w.time, bossView.mode, isOpen, bossView.exposedT ?? 0);
+    const white = bossWin.known ? windowWhite(bossWin) : isOpen ? prismWhite(c) : 0;
+    const flash = bossWin.known ? windowFlash(bossWin) : isOpen ? prismFlash(c) : 0;
     const f = prismFrame;
     f.timeSec = w.time;
     f.x = x;
@@ -1911,7 +2028,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     prismLayer.update(f);
     prismDrawn = true;
     prismGlowTint = prismBodyColour(w.time, prismSaturation(current.saturation), f.borrowed, white);
-    prismGlow = prismGlowMul(white, prismFlash(c));
+    prismGlow = prismGlowMul(white, flash);
   }
 
   /** Wave C: the Tempest dash ghosts, pooled views on the exposed boss shell (no Graphics.clear). */
@@ -1987,6 +2104,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bulletTints[2] = palette[TIER_BULLET_KEY[2]];
     bulletTints[3] = palette[TIER_BULLET_KEY[3]];
     bulletTints[4] = palette[TIER_BULLET_KEY[4]];
+    // G3C: the live boss's bullets take its own hue (attack colour family per boss).
+    if (bossView.active) bulletTints[bossTier] = palette[bossAttackKey(bossIdx)];
     bulletFrame.alpha = alpha;
     bulletFrame.timeSec = timeSec;
     bulletFrame.effects = getEffectsTier();
@@ -2173,6 +2292,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     onBossExposed(bus, (on) => {
       exposeEvent = exposeState(on);
     }),
+    // G3C: the Prism window and the 66 and 33 percent cracks (Swarm, parallel run).
+    onBossWindow(bus, onWindow),
+    onBossCrack(bus, onCrack),
   ];
   offFx.push(
     onEffectsTierChanged((t) => {
@@ -2478,6 +2600,175 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
   }
 
+  /** Add the outline path of the live boss at a body transform (moveTo and lineTo, no allocation). */
+  function outlinePath(g: Graphics, x: number, y: number, rot: number, scale: number): void {
+    const p = BOSS_OUTLINES[bossIdx] ?? null;
+    if (p === null || p.t === 'line' || p.t === 'rect') {
+      g.circle(x, y, bossBodyR(bossIdx) * scale);
+      return;
+    }
+    if (p.t === 'circle') g.circle(x, y, p.r * scale);
+    else if (p.t === 'regularPoly') g.regularPoly(x, y, p.r * scale, p.sides, rot + p.rot);
+    else polyPath(g, p, x, y, rot, scale);
+  }
+
+  function polyPath(g: Graphics, p: Extract<ShapePrim, { t: 'poly' }>, x: number, y: number, rot: number, scale: number): void {
+    const c = Math.cos(rot) * scale;
+    const s = Math.sin(rot) * scale;
+    const pts = p.pts;
+    for (let k = 0; k + 1 < pts.length; k += 2) {
+      const lx = pts[k] ?? 0;
+      const ly = pts[k + 1] ?? 0;
+      const wx = x + lx * c - ly * s;
+      const wy = y + lx * s + ly * c;
+      if (k === 0) g.moveTo(wx, wy);
+      else g.lineTo(wx, wy);
+    }
+    g.closePath();
+  }
+
+  /** Add a unit space polyline or triangle (body radii) at a transform; close for a filled wedge. */
+  function unitPath(g: Graphics, pts: Float32Array, n: number, x: number, y: number, rot: number, rs: number, close: boolean): void {
+    const c = Math.cos(rot) * rs;
+    const s = Math.sin(rot) * rs;
+    for (let k = 0; k < n; k++) {
+      const lx = pts[k * 2] ?? 0;
+      const ly = pts[k * 2 + 1] ?? 0;
+      const wx = x + lx * c - ly * s;
+      const wy = y + lx * s + ly * c;
+      if (k === 0) g.moveTo(wx, wy);
+      else g.lineTo(wx, wy);
+    }
+    if (close) g.closePath();
+  }
+
+  /** One crack stage on the boss body: a dark cut with a hot seam, and the gap of the lost piece. */
+  function drawCrack(g: Graphics, line: Float32Array, angle: number, stage: number, rs: number, lw: number, hot: number, a: number): void {
+    const x = bodyX[0] ?? 0;
+    const y = bodyY[0] ?? 0;
+    const rot = bodyRot[0] ?? 0;
+    unitPath(g, pieceWedge(angle, stage, wedge), 3, x, y, rot, rs * 1.04, true);
+    g.fill({ color: 0x000000, alpha: 0.92 * a }).stroke({ width: lw * 0.4, color: hot, alpha: 0.8 * a });
+    unitPath(g, line, CRACK_PTS, x, y, rot, rs, false);
+    g.stroke({ width: lw * 1.3, color: 0x000000, alpha: 0.85 * a });
+    unitPath(g, line, CRACK_PTS, x, y, rot, rs, false);
+    g.stroke({ width: lw * 0.35, color: hot, alpha: a });
+  }
+
+  /**
+   * G3C boss identity pass, after the bodies: the tier 3 dark red halo (under) and slow red pulse,
+   * the Twins survivor flare, the 60 ms white hit flash, the Prism run to white and window ring, the
+   * kept cracks and the broken pieces. Two Graphics, rebuilt only while a boss or a piece shows.
+   */
+  function drawBossIdentity(timeSec: number): void {
+    const g = bossOver;
+    const u = bossUnder;
+    const active = bossView.active && bossSeen;
+    const piecesLive = (pieceAge[0] ?? Infinity) < PIECE_LIFE || (pieceAge[1] ?? Infinity) < PIECE_LIFE;
+    if (!active && !piecesLive) {
+      if (bossOverShown) {
+        g.clear();
+        u.clear();
+        bossOverShown = false;
+      }
+      return;
+    }
+    if (u.parent !== entities) entities.addChildAt(u, 0);
+    if (entities.children[entities.children.length - 1] !== g) entities.addChild(g);
+    g.clear();
+    u.clear();
+    bossOverShown = true;
+    const hue = palette[bossColourOf(bossIdx)];
+    const hot = mixRgb(hue, 0xffffff, 0.6);
+    const R = bossBodyR(bossIdx);
+    const lw = BOSS_LINE * tierWeight(bossTier);
+    if (active) {
+      const bodyA = bossBodyAlpha(bossView.mode, bossView.modeT);
+      // Tier 3: wide dark red halo under every body and a slow red pulse over it.
+      const ha = tier3HaloAlpha(bossTier, timeSec) * bodyA;
+      if (ha > 0) {
+        const dark = mixRgb(palette.bossRed, 0x000000, 0.55);
+        const pulse = tier3Pulse(bossTier, timeSec);
+        for (let b = 0; b < bodyCount; b++) {
+          if (b === 0 ? false : bossIdx !== BOSS_TWINS) continue;
+          const bs = bodyScale[b] ?? 1;
+          const rr = R * bs;
+          for (let k = 0; k < 3; k++) {
+            u.circle(bodyX[b] ?? 0, bodyY[b] ?? 0, rr * (1.18 + k * 0.16)).stroke({
+              width: rr * TIER3_HALO_WIDTH * 0.36,
+              color: dark,
+              alpha: ha * (1 - k * 0.3),
+            });
+          }
+          outlinePath(g, bodyX[b] ?? 0, bodyY[b] ?? 0, bodyRot[b] ?? 0, bs);
+          g.fill({ color: palette.bossRed, alpha: 0.14 * pulse * bodyA }).stroke({ width: lw * 1.4, color: palette.bossRed, alpha: 0.5 * pulse * bodyA });
+        }
+      }
+      // Twins: the enraged survivor flares red at a faster beat.
+      const fl = bossIdx === BOSS_TWINS ? twinsFlare(bossView.phase, timeSec) * bodyA : 0;
+      if (fl > 0) {
+        for (let b = 0; b < bodyCount; b++) {
+          const bs = bodyScale[b] ?? 1;
+          outlinePath(g, bodyX[b] ?? 0, bodyY[b] ?? 0, bodyRot[b] ?? 0, bs);
+          g.stroke({ width: lw * 2, color: palette.red, alpha: fl });
+          g.circle(bodyX[b] ?? 0, bodyY[b] ?? 0, R * bs * 1.35).stroke({ width: lw * 1.2, color: palette.red, alpha: fl * 0.6 });
+        }
+      }
+      // Cracks stay until the boss dies.
+      const rs = R * (bodyScale[0] ?? 1);
+      // Bastion: turret stubs at the four corners keep the fortress read after the turrets fall.
+      if (bossIdx === BOSS_BASTION) {
+        const x = bodyX[0] ?? 0;
+        const y = bodyY[0] ?? 0;
+        for (let k = 0; k < 4; k++) {
+          const a = (bodyRot[0] ?? 0) + Math.PI / 4 + (k * Math.PI) / 2;
+          const c = Math.cos(a);
+          const s = Math.sin(a);
+          g.moveTo(x + c * rs * 0.98, y + s * rs * 0.98).lineTo(x + c * rs * 1.22, y + s * rs * 1.22);
+        }
+        g.stroke({ width: lw * 1.8, color: hue, alpha: 0.9 * bodyA });
+      }
+      if (bossCracks.stage >= 1) drawCrack(g, bossCracks.line1, bossCracks.angle1, 1, rs, lw, hot, bodyA);
+      if (bossCracks.stage >= 2) drawCrack(g, bossCracks.line2, bossCracks.angle2, 2, rs, lw, hot, bodyA);
+      // Prism: the whole body runs to white with a contracting ring, then holds a white flash.
+      if (bossIdx === BOSS_PRISM) {
+        const wv = bossWin.known ? windowWhite(bossWin) : bossView.exposed === true ? 1 : 0;
+        if (wv > 0) {
+          const x = bodyX[0] ?? 0;
+          const y = bodyY[0] ?? 0;
+          const fl2 = bossWin.known ? windowFlash(bossWin) : 0.6;
+          outlinePath(g, x, y, bodyRot[0] ?? 0, bodyScale[0] ?? 1);
+          g.fill({ color: 0xffffff, alpha: 0.12 * wv + 0.25 * fl2 }).stroke({ width: lw * 1.5, color: 0xffffff, alpha: wv });
+          g.circle(x, y, bossCoreFrac(bossIdx, 1) * rs).fill({ color: 0xffffff, alpha: wv });
+          const ring = bossWin.known ? windowRing(bossWin, winRing) : null;
+          if (ring !== null && ring.alpha > 0) g.circle(x, y, ring.r * rs).stroke({ width: lw * ring.width, color: 0xffffff, alpha: ring.alpha });
+        }
+      }
+      // Hit flash: a 60 ms white outline on every body.
+      const fa = hitFlashAlpha(bossFlashAge) * bodyA;
+      if (fa > 0) {
+        for (let b = 0; b < bodyCount; b++) {
+          if (b > 0 && bossIdx !== BOSS_TWINS) continue;
+          outlinePath(g, bodyX[b] ?? 0, bodyY[b] ?? 0, bodyRot[b] ?? 0, bodyScale[b] ?? 1);
+          g.stroke({ width: lw * 1.6, color: 0xffffff, alpha: fa });
+        }
+      }
+    }
+    // Broken pieces drift 40 u outward and dissolve in 0.8 s.
+    for (let k = 0; k < PIECES; k++) {
+      const age = pieceAge[k] ?? Infinity;
+      if (age >= PIECE_LIFE) continue;
+      const d = pieceDrift(age);
+      const a = pieceAlpha(age);
+      const st = pieceStage[k] ?? 1;
+      pieceWedge(0, st, wedge);
+      const px = (pieceX[k] ?? 0) + (pieceDx[k] ?? 0) * d;
+      const py = (pieceY[k] ?? 0) + (pieceDy[k] ?? 0) * d;
+      unitPath(g, wedge, 3, px, py, (pieceA[k] ?? 0), pieceScale[k] ?? R, true);
+      g.fill({ color: hue, alpha: 0.45 * a }).stroke({ width: lw, color: hot, alpha: a });
+    }
+  }
+
   function drawEntities(w: World, alpha: number, timeSec: number, dt: number): void {
     growPools(w.cap);
     if (enemyFxDirty) {
@@ -2498,6 +2789,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       : 0xffffff;
     let live = 0;
     prismDrawn = false;
+    bossSeen = false;
+    bodyCount = 1;
     for (let i = 0; i < w.cap; i++) {
       if (w.alive[i] !== 1) {
         hideSlot(i);
@@ -2618,6 +2911,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         // Exposed shake: the drawn body and its glow move, bossDrawX and the sim stay put.
         ev.x += bossShake.x;
         ev.y += bossShake.y;
+        bossSeen = true;
+        bodyX[0] = ev.x;
+        bodyY[0] = ev.y;
+        bodyRot[0] = ev.rot;
+        bodyScale[0] = scale;
         const phaseEvent = bossPhaseAge < PHASE_FLASH_SEC ? 1 - bossPhaseAge / PHASE_FLASH_SEC : 0;
         const phaseMode = bossView.active ? bossPhaseFlash(bossView.mode, bossView.modeT) : 0;
         ev.glowMul = bossGlowMul(bossHitAge, phaseEvent > phaseMode ? phaseEvent : phaseMode);
@@ -2641,6 +2939,13 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
           // The Twins second body fades in and out with the boss and burns like it once the pair is one.
           ev.alpha = bossView.active ? bossBodyAlpha(bossView.mode, bossView.modeT) : 1;
           if (bossView.active) ev.glowMul *= twinsEnrageGlow(bossView.phase, timeSec, getEffectsTier());
+          if (bodyCount < BODIES) {
+            bodyX[bodyCount] = ev.x;
+            bodyY[bodyCount] = ev.y;
+            bodyRot[bodyCount] = ev.rot;
+            bodyScale[bodyCount] = scale;
+            bodyCount++;
+          }
         }
         // Wave B: Gravitas anchors are joined by faint lines (planTier2 reads these positions).
         const pt = partType(w.a[i] ?? 0);
@@ -2705,6 +3010,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       s.scale.set(ev.scaleX * glowScale, ev.scaleY * glowScale);
     }
     if (!prismDrawn && prismLayer) prismLayer.hide();
+    drawBossIdentity(timeSec);
     drawPops(dt);
     stats.entities = live;
   }
@@ -2906,6 +3212,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossPhaseAge = Number.POSITIVE_INFINITY;
     bossEdgeAge = Number.POSITIVE_INFINITY;
     bossHitThrottle.lastMs = Number.NEGATIVE_INFINITY;
+    resetIdentity();
     resetSpriteBuf(cueBuf);
     cueLayer.clear();
     exposeEvent = EXPOSE_UNKNOWN;
