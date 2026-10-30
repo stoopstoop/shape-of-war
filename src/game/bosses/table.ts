@@ -366,12 +366,14 @@ export interface ShotRow {
 /**
  * The three shooters (docs/13 "Boss projectiles"). Each row holds the shot and the trade it pays
  * (Spindle's slower arms, Ember's longer rest after an open floor dash). Cut 5 empties these rows,
- * which removes the shots and reverts the trades; every other attack stays. Bastion's row arrives
- * with Bastion in wave C.
+ * which removes the shots and reverts the trades; every other attack stays. Bastion's row is its
+ * trade too: with it each turret alternates a lane and a bullet on its own turns (same turn rate,
+ * BASTION.turnEvery); without it every turn is a lane.
  */
 export const BOSS_SHOTS: Readonly<Partial<Record<BossId, ShotRow>>> = {
   spindle: { pattern: 'pellet', speed: 180, every: 3.0, everyP2: 3.6, count: 1, armRate: 0.4 },
   ember: { pattern: 'fan', speed: 210, every: 0, everyP2: 0, count: 3, spreadDeg: 14, restSec: 1.8 },
+  bastion: { pattern: 'turret', speed: 200, every: 1.5, everyP2: 1.5, count: 1 },
 };
 
 /** A volley is at most this many bullets (docs/13 boss projectiles rule 2). */

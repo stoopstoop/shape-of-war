@@ -4,14 +4,18 @@
 // its turns, so the total turn rate never changes. A turn fires a lane straight out from the turret.
 // The core takes damage only once two turrets are down. Phases follow the turrets (phaseOf): four,
 // two, none. Every 12 s a Bulwark joins on the side facing the target. The core never fires.
-// Scratch: t0 turn clock, t1 add clock, n0 the turret whose turn is next, retry the lane recheck.
+// Shots (BOSS_SHOTS.bastion, cut 5): each turret alternates a lane and a 200 u/s bullet on its own
+// turns, so the turn rate is unchanged, phase 2 has half the bullets and phase 3 none.
+// Scratch: t0 turn clock, t1 add clock, n0 the turret whose turn is next, n1 the shot bits, retry
+// the lane recheck, shotWait the bullet recheck.
 import * as bulwark from '../enemies/bulwark';
 import { angleBetween, moveTo, targetOf } from '../steer';
 import type { World } from '../world';
 import { countParts, HAZARD_OVERLAP, livePart, spawnAdd, spawnLane, spawnPart } from './core';
 import { wrapPi } from './kit';
 import type { BossState } from './state';
-import { BASTION, HAZARD_RECHECK_SEC } from './table';
+import { fireVolley } from './shots';
+import { BASTION, BOSS_SHOTS, HAZARD_RECHECK_SEC, SHOT_RECHECK_SEC } from './table';
 import { BossMode, PartType, type BossDef } from './types';
 
 const QUARTER = Math.PI / 2;
@@ -54,11 +58,34 @@ function setWindow(bs: BossState, turrets: number): void {
   bs.mode = bs.open ? BossMode.Vulnerable : BossMode.Guarded;
 }
 
+/** Pure: with the shot row, turret k fires a bullet on this turn (its turns alternate, a lane first). */
+export function isShotTurn(toggles: number, k: number, hasRow: boolean): boolean {
+  return hasRow && (toggles & (1 << k)) !== 0;
+}
+
 /**
- * Turret p's action on its turn. True once done (or dropped at the hazard cap); false when it must
- * wait and recheck (the lane would cover the ship now).
+ * Turret p (slot k)'s action on its turn. True once done (or dropped at a cap); false when it must
+ * wait and recheck (the lane would cover the ship now, or the ship is within 300 u of the muzzle).
+ * With the shot row each turret alternates a lane and a bullet on its own turns (BossState.n1 holds
+ * one bit per turret); the bullet's heading is fixed now, at the charge start, toward targetOf.
  */
-function fireTurret(w: World, bs: BossState, p: number): boolean {
+function fireTurret(w: World, bs: BossState, p: number, k: number): boolean {
+  const row = BOSS_SHOTS.bastion;
+  const hasRow = row !== undefined && row.pattern === 'turret';
+  if (row !== undefined && isShotTurn(bs.n1, k, hasRow)) {
+    if (!fireVolley(w, p, bs, row, 1)) {
+      bs.shotWait = SHOT_RECHECK_SEC;
+      return false;
+    }
+    bs.n1 &= ~(1 << k);
+    return true;
+  }
+  if (!fireLane(w, bs, p)) return false;
+  if (hasRow) bs.n1 |= 1 << k;
+  return true;
+}
+
+function fireLane(w: World, bs: BossState, p: number): boolean {
   const a = w.rot[p] ?? 0;
   const x = (w.x[p] ?? 0) + Math.cos(a) * BASTION.turretRadius;
   const y = (w.y[p] ?? 0) + Math.sin(a) * BASTION.turretRadius;
@@ -83,7 +110,7 @@ function stepTurns(w: World, bs: BossState, dt: number, adt: number): void {
   }
   const k = bs.n0;
   const p = livePart(w, bs, k);
-  if (p > 0 && !fireTurret(w, bs, p)) return;
+  if (p > 0 && !fireTurret(w, bs, p, k)) return;
   bs.n0 = (k + 1) % BASTION.turrets;
   bs.t0 -= BASTION.turnEvery;
   if (bs.t0 < 0) bs.t0 = 0;

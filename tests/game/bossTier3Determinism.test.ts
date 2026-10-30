@@ -31,7 +31,7 @@ function inputAt(step: number, out: InputState): InputState {
   return out;
 }
 
-export function recordBoss(id: BossId, secs = 60): number[] {
+function recordBoss(id: BossId, secs = 60): number[] {
   const w: World = createGame(bossLevel(id, { lives: 40, par: 6000 }, 2), { vibrate: () => undefined });
   const log: number[] = [];
   const input = idle();
@@ -74,4 +74,16 @@ describe('tier 3 boss determinism', () => {
       expect(Math.max(...hp)).toBeGreaterThan(0);
     });
   }
+
+  it('bastion shots: identical enemy bullet pool log over 60 s, no Math.random', () => {
+    vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Math.random called');
+    });
+    const a = recordBoss('bastion');
+    const b = recordBoss('bastion');
+    expect(a).toEqual(b);
+    // Turret bullets were in the air at some point, so the pool is part of what matched.
+    const live = a.filter((_, i) => i % 11 === 7);
+    expect(Math.max(...live)).toBeGreaterThan(0);
+  });
 });
