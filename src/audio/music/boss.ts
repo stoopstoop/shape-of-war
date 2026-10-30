@@ -8,7 +8,7 @@
 //   tier 1: A minor pentatonic        A C D E G
 //   tier 2: harmonic minor            A B C D E F G#
 //   tier 3: phrygian                  A Bb C D E F G
-//   tier 4: natural minor (wave C writes Prism's quoting loop)
+//   tier 4: natural minor            A B C D E F G
 // The motif plays over its tier's boss bed (tunes.ts BOSS_TUNES), whose chords come from the
 // same scale. On the downbeat and the half bar a note moves to the nearest pitch that is both a
 // chord tone and in the tier scale, so the line agrees with the bed and never leaves its scale.
@@ -22,8 +22,9 @@
 //   phaseTempo:  2 plays the line at double time, steps and durations halved (Twins phase 2);
 //   lap:         each pass of the loop climbs `rise` scale degrees for `laps` passes, then resets (Tempest);
 //   canon:       a phase voice that plays the main line `bars` bars late (Twins).
-// Prism (entry 10) is present with empty lines: it builds no notes until wave C fills it, and
-// every key exists so the registry test catches a missing id.
+// Prism (entry 10, tier 4) has its own builder, further down: a four bar loop that quotes cells of
+// bosses 1 to 9 and a rising arpeggio that cues its damage cycle. Every key exists so the
+// registry test catches a missing id.
 import { hash01 } from '../../core/rng';
 import { BOSS_IDS, type BossId, type BossTier } from '../../levelgen/leveldef';
 import { BOSS_VOICE_MAX } from './engine';
@@ -161,6 +162,8 @@ export const BOSS_TIMBRES = {
   gale: timbre('gale', 'square', { wave: 'sawtooth', detune: 7 }, 'bandpass', 2200, 1.4, 0.002, 0.06),
   // A soft reed: a triangle with a saw a few cents off, so two voices a bar apart stay distinct.
   echo: timbre('echo', 'triangle', { wave: 'sawtooth', detune: 5 }, 'lowpass', 1800, 1, 0.01, 0.14),
+  // Tier 4 colour: a bright saw with a square a fifth above, two colours in one note.
+  prism: timbre('prism', 'sawtooth', { wave: 'square', detune: 700 }, 'lowpass', 2600, 1.2, 0.004, 0.16),
   // The entry, phase and defeat stingers: a bright saw over a square an octave down.
   bossSting: timbre('bossSting', 'sawtooth', { wave: 'square', detune: -1200 }, 'lowpass', 2600, 1, 0.003, 0.3),
 } as const satisfies Readonly<Record<string, Timbre>>;
@@ -186,10 +189,6 @@ interface SpecInput {
   readonly character: string;
 }
 
-function empty(tier: BossTier, character: string): SpecInput {
-  return { tier, loopBars: 0, register: 57, timbre: BOSS_TIMBRES.bossSting, gain: 0, main: [], phaseVoices: [], character };
-}
-
 /** Tempest's lap: 32 sixteenths over two bars. Each beat runs a triad (up, up, up, back), a degree above the beat before. */
 function arpLine(): BossNoteDef[] {
   const shape = [0, 2, 4, 2];
@@ -202,7 +201,7 @@ function arpLine(): BossNoteDef[] {
 
 // Degrees: tier 1 (pentatonic) 0 A, 1 C, 2 D, 3 E, 4 G, 5 A up. Tiers 2 and 3 (seven notes)
 // 0 A, 1 B or Bb, 2 C, 3 D, 4 E, 5 F, 6 G# or G, 7 A up.
-const INPUTS: Readonly<Record<BossId, SpecInput>> = {
+const BASE_INPUTS: Readonly<Record<Exclude<BossId, 'prism'>, SpecInput>> = {
   // Low two note heartbeat, A2 then E3, once a bar. Phase 2 doubles it an octave up.
   warden: {
     tier: 1,
@@ -331,7 +330,6 @@ const INPUTS: Readonly<Record<BossId, SpecInput>> = {
     phaseTempo: [1, 2],
     character: 'two voice canon a bar apart; solo at double time once one body falls',
   },
-  prism: empty(4, 'wave C: quotes bosses 1 to 9'),
 };
 
 // ---------------------------------------------------------------------------------------
@@ -450,8 +448,200 @@ export function buildBossBar(spec: Shape, phase: number, bar: number): BossMotif
   return out.sort((a, c) => a.step - c.step || a.voice - c.voice);
 }
 
+// ---------------------------------------------------------------------------------------
+// Prism (entry 10, tier 4). A four bar loop in natural minor over the tier 4 bed (Am F C G, two
+// bars a chord). Phase p quotes the cells of bosses 2p-1, 2p and 2p+1 (a window of three sliding
+// by two, so phase 1 is bosses 1 to 3 and phase 4 is bosses 7 to 9, and the four phases between
+// them quote all nine). A cell is one bar of a boss's main line: its rhythm and contour are kept,
+// the whole cell moves into Prism's register and up or down some scale degrees, and every pitch
+// is then fitted to A natural minor (the raised seventh and the flat second drop to the nearest
+// natural minor note). Which bar of a boss's loop is quoted comes from hash01 of (boss, phase, slot).
+//
+// Loop layout (local bars from the join): bar 0 quotes cell 1 whole, bar 1 quotes cell 2 in its
+// first half, bar 2 quotes cell 3 whole, bar 3 answers cell 1 in its first half, lower. The
+// second half of every second bar (bars 1 and 3) is the cue: a rising arpeggio of eight
+// sixteenths on that bar's chord, one second long at 120 BPM, topping out on the bar line.
+//
+// The damage cycle is 4 s, exactly two bars at 120 BPM: the run to white and the shield drop
+// happen on a two bar grid, so the cue sits on the last second before each even bar line from
+// bar 2, with nothing but the pure bar needed. The pattern assumes the cycle starts on a bar
+// line of the boss bed (local bar 0); if sim can start it elsewhere, the music needs the cycle
+// clock on the bus (hand-off Requests).
+//
+// Phases 3 and 4 double the whole line, arpeggio included, an octave up.
+
+export const PRISM_LOOP_BARS = 4;
+/** MIDI A the Prism degrees count from (A3). */
+export const PRISM_REGISTER = 57;
+/** A half bar, in steps: the room a cell has in a bar that ends with the cue. */
+export const PRISM_HALF = STEPS_PER_BAR / 2;
+/** First step of the cue inside a cue bar (the second half of the bar). */
+export const PRISM_ARP_STEP = PRISM_HALF;
+/** Notes of the cue arpeggio, one per sixteenth of the second half. */
+export const PRISM_ARP_NOTES = 8;
+/** The cue repeats every second bar; it sits in the odd bars of the loop. */
+export const PRISM_CUE_PERIOD_BARS = 2;
+/** Stacked thirds from the chord root, in tier 4 degrees: root, third, fifth, then the octave and again. */
+const ARP_STACK: readonly number[] = [0, 2, 4, 7, 9, 11, 14, 16];
+const SALT_CELL = 0x6b35;
+
+interface PrismSlot {
+  /** Bar of the loop the cell sits in. */
+  readonly bar: number;
+  /** Which of the three quoted bosses (0 to 2). */
+  readonly quote: number;
+  /** Steps the cell may fill: a whole bar, or the half before the cue. */
+  readonly limit: number;
+  /** Scale degrees the quote is moved by. */
+  readonly shift: number;
+}
+
+const PRISM_SLOTS: readonly PrismSlot[] = [
+  { bar: 0, quote: 0, limit: STEPS_PER_BAR, shift: 0 },
+  { bar: 1, quote: 1, limit: PRISM_HALF, shift: 2 },
+  { bar: 2, quote: 2, limit: STEPS_PER_BAR, shift: 4 },
+  { bar: 3, quote: 0, limit: PRISM_HALF, shift: -3 },
+];
+
+/** Pure: the three bosses a phase quotes (phases clamp to 1 to 4): bosses 2p-1, 2p and 2p+1. */
+export function prismQuotedIds(phase: number): BossId[] {
+  const p = Math.min(4, Math.max(1, Math.trunc(phase)));
+  return BOSS_IDS.slice(2 * p - 2, 2 * p + 1);
+}
+
+/** Pure: the tier degree whose pitch is nearest a MIDI note (ties go down). */
+export function nearestDegree(midi: number, tier: BossTier, root: number): number {
+  let best = 0;
+  let bestDist = Infinity;
+  for (let d = -21; d <= 28; d++) {
+    const dist = Math.abs(tierMidi(d, tier, root) - midi);
+    if (dist < bestDist) {
+      best = d;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/** The composed line of a boss that Prism can quote (every id but its own). */
+function sourceOf(id: BossId): SpecInput | null {
+  return id === 'prism' ? null : BASE_INPUTS[id];
+}
+
+/** Pure: the notes of one source bar, steps counted from its bar line, kept inside the first `limit` steps. */
+function cellOf(line: readonly BossNoteDef[], bar: number, limit: number): BossNoteDef[] {
+  return line
+    .filter((x) => Math.floor(x.step / STEPS_PER_BAR) === bar && x.step % STEPS_PER_BAR < limit)
+    .map((x) => {
+      const step = x.step % STEPS_PER_BAR;
+      return { step, deg: x.deg, dur: Math.max(1, Math.min(x.dur, limit - step)), vel: x.vel, from: null };
+    });
+}
+
+/** Pure: the bar of a source loop a slot quotes. Chosen by hash01, then the first bar with a note in its first half. */
+function sourceBar(id: BossId, src: SpecInput, phase: number, slot: number): number {
+  const loop = Math.max(1, src.loopBars);
+  const start = Math.floor(hash01(lane(id, SALT_CELL), phase * 8 + slot) * loop);
+  for (let k = 0; k < loop; k++) {
+    const b = (start + k) % loop;
+    if (cellOf(src.main, b, PRISM_HALF).length > 0) return b;
+  }
+  return start;
+}
+
+/**
+ * Pure: a source cell moved into Prism. Its first note is folded into A3 to G#4, every note keeps
+ * its distance from it, then lands on the nearest tier 4 degree plus `shift` degrees.
+ */
+export function quoteCell(src: Pick<SpecInput, 'main' | 'tier' | 'register'>, bar: number, limit: number, shift: number): BossNoteDef[] {
+  const cell = cellOf(src.main, bar, limit);
+  const first = cell[0];
+  if (!first) return [];
+  const pitch = (x: BossNoteDef): number => tierMidi(x.deg, src.tier, src.register);
+  const fold = 12 * Math.ceil((PRISM_REGISTER - pitch(first)) / 12);
+  return cell.map((x) => ({ ...x, deg: nearestDegree(pitch(x) + fold, 4, PRISM_REGISTER) + shift }));
+}
+
+/** Pure: the quoted loop of a phase as a four bar line (steps 0 to 63, degrees of tier 4 from A3). */
+export function prismQuote(phase: number): BossNoteDef[] {
+  const p = Math.min(4, Math.max(1, Math.trunc(phase)));
+  const ids = prismQuotedIds(p);
+  const out: BossNoteDef[] = [];
+  for (const slot of PRISM_SLOTS) {
+    const id = ids[slot.quote];
+    const src = id === undefined ? null : sourceOf(id);
+    if (id === undefined || src === null) continue;
+    // Slots that share a quote use the first one's key, so the answer repeats the cell it answers.
+    const first = PRISM_SLOTS.findIndex((s) => s.quote === slot.quote);
+    const bar = sourceBar(id, src, p, first);
+    for (const x of quoteCell(src, bar, slot.limit, slot.shift)) out.push({ ...x, step: x.step + slot.bar * STEPS_PER_BAR });
+  }
+  return out;
+}
+
+/** Pure: the degree of a chord root in tier 4, folded to -4..3 so the arpeggio starts in the same octave on every chord. */
+function arpRootDegree(h: Harmony): number {
+  const i = TIER_SCALES[4].indexOf((((h.root - A_PC) % 12) + 12) % 12);
+  const d = i < 0 ? 0 : i;
+  return d > 3 ? d - 7 : d;
+}
+
+/** Pure: true when the bar carries the cue (every second bar, the second of each pair). */
+export function isPrismCueBar(bar: number): boolean {
+  return mod(Math.trunc(bar), PRISM_CUE_PERIOD_BARS) === PRISM_CUE_PERIOD_BARS - 1;
+}
+
+/**
+ * Pure: the cue of a bar: eight rising sixteenths over the second half, stacked thirds on the bar's
+ * chord, a crescendo. Empty on a bar that is not a cue bar.
+ */
+export function prismArp(bar: number): BossMotifNote[] {
+  const b = Math.trunc(bar);
+  if (b < 0 || !isPrismCueBar(b)) return [];
+  const start = arpRootDegree(harmonyForBar(b, BOSS_KEYS[4])) - 7;
+  return ARP_STACK.map((d, i) => ({
+    step: PRISM_ARP_STEP + i,
+    midi: tierMidi(start + d, 4, PRISM_REGISTER),
+    fromMidi: null,
+    durSteps: 1,
+    vel: 0.6 + (0.4 * i) / (ARP_STACK.length - 1),
+    voice: 0,
+  }));
+}
+
+/** Pure: every note of one bar of Prism in a phase. `bar` counts from the join, like every boss. */
+export function buildPrismBar(spec: Shape, phase: number, bar: number): BossMotifNote[] {
+  const b = Math.trunc(bar);
+  if (b < 0) return [];
+  const out = [...placeLine(prismQuote(phase), spec, mod(b, PRISM_LOOP_BARS), b, 0, 0), ...prismArp(b)];
+  const double = spec.phaseVoices[0];
+  if (voicesForPhase(spec, phase) > 1 && double?.type === 'octave') {
+    for (const x of [...out]) out.push({ ...x, midi: x.midi + double.shift, fromMidi: null, voice: 1 });
+  }
+  return out.sort((a, c) => a.step - c.step || a.voice - c.voice);
+}
+
+const PRISM_SHAPE: Shape = {
+  id: 'prism',
+  tier: 4,
+  register: PRISM_REGISTER,
+  loopBars: PRISM_LOOP_BARS,
+  main: prismQuote(1),
+  phaseVoices: [{ type: 'octave', shift: 12 }],
+  phaseCounts: [1, 1, 2, 2],
+};
+
+const PRISM_SPEC: BossMotifSpec = {
+  ...PRISM_SHAPE,
+  timbre: BOSS_TIMBRES.prism,
+  gain: 0.08,
+  character: 'quotes the cells of three earlier bosses per phase; a rising arpeggio cues each shield drop',
+  motif: (phase, bar) => buildPrismBar(PRISM_SHAPE, phase, bar),
+};
+
 function makeSpec(id: BossId): BossMotifSpec {
-  const i = INPUTS[id];
+  if (id === 'prism') return PRISM_SPEC;
+  const i = BASE_INPUTS[id];
   const shape: Shape = {
     id,
     tier: i.tier,

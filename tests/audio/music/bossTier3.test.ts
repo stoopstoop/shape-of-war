@@ -56,9 +56,8 @@ describe('tier 3 registry', () => {
       expect([2, 4]).toContain(s.loopBars);
       for (const x of s.main) expect(x.step + x.dur).toBeLessThanOrEqual(s.loopBars * STEPS_PER_BAR);
     }
-    // The older entries and Prism keep their wave B shape.
+    // The older entries keep their wave B shape.
     for (const id of OLDER) expect(BOSS_MOTIFS[id].main.length).toBeGreaterThan(0);
-    expect(BOSS_MOTIFS.prism.main).toEqual([]);
   });
 
   it('the three timbres are distinct from each other and from the older bosses', () => {
