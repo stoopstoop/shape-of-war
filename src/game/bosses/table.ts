@@ -268,6 +268,84 @@ export const GRAVITAS = {
   entryHome: 0.45,
 } as const;
 
+/**
+ * Bastion (tier 3, red, level 35; roster row 7). Holds the centre and turns at 0.3 rad/s. Four
+ * corner turrets (8 HP) take one turn every 1.5 s in order; a destroyed turret skips its turns. The
+ * core takes damage once two turrets are down. Phases follow the turrets: four, two, none.
+ */
+export const BASTION = {
+  turnRate: 0.3,
+  turrets: 4,
+  /** 8 HP in tenths of a hit. */
+  turretHp: 80,
+  turretRadius: 16,
+  /** Turret centres sit this far from the core centre, on the diagonals of its facing. */
+  turretOffset: 100,
+  turnEvery: 1.5,
+  /** First turn this long after the entrance ends. */
+  firstTurn: 1.0,
+  /** The core opens with this many turrets or fewer left. */
+  openAtTurrets: 2,
+  /** Lanes run straight out from a turret along its diagonal. */
+  laneLength: 600,
+  laneHalfWidth: 22,
+  addEvery: 12,
+  /** Bulwarks join this far outside the body edge, on the side facing the target. */
+  addPad: 40,
+} as const;
+
+/**
+ * Tempest (tier 3, red, level 40; roster row 8). Laps the wall at 140 u/s, 90 u from it, dropping a
+ * Slime every 1.0 s (8 of its own live at most, inside the 12 total Slime cap). Every 6 s (5, 4 in
+ * later phases) it winds up for the tier telegraph with a lane marker, dashes across the arena at
+ * its target and rests 1.5 s at the far wall. Hittable on the lap and in the rest.
+ */
+export const TEMPEST = {
+  lapSpeed: 140,
+  wallGap: 90,
+  /** Catch up speed toward the lap point (after a dash), as a multiple of lapSpeed. */
+  catchUp: 1.6,
+  slimeEvery: 1.0,
+  slimeMax: 8,
+  dashEvery: 6,
+  dashEveryP2: 5,
+  dashEveryP3: 4,
+  /** First dash this long after the entrance ends. */
+  firstDash: 4,
+  dashSpeed: 600,
+  /** A dash ends at the far wall, or after this long at most. */
+  dashSecMax: 3,
+  restSec: 1.5,
+  markerHalfWidth: 30,
+} as const;
+
+/**
+ * Twins (tier 3, red, level 45; roster row 9). Two bodies of 500 HP each orbit the arena centre,
+ * 300 to 500 u apart, at 0.6 rad/s, with a lethal tether between them. Each fires a ring every 7 s,
+ * offset by 3.5 s. The first to fall breaks the tether and enrages the other (x1.4 speed, a ring
+ * every 4 s).
+ */
+export const TWINS = {
+  orbitRate: 0.6,
+  sepMin: 300,
+  sepMax: 500,
+  /** The separation breathes between sepMin and sepMax at this rate, rad/s. */
+  sepRate: 0.35,
+  /** The second body slides out from the first at this speed after the entrance. */
+  slideSpeed: 220,
+  /** The tether forms once the bodies are this far apart. */
+  tetherAt: 250,
+  ringEvery: 7,
+  ringEveryEnraged: 4,
+  enrageSpeed: 1.4,
+  /** First ring this long after the entrance ends. */
+  firstRing: 1.5,
+  gapDeg: 60,
+  ringStartPad: 10,
+  /** Entrance home distance from the centre, at most. */
+  entryHome: 200,
+} as const;
+
 export interface ShotRow {
   pattern: 'pellet' | 'fan' | 'turret';
   /** Bullet speed, u/s (clamped to ENEMY_BULLET_SPEED_MAX by the pool, phase speed ups included). */
@@ -288,12 +366,14 @@ export interface ShotRow {
 /**
  * The three shooters (docs/13 "Boss projectiles"). Each row holds the shot and the trade it pays
  * (Spindle's slower arms, Ember's longer rest after an open floor dash). Cut 5 empties these rows,
- * which removes the shots and reverts the trades; every other attack stays. Bastion's row arrives
- * with Bastion in wave C.
+ * which removes the shots and reverts the trades; every other attack stays. Bastion's row is its
+ * trade too: with it each turret alternates a lane and a bullet on its own turns (same turn rate,
+ * BASTION.turnEvery); without it every turn is a lane.
  */
 export const BOSS_SHOTS: Readonly<Partial<Record<BossId, ShotRow>>> = {
   spindle: { pattern: 'pellet', speed: 180, every: 3.0, everyP2: 3.6, count: 1, armRate: 0.4 },
   ember: { pattern: 'fan', speed: 210, every: 0, everyP2: 0, count: 3, spreadDeg: 14, restSec: 1.8 },
+  bastion: { pattern: 'turret', speed: 200, every: 1.5, everyP2: 1.5, count: 1 },
 };
 
 /** A volley is at most this many bullets (docs/13 boss projectiles rule 2). */

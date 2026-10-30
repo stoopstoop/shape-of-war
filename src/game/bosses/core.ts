@@ -480,7 +480,9 @@ export function damageBoss(w: World, amount: number, hx: number, hy: number, ign
     emitHit(g, hx, hy, Kind.Boss, id, true);
     return false;
   }
-  const left = (w.hp[id] ?? 0) - Math.round(amount);
+  const clamp = bs.def.clampDamage;
+  const amt = clamp === undefined ? Math.round(amount) : Math.round(clamp(w, id, bs, Math.round(amount)));
+  const left = (w.hp[id] ?? 0) - (amt > 0 ? amt : 0);
   const hp = left > 0 ? left : 0;
   w.hp[id] = hp;
   if (hp <= 0) {
@@ -488,28 +490,57 @@ export function damageBoss(w: World, amount: number, hx: number, hy: number, ign
     return true;
   }
   emitHit(g, hx, hy, Kind.Boss, id, false);
-  const ph = phaseFor(hp, bs.maxHp, bs.row.phases);
-  if (ph > bs.phase) {
-    bs.phase = ph;
-    bs.phaseT = PHASE_CHANGE_SEC;
-    bs.phaseEv.phase = ph;
-    bus.emit('sim:bossPhase', bs.phaseEv);
-    bs.def.onPhase(w, id, bs, ph);
-  }
+  if (bs.def.afterDamage !== undefined) bs.def.afterDamage(w, id, bs);
+  syncBossPhase(w, bs, bs.id);
   return false;
+}
+
+/**
+ * Enter the phase the boss belongs in (the def's phaseOf, else from hit points) when it is past the
+ * current one: the pause, 'sim:bossPhase' and the def's onPhase. Never lowers the phase.
+ */
+export function syncBossPhase(w: World, bs: BossState, id: number): void {
+  if (bs.status !== 'alive' || id <= 0 || w.alive[id] !== 1) return;
+  const hp = w.hp[id] ?? 0;
+  const of = bs.def.phaseOf;
+  let ph = of === undefined ? phaseFor(hp, bs.maxHp, bs.row.phases) : of(w, id, bs, hp);
+  if (ph > bs.row.phases) ph = bs.row.phases;
+  if (ph <= bs.phase) return;
+  bs.phase = ph;
+  bs.phaseT = PHASE_CHANGE_SEC;
+  bs.phaseEv.phase = ph;
+  bus.emit('sim:bossPhase', bs.phaseEv);
+  bs.def.onPhase(w, id, bs, ph);
+}
+
+/** A boss body bursts at (x, y): the kill fx in the boss colour and the explosion sound. */
+export function bossBurst(w: World, bs: BossState, x: number, y: number, id: number): void {
+  emitKill(gs(w), x, y, bs.row.colour, Kind.BossPart, id);
+  bus.emit('sfx', 'explode');
+}
+
+function partDamaged(w: World, bs: BossState | null, id: number, applied: number, broke: boolean): void {
+  if (bs === null || bs.status !== 'alive') return;
+  if (bs.def.onPartDamage !== undefined) bs.def.onPartDamage(w, bs, id, applied, broke);
+  const boss = bossHittable(w);
+  if (boss > 0) syncBossPhase(w, bs, boss);
 }
 
 /** Damage a boss part. Parts score 0, drop nothing and count 0 kills. Returns true if it broke. */
 export function damageBossPart(w: World, id: number, amount: number, hx: number, hy: number): boolean {
   if (w.alive[id] !== 1 || w.kind[id] !== Kind.BossPart) return false;
   const g = gs(w);
-  const hp = (w.hp[id] ?? 0) - Math.round(amount);
+  const prev = w.hp[id] ?? 0;
+  const amt = Math.round(amount);
+  const hp = prev - amt;
   w.hp[id] = hp;
+  const bs = bossOf(w);
+  const applied = amt <= 0 ? 0 : amt < prev ? amt : prev > 0 ? prev : 0;
   if (hp > 0) {
     emitHit(g, hx, hy, Kind.BossPart, id, false);
+    partDamaged(w, bs, id, applied, false);
     return false;
   }
-  const bs = bossOf(w);
   const x = w.x[id] ?? 0;
   const y = w.y[id] ?? 0;
   if (bs !== null) {
@@ -518,6 +549,7 @@ export function damageBossPart(w: World, id: number, amount: number, hx: number,
   removeEntity(w, id);
   emitKill(g, x, y, bs === null ? 'white' : bs.row.colour, Kind.BossPart, id);
   bus.emit('sfx', 'explode');
+  partDamaged(w, bs, id, applied, true);
   return true;
 }
 
