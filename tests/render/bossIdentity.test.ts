@@ -1,0 +1,169 @@
+// G3C boss identity (run 0288): window state machine, hit throttle, crack geometry, identity table.
+import { describe, expect, it } from 'vitest';
+import { BOSS_IDS } from '../../src/levelgen/leveldef';
+import { BOSS_COUNT, bossColourOf } from '../../src/render/bossLook';
+import {
+  BOSS_FLASH_MIN_MS,
+  BOSS_IDENTITY,
+  BOSS_OUTLINES,
+  bossAttackKey,
+  bossFlashAllow,
+  buildCrack,
+  createBossCracks,
+  createBossFlashThrottle,
+  createBossWindow,
+  CRACK_PTS,
+  CRACK_REACH,
+  crackEvent,
+  hitFlashAlpha,
+  hitSparkCount,
+  pieceAlpha,
+  pieceDrift,
+  pieceWedge,
+  PIECE_DRIFT,
+  resetBossCracks,
+  stepBossWindow,
+  tier3HaloAlpha,
+  twinsFlare,
+  windowEvent,
+  windowFlash,
+  windowRing,
+  windowWhite,
+  WINDOW_HOLD_FLASH,
+} from '../../src/render/bossIdentity';
+
+describe('window state machine', () => {
+  it('stays dark until an event arrives', () => {
+    const s = createBossWindow();
+    stepBossWindow(s, 10);
+    expect(windowWhite(s)).toBe(0);
+    expect(windowFlash(s)).toBe(0);
+  });
+
+  it('runs to white over the last 0.5 s, contracting the ring from 2x', () => {
+    const s = createBossWindow();
+    windowEvent(s, false, 2);
+    expect(windowWhite(s)).toBe(0);
+    stepBossWindow(s, 1.6); // 0.4 left
+    const w1 = windowWhite(s);
+    const ring = windowRing(s, { r: 0, alpha: 0, width: 0 });
+    expect(w1).toBeGreaterThan(0);
+    expect(ring.r).toBeLessThan(2);
+    expect(ring.r).toBeGreaterThan(1);
+    stepBossWindow(s, 0.3);
+    expect(windowWhite(s)).toBeGreaterThan(w1);
+    expect(windowRing(s, ring).r).toBeLessThan(1.9);
+  });
+
+  it('opens with a burst, holds a sustained flash and a thin ring, then closes on its own', () => {
+    const s = createBossWindow();
+    windowEvent(s, true, 3);
+    expect(windowWhite(s)).toBe(1);
+    expect(windowFlash(s)).toBe(1);
+    stepBossWindow(s, 1);
+    expect(windowFlash(s)).toBe(WINDOW_HOLD_FLASH);
+    const ring = windowRing(s, { r: 0, alpha: 0, width: 0 });
+    expect(ring.alpha).toBeGreaterThan(0.5);
+    expect(ring.width).toBeLessThan(1);
+    stepBossWindow(s, 2.5);
+    expect(s.open).toBe(false);
+    expect(windowWhite(s)).toBe(0);
+  });
+
+  it('a close event ends the window at once', () => {
+    const s = createBossWindow();
+    windowEvent(s, true, 3);
+    windowEvent(s, false, 8);
+    expect(windowWhite(s)).toBe(0);
+    expect(windowFlash(s)).toBe(0);
+  });
+});
+
+describe('hit throttle', () => {
+  it('allows at most 20 flashes per second per boss', () => {
+    const t = createBossFlashThrottle();
+    let n = 0;
+    for (let ms = 0; ms < 1000; ms += 5) if (bossFlashAllow(t, 6, ms)) n++;
+    expect(n).toBe(1000 / BOSS_FLASH_MIN_MS);
+  });
+
+  it('throttles each boss on its own', () => {
+    const t = createBossFlashThrottle();
+    expect(bossFlashAllow(t, 6, 0)).toBe(true);
+    expect(bossFlashAllow(t, 7, 1)).toBe(true);
+    expect(bossFlashAllow(t, 6, 10)).toBe(false);
+  });
+
+  it('flash lasts 60 ms and throws 2 or 3 sparks', () => {
+    expect(hitFlashAlpha(0)).toBe(1);
+    expect(hitFlashAlpha(0.03)).toBeCloseTo(0.5);
+    expect(hitFlashAlpha(0.06)).toBe(0);
+    expect([0, 1, 2, 3].map(hitSparkCount)).toEqual([2, 3, 2, 3]);
+  });
+});
+
+describe('crack geometry', () => {
+  it('builds a jagged crack inside the body, deterministic', () => {
+    const a = buildCrack(0.7, 3, new Float32Array(CRACK_PTS * 2));
+    const b = buildCrack(0.7, 3, new Float32Array(CRACK_PTS * 2));
+    expect(Array.from(a)).toEqual(Array.from(b));
+    for (let k = 0; k < CRACK_PTS; k++) {
+      const x = a[k * 2] ?? 0;
+      const y = a[k * 2 + 1] ?? 0;
+      expect(Math.hypot(x, y)).toBeLessThanOrEqual(CRACK_REACH + 0.2);
+    }
+    expect(a[0]).toBeCloseTo(Math.cos(0.7) * CRACK_REACH);
+  });
+
+  it('stages only rise; stage 2 adds a second crack; reset clears', () => {
+    const c = createBossCracks();
+    expect(crackEvent(c, 1, 0.5, 1)).toBe(true);
+    expect(c.stage).toBe(1);
+    const first = Array.from(c.line1);
+    expect(crackEvent(c, 1, 2, 1)).toBe(false);
+    expect(crackEvent(c, 2, 2, 1)).toBe(true);
+    expect(c.stage).toBe(2);
+    expect(Array.from(c.line1)).toEqual(first);
+    expect(Array.from(c.line2)).not.toEqual(first);
+    resetBossCracks(c);
+    expect(c.stage).toBe(0);
+  });
+
+  it('the stage 2 piece is larger; pieces drift 40 u and dissolve in 0.8 s', () => {
+    const area = (p: Float32Array): number =>
+      Math.abs(((p[2] ?? 0) - (p[0] ?? 0)) * ((p[5] ?? 0) - (p[1] ?? 0)) - ((p[4] ?? 0) - (p[0] ?? 0)) * ((p[3] ?? 0) - (p[1] ?? 0))) / 2;
+    const s1 = pieceWedge(1, 1, new Float32Array(6));
+    const s2 = pieceWedge(1, 2, new Float32Array(6));
+    expect(area(s2)).toBeGreaterThan(area(s1));
+    expect(pieceDrift(0)).toBe(0);
+    expect(pieceDrift(0.8)).toBeCloseTo(PIECE_DRIFT);
+    expect(pieceAlpha(0)).toBe(1);
+    expect(pieceAlpha(0.8)).toBe(0);
+  });
+});
+
+describe('identity table', () => {
+  it('has one row per boss, in BOSS_IDS order, with distinct silhouettes', () => {
+    expect(BOSS_IDENTITY.length).toBe(BOSS_COUNT);
+    expect(BOSS_IDENTITY.map((r) => r.id)).toEqual([...BOSS_IDS]);
+    expect(new Set(BOSS_IDENTITY.map((r) => r.silhouette)).size).toBe(BOSS_COUNT);
+    expect(BOSS_OUTLINES.length).toBe(BOSS_COUNT);
+  });
+
+  it('attacks take the owner hue and the named colour families', () => {
+    for (let i = 0; i < BOSS_COUNT; i++) {
+      expect(bossAttackKey(i)).toBe(bossColourOf(i));
+      expect(BOSS_IDENTITY[i]?.hue).toBe(bossColourOf(i));
+    }
+    expect(BOSS_IDENTITY.map((r) => r.hue)).toEqual([
+      'bossBlue', 'bossGreen', 'bossYellow', 'bossOrange', 'bossMagenta', 'bossViolet', 'bossRed', 'bossRed', 'bossRed', 'bossPrism',
+    ]);
+  });
+
+  it('tier 3 gets the halo and only tier 3; the Twins flare starts at phase 2', () => {
+    expect(tier3HaloAlpha(3, 0)).toBeGreaterThan(0);
+    expect(tier3HaloAlpha(2, 0)).toBe(0);
+    expect(twinsFlare(1, 0)).toBe(0);
+    expect(twinsFlare(2, 0)).toBeGreaterThan(0);
+  });
+});
