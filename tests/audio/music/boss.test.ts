@@ -25,8 +25,6 @@ import { BOSS_IDS, type BossId } from '../../../src/levelgen/leveldef';
 
 /** Bosses with a written motif in wave B (1 to 6). */
 const WRITTEN: readonly BossId[] = ['warden', 'brood', 'spindle', 'ember', 'mirage', 'gravitas'];
-/** Wave C fills this one (tier 3 is covered in bossTier3.test.ts). */
-const EMPTY: readonly BossId[] = ['prism'];
 const PHASES = [1, 2, 3, 4];
 const BARS = 32;
 
@@ -63,7 +61,7 @@ describe('boss motif registry', () => {
     expect(missingBossIds({})).toEqual([...BOSS_IDS]);
   });
 
-  it('bosses 1 to 6 have a motif, a timbre, a register and a gain; Prism is present and empty', () => {
+  it('bosses 1 to 6 have a motif, a timbre, a register and a gain', () => {
     for (const id of WRITTEN) {
       const s = spec(id);
       expect(s.main.length, id).toBeGreaterThan(0);
@@ -73,13 +71,6 @@ describe('boss motif registry', () => {
       expect(s.register % 12).toBe(9); // an A
       expect(s.timbre.id).toBeTruthy();
       expect(s.character.length).toBeGreaterThan(0);
-    }
-    for (const id of EMPTY) {
-      const s = spec(id);
-      expect(s.main).toEqual([]);
-      expect(s.phaseVoices).toEqual([]);
-      for (const ph of PHASES) for (let bar = 0; bar < 8; bar++) expect(s.motif(ph, bar)).toEqual([]);
-      expect(voicesForPhase(s, 3)).toBe(0);
     }
   });
 

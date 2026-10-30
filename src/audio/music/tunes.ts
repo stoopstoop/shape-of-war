@@ -408,7 +408,7 @@ export const FILL_RUN: readonly number[] = [0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 
 //   tier 1 (minor pentatonic): Am F C G, the original plan;
 //   tier 2 (natural minor with a raised seventh): Am F Dm E, the E major chord carries the G sharp;
 //   tier 3 (phrygian second): Am Bb Gm Bb, the flat second leaning back onto the tonic;
-//   tier 4: Am F C G until wave C writes the quoting loop.
+//   tier 4 (natural minor): Am F C G again; Prism's quoting loop and its cue arpeggio sit on it.
 // Each chord lasts two bars. The id stays 'neon' (the bed is Neon Drive's); bossTier marks it.
 
 const B_DM = triad('Dm', 'iv', 2, 3);
@@ -450,7 +450,7 @@ export const BOSS_TUNES: Readonly<Record<1 | 2 | 3 | 4, Tune>> = {
   1: bossTune(1, 'boss tier 1: Am F C G, octave bounce bass, A minor pentatonic motifs'),
   2: bossTune(2, 'boss tier 2: Am F Dm E, harmonic minor motifs'),
   3: bossTune(3, 'boss tier 3: Am Bb Gm Bb, phrygian motifs'),
-  4: bossTune(4, 'boss tier 4: Am F C G until wave C'),
+  4: bossTune(4, 'boss tier 4: Am F C G, natural minor quoting loop'),
 };
 
 /** Pure: the tune a boss fight of this tier plays over: the tier's boss bed (any active tune). */
