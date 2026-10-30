@@ -34,6 +34,10 @@ export const GAIN_CEILING = 1;
 export const BOSS_MOTIF_TOTAL_MAX = 0.24;
 /** Gain of a boss stinger (its notes share it); reserved while a boss state exists. */
 export const BOSS_STING_GAIN = 0.12;
+/** Window pad (one voice at a time) and boss hit tick (mono lane), bossCue.ts; reserved while a boss state exists. */
+export const BOSS_PAD_GAIN = 0.06;
+export const BOSS_TICK_GAIN = 0.04;
+export const BOSS_CUE_RESERVE = BOSS_PAD_GAIN + BOSS_TICK_GAIN;
 
 /** The boss's share of the budget at a step: the enemy motif duck and the boss motif gain sounding. */
 export interface BossBudget {
@@ -193,7 +197,7 @@ export function layerMix(bedSum: number, set: LayerSet, registry: LayerRegistry,
   const motifScale = raw > MOTIF_TOTAL_MAX ? MOTIF_TOTAL_MAX / raw : 1;
   const motifTotal = raw * motifScale;
   const enemy = boss === null ? motifTotal : motifTotal * Math.max(0, Math.min(1, boss.duck));
-  const bossPart = boss === null ? 0 : BOSS_STING_GAIN + Math.max(0, boss.total);
+  const bossPart = boss === null ? 0 : BOSS_STING_GAIN + BOSS_CUE_RESERVE + Math.max(0, boss.total);
   const room = Math.max(0, GAIN_CEILING - STINGER_GAIN - ACCENT_RESERVE - HIT_RESERVE - enemy - bossPart);
   const bedScale = bedSum > room && bedSum > 0 ? room / bedSum : 1;
   return { bedScale, motifScale, motifTotal };

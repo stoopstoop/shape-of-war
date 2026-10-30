@@ -66,6 +66,8 @@ export interface BossLife {
   readonly defeatStep: number | null;
   /** Enemy motif gain factor over time. */
   readonly duck: Ramp;
+  /** Highest crack stage booked (0 before any): that many voices are gone from the motif for the rest of the fight. */
+  readonly cracked: number;
 }
 
 /** Pure: the duck at a step (1 with no boss). */
@@ -95,7 +97,19 @@ export function bossEnter(prev: BossLife | null, id: BossId, tier: BossTier, now
     stopStep: null,
     defeatStep: null,
     duck: { s0: join, g0: from, s1: end, g1: BOSS_DUCK },
+    cracked: 0,
   };
+}
+
+/**
+ * Pure: the boss cracked to `stage` ('sim:bossCrack'). Ignored after the down, for another boss,
+ * or for a stage not above the booked one, so each stage counts once (and books one stinger in
+ * index.ts). The voice drop holds from the next note on, for the rest of the fight.
+ */
+export function bossCrack(b: BossLife, id: BossId, stage: number): BossLife {
+  const st = Math.trunc(stage);
+  if (b.downStep !== null || b.id !== id || !(st > b.cracked)) return b;
+  return { ...b, cracked: st };
 }
 
 /** Pure: the highest phase booked so far (1 before any change). */

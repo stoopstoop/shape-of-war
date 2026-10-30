@@ -90,7 +90,7 @@ export type TimbreId =
   | 'lead';
 
 /** Boss motif and boss stinger timbres (boss.ts), kept out of TIMBRES so the enemy table is unchanged. */
-export type BossTimbreId = 'heart' | 'murk' | 'spin' | 'flare' | 'mirror' | 'abyss' | 'bulwark' | 'gale' | 'echo' | 'prism' | 'bossSting';
+export type BossTimbreId = 'heart' | 'murk' | 'spin' | 'flare' | 'mirror' | 'abyss' | 'bulwark' | 'gale' | 'echo' | 'prism' | 'bossSting' | 'windowRise' | 'windowPad' | 'windowDamp' | 'crack' | 'crackDeep' | 'bossTick';
 
 export interface Partner {
   readonly wave: OscillatorType;

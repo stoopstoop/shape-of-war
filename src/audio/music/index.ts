@@ -34,6 +34,7 @@ import {
   bossEnter,
   bossEnvAt,
   bossMotifScale,
+  bossCrack,
   bossPhase,
   clipToStop,
   DEFEAT_STING,
@@ -49,8 +50,24 @@ import {
   voiceMayStart,
   type BossLife,
 } from './bossLife';
+import {
+  BOSS_TICK_GATE_INIT,
+  BOSS_TICK_SEC,
+  bossTickVoice,
+  crackKeeps,
+  crackVoice,
+  gateBossTick,
+  isBossHitKind,
+  planWindow,
+  windowEvent,
+  windowVoice,
+  WINDOW_IDLE,
+  type BossCueBus,
+  type BossTickGate,
+  type WindowCue,
+} from './bossCue';
 import { BOSS_VOICE_MAX } from './engine';
-import { chordToneMidi, harmonyAtStep } from './harmony';
+import { chordToneMidi, harmonyAtStep, type Harmony } from './harmony';
 import { createMusicEngine, voiceLength, type MusicContext, type MusicEngine, type NodeLike, type Span, type VoiceTrace } from './engine';
 import {
   clamp01,
@@ -140,7 +157,12 @@ export interface NoteLog {
     | 'boss'
     | 'bossEntry'
     | 'bossPhase'
-    | 'bossDefeat';
+    | 'bossDefeat'
+    | 'bossWindow'
+    | 'bossCrack'
+    | 'bossTick';
+  /** Window cue notes only: which sound of the cue (bossCue.ts). */
+  readonly cue?: 'rise' | 'land' | 'pad' | 'damp';
   /** Boss notes only: the boss, and the motif voice (0 main, 1 and 2 added by phases). */
   readonly boss?: BossId;
   readonly voice?: number;
@@ -259,6 +281,13 @@ interface Session {
   bossExtraEnd: number;
   /** Audio time the defeat stinger ends, or 0 when none played. */
   defeatEnd: number;
+  /** The damage window cue state (bossCue.ts). */
+  window: WindowCue;
+  /** Boss hit tick rate gate, and a hit waiting for the next tick. */
+  bossTick: BossTickGate;
+  bossHit: boolean;
+  /** Crack stages waiting for the next tick (each plays one stinger). */
+  readonly cracks: number[];
 }
 
 interface Playing {
@@ -410,6 +439,7 @@ function onTick(s: Session, now: number, sched: Scheduler): void {
   pendingKill = null;
   drainAccents(s, now, sched);
   drainHits(s, now, sched);
+  drainBossCues(s, now, sched);
 }
 
 /**
@@ -763,7 +793,7 @@ function onStep(p: Session, step: number, time: number): void {
     if (stings.phase && voicesForPhase(bossSpec, phaseAt(b, step)) < BOSS_VOICE_MAX) playPhaseSting(p, b, step, time);
     if (stings.defeat) playDefeatSting(p, b, step, time);
     for (const n of bossBar(p, b, barIndex)) {
-      if (n.step !== inBar || !voiceMayStart(b, n.voice, step)) continue;
+      if (n.step !== inBar || !voiceMayStart(b, n.voice, step) || !crackKeeps(bossVoices, b.cracked, n)) continue;
       const dur = clipToStop(b, step, n.durSteps);
       if (dur <= 0) continue;
       const gain = bossSpec.gain * bossScale * bossEnv * n.vel;
@@ -852,6 +882,86 @@ function onBossPhase(id: BossId, phase: number): void {
   p.session.boss = bossPhase(b, id, phase, p.scheduler.nextStep);
 }
 
+/** 'sim:bossWindow': read the audio clock now; the cue is scheduled in the tick (drainBossCues). */
+function onBossWindow(id: BossId, open: boolean, secondsLeft: number): void {
+  const p = playing;
+  if (!p || p.scheduler.paused) return;
+  const b = p.session.boss;
+  if (b === null || b.downStep !== null || b.id !== id) return;
+  p.session.window = windowEvent(p.session.window, id, open, secondsLeft, p.ctx.currentTime);
+}
+
+/** 'sim:bossCrack': each new stage drops a motif voice from the next note on and books one stinger. */
+function onBossCrack(id: BossId, stage: number): void {
+  const p = playing;
+  const b = p?.session.boss ?? null;
+  if (!p || b === null) return;
+  const next = bossCrack(b, id, stage);
+  if (next === b) return;
+  p.session.boss = next;
+  if (p.session.cracks.length < CRACK_QUEUE_MAX) p.session.cracks.push(next.cracked);
+}
+
+/** Crack stages waiting at once; more are dropped (the voice drop still counts). */
+const CRACK_QUEUE_MAX = 4;
+
+/** 'fx:hit' on a boss kind: one tick a scheduler tick at most (the gate rate limits it further). */
+function queueBossHit(): void {
+  const p = playing;
+  const b = p?.session.boss ?? null;
+  if (!p || p.scheduler.paused || b === null || b.downStep !== null) return;
+  p.session.bossHit = true;
+}
+
+/**
+ * Window cue, crack stingers and the boss hit tick. All of them are placed on the audio clock
+ * from the tick (never the sixteenth grid), so the landing is as exact as the clock allows and a
+ * tick or a crack follows its hit within a frame. They play as boss voices, so a full pool takes
+ * an enemy motif voice rather than dropping the cue; nothing sounds at volume 0 or without a live
+ * boss, and the state is cleared then.
+ */
+function drainBossCues(s: Session, now: number, sched: Scheduler): void {
+  const boss = s.boss;
+  const hit = s.bossHit;
+  s.bossHit = false;
+  if (boss === null || boss.downStep !== null || volume === 0) {
+    s.window = WINDOW_IDLE;
+    s.cracks.length = 0;
+    return;
+  }
+  const at = (t: number): { tune: Tune; step: number; bar: number; h: Harmony } => {
+    const step = Math.max(0, stepContaining(sched, t));
+    const w = where(s, step);
+    return { ...w, step, h: harmonyAtStep(w.step, w.tune.key) };
+  };
+  const plan = planWindow(s.window, now);
+  s.window = plan.st;
+  for (const d of plan.due) {
+    const c = at(d.time);
+    const v = windowVoice(d.kind, c.h);
+    s.engine.playVoice({ time: d.time, dur: d.dur, midi: v.midi, fromMidi: v.fromMidi, gain: v.gain, timbre: v.timbre }, 'boss');
+    if (noteHook) logNote(c.tune, { role: 'bossWindow', cue: d.kind, layer: null, kind: null, boss: boss.id, step: c.step, time: d.time, midi: v.midi, gain: v.gain, at: now });
+  }
+  const t = now + KILL_LEAD_SEC;
+  for (const stage of s.cracks) {
+    const c = at(t);
+    const v = crackVoice(stage, c.h);
+    s.engine.playVoice({ time: t, dur: v.dur, midi: v.midi, fromMidi: v.fromMidi, gain: v.gain, timbre: v.timbre }, 'boss');
+    if (noteHook) logNote(c.tune, { role: 'bossCrack', layer: null, kind: null, boss: boss.id, voice: stage, step: c.step, time: t, midi: v.midi, gain: v.gain, at: now });
+  }
+  s.cracks.length = 0;
+  if (hit) {
+    const r = gateBossTick(s.bossTick, t);
+    if (r.ok) {
+      s.bossTick = r.gate;
+      const c = at(t);
+      const v = bossTickVoice(c.h, r.gate.count);
+      s.engine.playVoice({ time: t, dur: BOSS_TICK_SEC, midi: v.midi, fromMidi: v.fromMidi, gain: v.gain, timbre: v.timbre }, 'boss');
+      if (noteHook) logNote(c.tune, { role: 'bossTick', layer: null, kind: null, boss: boss.id, step: c.step, time: t, midi: v.midi, gain: v.gain, at: now });
+    }
+  }
+}
+
 /** Bars of the boss bed after the motif stops, under the defeat stinger, before the level tune returns. */
 const RESTORE_BARS = 1;
 
@@ -887,6 +997,9 @@ function suspend(): void {
   p.engine.silence();
   p.session.queue.length = 0;
   p.session.hits.length = 0;
+  p.session.window = WINDOW_IDLE;
+  p.session.cracks.length = 0;
+  p.session.bossHit = false;
   // Chord hits and resolutions booked ahead were just silenced: forget them, so a bomb after
   // the resume is not absorbed by a chord that never sounds.
   p.session.gate = KILL_GATE_INIT;
@@ -950,6 +1063,10 @@ export function initMusic(opts: MusicOptions = {}): () => void {
         queueHit({ blocked: true });
         return;
       }
+      if (isBossHitKind(p.kind)) {
+        queueBossHit();
+        return;
+      }
       const source = sourceFor(p.kind, undefined);
       if (source !== null) queueHit({ blocked: false, source });
     }),
@@ -958,6 +1075,9 @@ export function initMusic(opts: MusicOptions = {}): () => void {
     b.on('sim:bossEnter', (p) => onBossEnter(p.id, p.tier)),
     b.on('sim:bossPhase', (p) => onBossPhase(p.id, p.phase)),
     b.on('sim:bossDown', (p) => onBossDown(p.id)),
+    // The window and crack events are not in core/events.ts yet (hand-off Requests): the bus takes any key at runtime.
+    (b as unknown as BossCueBus).on('sim:bossWindow', (p) => onBossWindow(p.id, p.open, p.secondsLeft)),
+    (b as unknown as BossCueBus).on('sim:bossCrack', (p) => onBossCrack(p.id, p.stage)),
     // The run mode picks the selection rule (a level's tune, or the Endless rotation). Next,
     // Retry and Restart keep the mode, so only 'game:start' carries it. Glue may start the music
     // inside this same emit, before this handler runs: a session still in its first bar with the
@@ -1087,6 +1207,10 @@ export function startMusic(seed: number): boolean {
     bossCache: null,
     bossExtraEnd: 0,
     defeatEnd: 0,
+    window: WINDOW_IDLE,
+    bossTick: BOSS_TICK_GATE_INIT,
+    bossHit: false,
+    cracks: [],
   };
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },

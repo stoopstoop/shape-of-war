@@ -23,8 +23,8 @@
 //   lap:         each pass of the loop climbs `rise` scale degrees for `laps` passes, then resets (Tempest);
 //   canon:       a phase voice that plays the main line `bars` bars late (Twins).
 // Prism (entry 10, tier 4) has its own builder, further down: a four bar loop that quotes cells of
-// bosses 1 to 9 and a rising arpeggio that cues its damage cycle. Every key exists so the
-// registry test catches a missing id.
+// bosses 1 to 9. Its damage window is cued by the sim's window events (bossCue.ts), not by the
+// bar. Every key exists so the registry test catches a missing id.
 import { hash01 } from '../../core/rng';
 import { BOSS_IDS, type BossId, type BossTier } from '../../levelgen/leveldef';
 import { BOSS_VOICE_MAX } from './engine';
@@ -459,30 +459,18 @@ export function buildBossBar(spec: Shape, phase: number, bar: number): BossMotif
 //
 // Loop layout (local bars from the join): bar 0 quotes cell 1 whole, bar 1 quotes cell 2 in its
 // first half, bar 2 quotes cell 3 whole, bar 3 answers cell 1 in its first half, lower. The
-// second half of every second bar (bars 1 and 3) is the cue: a rising arpeggio of eight
-// sixteenths on that bar's chord, one second long at 120 BPM, topping out on the bar line.
+// second half of bars 1 and 3 rests. It used to carry a bar locked arpeggio that guessed the
+// damage cycle; G3C device play could not tell the window by it, so the window cue now follows
+// 'sim:bossWindow' (bossCue.ts) and the rests stay as breath.
 //
-// The damage cycle is 4 s, exactly two bars at 120 BPM: the run to white and the shield drop
-// happen on a two bar grid, so the cue sits on the last second before each even bar line from
-// bar 2, with nothing but the pure bar needed. The pattern assumes the cycle starts on a bar
-// line of the boss bed (local bar 0); if sim can start it elsewhere, the music needs the cycle
-// clock on the bus (hand-off Requests).
-//
-// Phases 3 and 4 double the whole line, arpeggio included, an octave up.
+// Phases 3 and 4 double the whole line an octave up.
 
 export const PRISM_LOOP_BARS = 4;
 /** MIDI A the Prism degrees count from (A3). */
 export const PRISM_REGISTER = 57;
-/** A half bar, in steps: the room a cell has in a bar that ends with the cue. */
+/** A half bar, in steps: the room a cell has in bars 1 and 3 (the second half rests). */
 export const PRISM_HALF = STEPS_PER_BAR / 2;
-/** First step of the cue inside a cue bar (the second half of the bar). */
-export const PRISM_ARP_STEP = PRISM_HALF;
-/** Notes of the cue arpeggio, one per sixteenth of the second half. */
-export const PRISM_ARP_NOTES = 8;
-/** The cue repeats every second bar; it sits in the odd bars of the loop. */
-export const PRISM_CUE_PERIOD_BARS = 2;
-/** Stacked thirds from the chord root, in tier 4 degrees: root, third, fifth, then the octave and again. */
-const ARP_STACK: readonly number[] = [0, 2, 4, 7, 9, 11, 14, 16];
+
 const SALT_CELL = 0x6b35;
 
 interface PrismSlot {
@@ -490,7 +478,7 @@ interface PrismSlot {
   readonly bar: number;
   /** Which of the three quoted bosses (0 to 2). */
   readonly quote: number;
-  /** Steps the cell may fill: a whole bar, or the half before the cue. */
+  /** Steps the cell may fill: a whole bar, or the first half (the second half rests). */
   readonly limit: number;
   /** Scale degrees the quote is moved by. */
   readonly shift: number;
@@ -579,41 +567,11 @@ export function prismQuote(phase: number): BossNoteDef[] {
   return out;
 }
 
-/** Pure: the degree of a chord root in tier 4, folded to -4..3 so the arpeggio starts in the same octave on every chord. */
-function arpRootDegree(h: Harmony): number {
-  const i = TIER_SCALES[4].indexOf((((h.root - A_PC) % 12) + 12) % 12);
-  const d = i < 0 ? 0 : i;
-  return d > 3 ? d - 7 : d;
-}
-
-/** Pure: true when the bar carries the cue (every second bar, the second of each pair). */
-export function isPrismCueBar(bar: number): boolean {
-  return mod(Math.trunc(bar), PRISM_CUE_PERIOD_BARS) === PRISM_CUE_PERIOD_BARS - 1;
-}
-
-/**
- * Pure: the cue of a bar: eight rising sixteenths over the second half, stacked thirds on the bar's
- * chord, a crescendo. Empty on a bar that is not a cue bar.
- */
-export function prismArp(bar: number): BossMotifNote[] {
-  const b = Math.trunc(bar);
-  if (b < 0 || !isPrismCueBar(b)) return [];
-  const start = arpRootDegree(harmonyForBar(b, BOSS_KEYS[4])) - 7;
-  return ARP_STACK.map((d, i) => ({
-    step: PRISM_ARP_STEP + i,
-    midi: tierMidi(start + d, 4, PRISM_REGISTER),
-    fromMidi: null,
-    durSteps: 1,
-    vel: 0.6 + (0.4 * i) / (ARP_STACK.length - 1),
-    voice: 0,
-  }));
-}
-
 /** Pure: every note of one bar of Prism in a phase. `bar` counts from the join, like every boss. */
 export function buildPrismBar(spec: Shape, phase: number, bar: number): BossMotifNote[] {
   const b = Math.trunc(bar);
   if (b < 0) return [];
-  const out = [...placeLine(prismQuote(phase), spec, mod(b, PRISM_LOOP_BARS), b, 0, 0), ...prismArp(b)];
+  const out = placeLine(prismQuote(phase), spec, mod(b, PRISM_LOOP_BARS), b, 0, 0);
   const double = spec.phaseVoices[0];
   if (voicesForPhase(spec, phase) > 1 && double?.type === 'octave') {
     for (const x of [...out]) out.push({ ...x, midi: x.midi + double.shift, fromMidi: null, voice: 1 });
@@ -635,7 +593,7 @@ const PRISM_SPEC: BossMotifSpec = {
   ...PRISM_SHAPE,
   timbre: BOSS_TIMBRES.prism,
   gain: 0.08,
-  character: 'quotes the cells of three earlier bosses per phase; a rising arpeggio cues each shield drop',
+  character: 'quotes the cells of three earlier bosses per phase; the sim window events cue each shield drop',
   motif: (phase, bar) => buildPrismBar(PRISM_SHAPE, phase, bar),
 };
 
