@@ -75,4 +75,11 @@ export interface BossDef {
   afterDamage?(w: World, id: number, bs: BossState): void;
   /** Optional: part took applied tenths (at most its hit points); broke is true once it was removed. */
   onPartDamage?(w: World, bs: BossState, part: number, applied: number, broke: boolean): void;
+  /**
+   * Optional: seconds until the window opens while a run up to it shows (Prism's run to white), else
+   * -1. Drives the 'sim:bossWindow' countdown. Absent means windows are reported on their edges only.
+   */
+  windowLead?(bs: BossState): number;
+  /** Optional: report cracks per body (Twins) through crackBody. Absent means one body, w.hp of maxHp. */
+  cracks?(w: World, id: number, bs: BossState): void;
 }

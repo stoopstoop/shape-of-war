@@ -65,7 +65,7 @@ function logTurns(w: World, secs: number, out: Turn[], t0 = 0): void {
     stepGame(w, DT, idle());
     const t = t0 + i * DT;
     for (let h = 1; h < w.cap; h++) {
-      if (w.alive[h] !== 1 || w.kind[h] !== Kind.BossHazard || w.a[h] !== HazardType.Lane || (w.t[h] ?? 0) > DT * 1.5) continue;
+      if (w.alive[h] !== 1 || w.kind[h] !== Kind.BossHazard || w.a[h] !== HazardType.Lane || s.hzMarker[h] === 1 || (w.t[h] ?? 0) > DT * 1.5) continue; // phase 3 charge markers are not turret turns
       out.push({ t, slot: slotNear(w, w.x[h] ?? 0, w.y[h] ?? 0), shot: false });
     }
     const p = enemyBulletsOf(w);

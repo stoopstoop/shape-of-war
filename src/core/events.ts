@@ -85,6 +85,14 @@ export interface Events {
   'sim:bossDown': { id: BossId; x: number; y: number };
   /** Swarm to Glow and Chorus: the boss core started (true) or stopped (false) taking damage; on change only. */
   'sim:bossExposed': { id: BossId; exposed: boolean };
+  /**
+   * Swarm to Glow and Chorus: the damage window opened (open true, secondsLeft its length, -1 for
+   * no end) or closed (open false, secondsLeft 0), and every 100 ms of a run up to the window (open
+   * false, secondsLeft counting down to the opening; Prism's run to white).
+   */
+  'sim:bossWindow': { id: BossId; open: boolean; secondsLeft: number };
+  /** Swarm to Glow and Chorus: a boss body first fell below 66 (stage 1) or 33 (stage 2) percent of its hit points. */
+  'sim:bossCrack': { id: BossId; stage: 1 | 2; x: number; y: number };
   /** Swarm to Glow and Chorus: Turbo started (active true, at the ship) or ended. */
   'fx:turbo': { active: boolean; x: number; y: number };
   /** Swarm (A) to Ledger: at most every 100 ms and on change. */

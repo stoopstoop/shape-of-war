@@ -352,4 +352,14 @@ export function entryHome(d: number): number {
   return d * PRISM.entryHome;
 }
 
-export const def: BossDef = { reset, step, onPhase, entryHome, leak };
+/** Pure: seconds to the window at cycle clock t while in the run to white, else -1. */
+export function leadAt(t: number): number {
+  return stageAt(t) === PrismStage.White ? PRISM.colourSec + PRISM.whiteSec - cycleT(t) : -1;
+}
+
+/** The run to white is the run up to the window ('sim:bossWindow' countdown). */
+export function windowLead(bs: BossState): number {
+  return leadAt(bs.t1);
+}
+
+export const def: BossDef = { reset, step, onPhase, entryHome, leak, windowLead };

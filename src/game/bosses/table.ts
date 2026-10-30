@@ -292,7 +292,29 @@ export const BASTION = {
   addEvery: 12,
   /** Bulwarks join this far outside the body edge, on the side facing the target. */
   addPad: 40,
+  // Phase 3 (G3C): the core wakes once the last turret dies.
+  /** Phase 3 starts with at most this share of maximum hit points (the bar drops to it). */
+  wakeHpShare: 0.5,
+  /** Pursuit speed of the woken core, u/s. */
+  wakeSpeed: 110,
+  /** One sweep arm rides the body, turning at sweepRate rad/s. */
+  sweepLength: 230,
+  sweepRate: 0.9,
+  /** A charge every chargeEvery s (chargeEveryCracked after the stage 2 crack), the first firstCharge s after waking. */
+  chargeEvery: 5,
+  chargeEveryCracked: 3.5,
+  firstCharge: 2,
+  /** The charge runs at chargeSpeed for chargeSec, or until a wall, after the tier telegraph. */
+  chargeSpeed: 520,
+  chargeSec: 0.7,
+  /** The charge marker lane: half width. */
+  chargeMarkerHalf: 30,
 } as const;
+
+/** A boss body cracks when it first drops below these shares of its hit points (stage 1, stage 2). */
+export const CRACK_AT = [0.66, 0.33] as const;
+/** Seconds between 'sim:bossWindow' reports while a run up to the window shows. */
+export const WINDOW_LEAD_INTERVAL = 0.1;
 
 /**
  * Tempest (tier 3, red, level 40; roster row 8). Laps the wall at 140 u/s, 90 u from it, dropping a

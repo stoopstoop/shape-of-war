@@ -37,6 +37,7 @@ import {
   BOSS_DAMAGE,
   BOSS_HUD_INTERVAL,
   BOSS_REWARD_GEOMS,
+  CRACK_AT,
   DETONATE_BOSS_FRACTION,
   DETONATE_BOSS_RADIUS,
   ENRAGE_AFTER_SEC,
@@ -50,6 +51,7 @@ import {
   PHASE_CHANGE_SEC,
   STAGGER_SEC,
   WAVE_BUDGET_WITH_BOSS,
+  WINDOW_LEAD_INTERVAL,
 } from './table';
 import { BossMode, HazardType, type BossDef } from './types';
 
@@ -260,6 +262,7 @@ export function stepBossSchedule(w: World, dt: number): void {
     bs.modeT += dt;
   }
   stepExposed(bs, dt);
+  stepWindowLead(bs, dt);
   stepVolleyLaunch(w, bs); // fx:bossShot at launch (shooters only; no op with no volley charging)
   emitBossHud(w, bs, dt, false);
 }
@@ -463,6 +466,66 @@ function stepExposed(bs: BossState, dt: number): void {
   bs.exposedT = 0;
   bs.exposedEv.exposed = ex;
   bus.emit('sim:bossExposed', bs.exposedEv);
+  bs.winLead = false;
+  emitWindow(bs, ex, ex ? (bs.openLeft > 0 ? bs.openLeft : -1) : 0);
+}
+
+function emitWindow(bs: BossState, open: boolean, secondsLeft: number): void {
+  const e = bs.windowEv;
+  e.open = open;
+  e.secondsLeft = secondsLeft;
+  bus.emit('sim:bossWindow', e);
+}
+
+/**
+ * The run up to a window (the def's windowLead): 'sim:bossWindow' open false with the seconds to the
+ * opening, at its start and every WINDOW_LEAD_INTERVAL after. Silent while staggered or changing phase.
+ */
+function stepWindowLead(bs: BossState, dt: number): void {
+  const lead = bs.def.windowLead;
+  if (lead === undefined || bs.exposed || bs.mode === BossMode.Entering || bs.stagger > 0 || bs.phaseT > 0) {
+    bs.winLead = false;
+    return;
+  }
+  const left = lead(bs);
+  if (!(left > 0)) {
+    bs.winLead = false;
+    return;
+  }
+  bs.winTimer -= dt;
+  if (bs.winLead && bs.winTimer > 1e-6) return;
+  bs.winLead = true;
+  bs.winTimer = WINDOW_LEAD_INTERVAL;
+  emitWindow(bs, false, left);
+}
+
+/** Pure: the crack stage of a body at hp of max: 0, 1 below CRACK_AT[0], 2 below CRACK_AT[1]. */
+export function crackStage(hp: number, max: number): number {
+  if (!(max > 0)) return 0;
+  if (hp < max * CRACK_AT[1]) return 2;
+  return hp < max * CRACK_AT[0] ? 1 : 0;
+}
+
+/** Emit 'sim:bossCrack' once for each stage body (0 or 1) newly passed at hp of max, at (x, y). */
+export function crackBody(bs: BossState, body: number, hp: number, max: number, x: number, y: number): void {
+  const st = crackStage(hp, max);
+  let cur = bs.crack[body] ?? 2;
+  while (cur < st) {
+    cur++;
+    bs.crack[body] = cur;
+    const e = bs.crackEv;
+    e.stage = cur === 1 ? 1 : 2;
+    e.x = x;
+    e.y = y;
+    bus.emit('sim:bossCrack', e);
+  }
+}
+
+/** Cracks after damage the boss lived through: the def's per body rule, else w.hp of maxHp. */
+function checkCracks(w: World, bs: BossState, id: number): void {
+  if (bs.status !== 'alive' || id <= 0 || w.alive[id] !== 1) return;
+  if (bs.def.cracks !== undefined) bs.def.cracks(w, id, bs);
+  else crackBody(bs, 0, w.hp[id] ?? 0, bs.maxHp, w.x[id] ?? 0, w.y[id] ?? 0);
 }
 
 /**
@@ -498,6 +561,7 @@ export function damageBoss(w: World, amount: number, hx: number, hy: number, ign
   emitHit(g, hx, hy, Kind.Boss, id, false);
   if (bs.def.afterDamage !== undefined) bs.def.afterDamage(w, id, bs);
   syncBossPhase(w, bs, bs.id);
+  checkCracks(w, bs, bs.id);
   return false;
 }
 
@@ -529,7 +593,10 @@ function partDamaged(w: World, bs: BossState | null, id: number, applied: number
   if (bs === null || bs.status !== 'alive') return;
   if (bs.def.onPartDamage !== undefined) bs.def.onPartDamage(w, bs, id, applied, broke);
   const boss = bossHittable(w);
-  if (boss > 0) syncBossPhase(w, bs, boss);
+  if (boss > 0) {
+    syncBossPhase(w, bs, boss);
+    checkCracks(w, bs, boss);
+  }
 }
 
 /** Damage a boss part. Parts score 0, drop nothing and count 0 kills. Returns true if it broke. */
