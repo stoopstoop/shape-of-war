@@ -721,7 +721,8 @@ function onStep(p: Session, step: number, time: number): void {
   const bossEnv = b === null ? 0 : bossEnvAt(b, step);
   // The budget counts a booked phase's voices from the moment it is booked (as enemy layers count
   // at full gain from their entry), so the bed makes room before the new voice joins.
-  const booked = b === null || bossSpec === null ? 0 : voicesForPhase(bossSpec, bookedPhase(b));
+  // A phase that drops voices (Bastion) keeps the old count until its bar line, so take the larger.
+  const booked = b === null || bossSpec === null ? 0 : Math.max(bossVoices, voicesForPhase(bossSpec, bookedPhase(b)));
   const bossTotal = bossSpec === null ? 0 : bossSpec.gain * booked * bossMotifScale(bossSpec.gain, booked) * bossEnv;
   const lm = layerMix(sumGains(mix.gains), enemies, registry, step, live === null ? null : { duck, total: bossTotal });
   const arpYields = p.arpYield.delete(step);

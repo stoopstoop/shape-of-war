@@ -17,8 +17,13 @@
 // bar: an octave double of the main line or a counter line, at most BOSS_VOICE_MAX in all. Every
 // voice is monophonic, so voices equal notes sounding at once.
 //
-// Entries 7 to 10 (tier 3 and Prism) are present with empty lines: they build no notes until
-// wave C fills them, and every key exists so the registry test catches a missing id.
+// Tier 3 (v3 wave C) bends three of those rules, each as optional data on the spec:
+//   phaseCounts: voices per phase, so a boss can lose voices as it loses parts (Bastion);
+//   phaseTempo:  2 plays the line at double time, steps and durations halved (Twins phase 2);
+//   lap:         each pass of the loop climbs `rise` scale degrees for `laps` passes, then resets (Tempest);
+//   canon:       a phase voice that plays the main line `bars` bars late (Twins).
+// Prism (entry 10) is present with empty lines: it builds no notes until wave C fills it, and
+// every key exists so the registry test catches a missing id.
 import { hash01 } from '../../core/rng';
 import { BOSS_IDS, type BossId, type BossTier } from '../../levelgen/leveldef';
 import { BOSS_VOICE_MAX } from './engine';
@@ -84,7 +89,14 @@ export interface BossNoteDef {
 /** What a phase adds from the next bar: the main line doubled by `shift` semitones, or a counter line. */
 export type PhaseVoice =
   | { readonly type: 'octave'; readonly shift: 12 | -12 }
-  | { readonly type: 'voice'; readonly line: readonly BossNoteDef[] };
+  | { readonly type: 'voice'; readonly line: readonly BossNoteDef[] }
+  | { readonly type: 'canon'; readonly bars: number };
+
+/** Each pass of the loop climbs `rise` scale degrees, for `laps` passes, then starts again. */
+export interface LapRise {
+  readonly rise: number;
+  readonly laps: number;
+}
 
 /** One note of a boss motif bar. */
 export interface BossMotifNote {
@@ -114,6 +126,12 @@ export interface BossMotifSpec {
   readonly main: readonly BossNoteDef[];
   /** Index 0 is what phase 2 adds, index 1 what phase 3 adds. */
   readonly phaseVoices: readonly PhaseVoice[];
+  /** Voices sounding per phase (index 0 is phase 1; the last entry holds). Absent: 1, then one more per phase. */
+  readonly phaseCounts?: readonly number[];
+  /** Tempo per phase (index 0 is phase 1; the last entry holds). 2 plays the line at double time. Absent: 1. */
+  readonly phaseTempo?: readonly (1 | 2)[];
+  /** A climb per pass of the loop, or absent. */
+  readonly lap?: LapRise;
   /** One line on what the motif mirrors (docs/12 presentation table). */
   readonly character: string;
   readonly motif: BossMotifBuilder;
@@ -137,6 +155,12 @@ export const BOSS_TIMBRES = {
   mirror: timbre('mirror', 'square', { wave: 'sine', detune: 1200 }, 'highpass', 1500, 1, 0.001, 0.05),
   // A slow, low saw with a sine an octave down, long glides.
   abyss: timbre('abyss', 'sawtooth', { wave: 'sine', detune: -1200 }, 'lowpass', 520, 3, 0.1, 0.3, 0.6),
+  // A square over a saw an octave down through a dark lowpass: a plated tread.
+  bulwark: timbre('bulwark', 'square', { wave: 'sawtooth', detune: -1200 }, 'lowpass', 900, 1.4, 0.005, 0.14),
+  // A fast pluck: a square with a slightly sharp saw through a bandpass, short enough for sixteenths.
+  gale: timbre('gale', 'square', { wave: 'sawtooth', detune: 7 }, 'bandpass', 2200, 1.4, 0.002, 0.06),
+  // A soft reed: a triangle with a saw a few cents off, so two voices a bar apart stay distinct.
+  echo: timbre('echo', 'triangle', { wave: 'sawtooth', detune: 5 }, 'lowpass', 1800, 1, 0.01, 0.14),
   // The entry, phase and defeat stingers: a bright saw over a square an octave down.
   bossSting: timbre('bossSting', 'sawtooth', { wave: 'square', detune: -1200 }, 'lowpass', 2600, 1, 0.003, 0.3),
 } as const satisfies Readonly<Record<string, Timbre>>;
@@ -156,11 +180,24 @@ interface SpecInput {
   readonly gain: number;
   readonly main: readonly BossNoteDef[];
   readonly phaseVoices: readonly PhaseVoice[];
+  readonly phaseCounts?: readonly number[];
+  readonly phaseTempo?: readonly (1 | 2)[];
+  readonly lap?: LapRise;
   readonly character: string;
 }
 
 function empty(tier: BossTier, character: string): SpecInput {
   return { tier, loopBars: 0, register: 57, timbre: BOSS_TIMBRES.bossSting, gain: 0, main: [], phaseVoices: [], character };
+}
+
+/** Tempest's lap: 32 sixteenths over two bars. Each beat runs a triad (up, up, up, back), a degree above the beat before. */
+function arpLine(): BossNoteDef[] {
+  const shape = [0, 2, 4, 2];
+  const vels = [1, 0.7, 0.8, 0.7];
+  const bases = [0, 1, 2, 1, 2, 3, 4, 3];
+  const out: BossNoteDef[] = [];
+  bases.forEach((base, beat) => shape.forEach((d, i) => out.push(n(beat * 4 + i, base + d, 1, vels[i] ?? 0.7))));
+  return out;
 }
 
 // Degrees: tier 1 (pentatonic) 0 A, 1 C, 2 D, 3 E, 4 G, 5 A up. Tiers 2 and 3 (seven notes)
@@ -246,9 +283,54 @@ const INPUTS: Readonly<Record<BossId, SpecInput>> = {
     ],
     character: 'slow wobbling low glide with a downward sweep',
   },
-  bastion: empty(3, 'wave C: heavy march'),
-  tempest: empty(3, 'wave C: rising sixteenth arpeggio'),
-  twins: empty(3, 'wave C: two voice canon'),
+  // A heavy march on quarter notes from A2, leaning on B flat (the phrygian second) and D. Phase 1
+  // (four turrets) plays three voices: the march, an octave double and a high counter line. Each
+  // later phase drops one voice (the counter line, then the double) until the march stands alone.
+  bastion: {
+    tier: 3,
+    loopBars: 2,
+    register: 45,
+    timbre: BOSS_TIMBRES.bulwark,
+    gain: 0.09,
+    main: [n(0, 0, 3), n(4, 1, 3, 0.8), n(8, 0, 3, 0.95), n(12, 3, 2, 0.75), n(16, 0, 3), n(20, 1, 3, 0.8), n(24, 2, 3, 0.9), n(28, 1, 2, 0.8)],
+    phaseVoices: [
+      { type: 'octave', shift: 12 },
+      { type: 'voice', line: [n(6, 8, 2, 0.6), n(14, 7, 2, 0.6), n(22, 9, 2, 0.6), n(30, 8, 2, 0.6)] },
+    ],
+    phaseCounts: [3, 2, 1],
+    character: 'heavy quarter note march, a voice drops per phase as turrets fall',
+  },
+  // A sixteenth arpeggio: every beat runs a triad (up, up, up, back) a degree above the last, so
+  // the bar climbs, and each lap (two bars) starts two degrees higher for four laps, then resets.
+  // Phase 2 doubles it an octave down, phase 3 adds a driving quarter note pulse on A2.
+  tempest: {
+    tier: 3,
+    loopBars: 2,
+    register: 57,
+    timbre: BOSS_TIMBRES.gale,
+    gain: 0.06,
+    main: arpLine(),
+    phaseVoices: [
+      { type: 'octave', shift: -12 },
+      { type: 'voice', line: [n(0, -7, 2), n(4, -7, 2, 0.7), n(8, -6, 2, 0.9), n(12, -7, 2, 0.7), n(16, -7, 2), n(20, -7, 2, 0.7), n(24, -5, 2, 0.9), n(28, -6, 2, 0.7)] },
+    ],
+    lap: { rise: 2, laps: 4 },
+    character: 'fast sixteenth arpeggio that rises each lap',
+  },
+  // A two bar line, four notes a bar, that the second voice plays a bar later (a canon). Phase 2
+  // (one body down) is the line alone at double time.
+  twins: {
+    tier: 3,
+    loopBars: 2,
+    register: 57,
+    timbre: BOSS_TIMBRES.echo,
+    gain: 0.07,
+    main: [n(0, 0, 4), n(4, 2, 2, 0.8), n(6, 1, 2, 0.7), n(8, 4, 6, 0.9), n(16, 5, 2, 0.8), n(18, 4, 2, 0.7), n(24, 3, 4, 0.9), n(28, 0, 4, 0.8)],
+    phaseVoices: [{ type: 'canon', bars: 1 }],
+    phaseCounts: [2, 1],
+    phaseTempo: [1, 2],
+    character: 'two voice canon a bar apart; solo at double time once one body falls',
+  },
   prism: empty(4, 'wave C: quotes bosses 1 to 9'),
 };
 
@@ -269,18 +351,36 @@ function lane(id: BossId, salt: number): number {
 }
 
 /** Pure: voices sounding in a phase (1 in phase 1, one more per later phase), at most BOSS_VOICE_MAX. */
-export function voicesForPhase(spec: Pick<BossMotifSpec, 'phaseVoices' | 'main'>, phase: number): number {
+export function voicesForPhase(spec: Pick<BossMotifSpec, 'phaseVoices' | 'main' | 'phaseCounts'>, phase: number): number {
   if (spec.main.length === 0) return 0;
+  const counts = spec.phaseCounts;
+  if (counts && counts.length > 0) {
+    const i = Math.min(counts.length, Math.max(1, Math.trunc(phase))) - 1;
+    return Math.max(1, Math.min(BOSS_VOICE_MAX, counts[i] ?? 1));
+  }
   const extra = Math.max(0, Math.min(spec.phaseVoices.length, Math.trunc(phase) - 1));
   return Math.min(BOSS_VOICE_MAX, 1 + extra);
+}
+
+/** Pure: scale degrees a pass climbs above the first (0 with no lap). */
+export function lapClimb(lap: LapRise | undefined, pass: number): number {
+  if (!lap || lap.laps <= 0) return 0;
+  const p = Math.trunc(pass);
+  return lap.rise * (((p % lap.laps) + lap.laps) % lap.laps);
+}
+
+/** Pure: a line at double time: steps and durations halved (a duration stays at least one step). */
+export function doubleTime(line: readonly BossNoteDef[]): BossNoteDef[] {
+  return line.map((x) => ({ ...x, step: Math.floor(x.step / 2), dur: Math.max(1, Math.round(x.dur / 2)) }));
 }
 
 /**
  * Pure: the main line for one pass of the loop. Every odd pass may answer: its last note moves
  * one scale degree up or down, both decided by hash01 of (boss id, phase, pass).
  */
-export function mainForPass(spec: Pick<BossMotifSpec, 'id' | 'main'>, phase: number, pass: number): BossNoteDef[] {
-  const out = spec.main.map((x) => ({ ...x }));
+export function mainForPass(spec: Pick<BossMotifSpec, 'id' | 'main' | 'lap'>, phase: number, pass: number): BossNoteDef[] {
+  const climb = lapClimb(spec.lap, pass);
+  const out = spec.main.map((x) => ({ ...x, deg: x.deg + climb, from: x.from === null ? null : x.from + climb }));
   const last = out[out.length - 1];
   const p = Math.trunc(pass);
   if (last && p % 2 !== 0) {
@@ -293,10 +393,19 @@ export function mainForPass(spec: Pick<BossMotifSpec, 'id' | 'main'>, phase: num
   return out;
 }
 
-type Shape = Pick<BossMotifSpec, 'id' | 'tier' | 'register' | 'loopBars' | 'main' | 'phaseVoices'>;
+type Shape = Pick<BossMotifSpec, 'id' | 'tier' | 'register' | 'loopBars' | 'main' | 'phaseVoices' | 'phaseCounts' | 'phaseTempo' | 'lap'>;
 
-function placeLine(line: readonly BossNoteDef[], spec: Shape, bar: number, voice: number, shift: number): BossMotifNote[] {
-  const lb = ((bar % spec.loopBars) + spec.loopBars) % spec.loopBars;
+/** Pure: the tempo of a phase (1 or 2). */
+export function tempoForPhase(spec: Pick<BossMotifSpec, 'phaseTempo'>, phase: number): 1 | 2 {
+  const t = spec.phaseTempo;
+  if (!t || t.length === 0) return 1;
+  return t[Math.min(t.length, Math.max(1, Math.trunc(phase))) - 1] ?? 1;
+}
+
+const mod = (a: number, m: number): number => ((a % m) + m) % m;
+
+/** `lb` is the bar inside the loop the line plays; `bar` is the real bar, which picks the chord. */
+function placeLine(line: readonly BossNoteDef[], spec: Shape, lb: number, bar: number, voice: number, shift: number): BossMotifNote[] {
   const key = BOSS_KEYS[spec.tier];
   const out: BossMotifNote[] = [];
   for (const x of line) {
@@ -318,21 +427,42 @@ function placeLine(line: readonly BossNoteDef[], spec: Shape, bar: number, voice
 export function buildBossBar(spec: Shape, phase: number, bar: number): BossMotifNote[] {
   if (spec.main.length === 0 || spec.loopBars <= 0) return [];
   const b = Math.trunc(bar);
-  const pass = Math.floor(b / spec.loopBars);
-  const main = mainForPass(spec, phase, pass);
-  const out = placeLine(main, spec, b, 0, 0);
+  const tempo = tempoForPhase(spec, phase);
+  // At double time the loop is half as long, so it comes round twice as often.
+  const loop = Math.max(1, Math.round(spec.loopBars / tempo));
+  const lineAt = (pass: number): BossNoteDef[] => {
+    const line = mainForPass(spec, phase, pass);
+    return tempo === 2 ? doubleTime(line) : line;
+  };
+  const main = lineAt(Math.floor(b / loop));
+  const out = placeLine(main, spec, mod(b, loop), b, 0, 0);
   const voices = voicesForPhase(spec, phase);
   for (let v = 1; v < voices; v++) {
     const pv = spec.phaseVoices[v - 1];
     if (!pv) continue;
-    out.push(...(pv.type === 'octave' ? placeLine(main, spec, b, v, pv.shift) : placeLine(pv.line, spec, b, v, 0)));
+    if (pv.type === 'octave') out.push(...placeLine(main, spec, mod(b, loop), b, v, pv.shift));
+    else if (pv.type === 'canon') {
+      // The same line, `bars` bars late: silent until the first bar it can play.
+      const from = b - Math.trunc(pv.bars);
+      if (from >= 0) out.push(...placeLine(lineAt(Math.floor(from / loop)), spec, mod(from, loop), b, v, 0));
+    } else out.push(...placeLine(tempo === 2 ? doubleTime(pv.line) : pv.line, spec, mod(b, loop), b, v, 0));
   }
   return out.sort((a, c) => a.step - c.step || a.voice - c.voice);
 }
 
 function makeSpec(id: BossId): BossMotifSpec {
   const i = INPUTS[id];
-  const shape: Shape = { id, tier: i.tier, register: i.register, loopBars: i.loopBars, main: i.main, phaseVoices: i.phaseVoices };
+  const shape: Shape = {
+    id,
+    tier: i.tier,
+    register: i.register,
+    loopBars: i.loopBars,
+    main: i.main,
+    phaseVoices: i.phaseVoices,
+    ...(i.phaseCounts ? { phaseCounts: i.phaseCounts } : {}),
+    ...(i.phaseTempo ? { phaseTempo: i.phaseTempo } : {}),
+    ...(i.lap ? { lap: i.lap } : {}),
+  };
   return {
     ...shape,
     timbre: i.timbre,
@@ -358,7 +488,7 @@ function buildRegistry(): BossMotifRegistry {
   });
 }
 
-/** The boss motif registry. Bosses 7 to 10 are present and empty until wave C. */
+/** The boss motif registry. Prism (10) is present and empty until wave C. */
 export const BOSS_MOTIFS: BossMotifRegistry = buildRegistry();
 
 /** Pure: the ids missing from a registry (none for BOSS_MOTIFS; the registry test checks it). */
