@@ -1,20 +1,17 @@
 // Prism (v3 wave C, boss 10, tier 4): a four bar loop that quotes, transposed, the cells of three
-// earlier bosses per phase, in A natural minor, with a rising arpeggio across the second half of
-// every second bar. The damage cycle is 4 s, two bars at 120 BPM, so the cue is a fixed two bar
-// pattern and the builder is a pure function of the bar. Pure checks first, then the real entry
+// earlier bosses per phase, in A natural minor, with the second half of every second bar resting
+// (the window cue follows 'sim:bossWindow', see bossCue.test.ts, not the bar). The builder is a
+// pure function of the bar. Pure checks first, then the real entry
 // points with a fake audio clock for the voice cap beside six enemy motifs.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BOSS_MOTIFS,
   BOSS_TIMBRES,
-  PRISM_ARP_NOTES,
-  PRISM_ARP_STEP,
+  PRISM_HALF,
   PRISM_LOOP_BARS,
   inTierScale,
-  isPrismCueBar,
   missingBossIds,
   nearestDegree,
-  prismArp,
   prismQuote,
   prismQuotedIds,
   tierMidi,
@@ -34,10 +31,8 @@ import { BOSS_IDS, type BossId, type EnemyKind } from '../../../src/levelgen/lev
 import { FakeContext, FakeNode, FakeTimer } from './fakeAudio';
 
 const PHASES = [1, 2, 3, 4];
-const STEP_SEC = BAR_SEC / STEPS_PER_BAR;
-/** The damage cycle (docs/12 roster row 10): the outline runs to white, then the shield drops. */
-const CYCLE_SEC = 4;
-const RUN_TO_WHITE_SEC = 0.5;
+/** Bars of the loop whose cell fills only the first half; the second half rests. */
+const HALF_BARS = [1, 3];
 const prism = BOSS_MOTIFS.prism;
 const notesOf = (phase: number, bar: number): readonly BossMotifNote[] => prism.motif(phase, bar);
 const barsOf = (phase: number, from: number, to: number): BossMotifNote[] => {
@@ -117,11 +112,11 @@ describe('prism quotes three earlier bosses per phase', () => {
     }
   });
 
-  it('the half bar cells leave the second half of bars 1 and 3 clear for the cue', () => {
+  it('the half bar cells leave the second half of bars 1 and 3 resting', () => {
     for (const p of PHASES) {
       for (const x of prismQuote(p)) {
         const inBar = x.step % STEPS_PER_BAR;
-        if (isPrismCueBar(Math.floor(x.step / STEPS_PER_BAR))) expect(inBar + x.dur, `phase ${p}`).toBeLessThanOrEqual(PRISM_ARP_STEP);
+        if (HALF_BARS.includes(Math.floor(x.step / STEPS_PER_BAR))) expect(inBar + x.dur, `phase ${p}`).toBeLessThanOrEqual(PRISM_HALF);
         else expect(inBar + x.dur).toBeLessThanOrEqual(STEPS_PER_BAR);
       }
     }
@@ -195,11 +190,11 @@ describe('prism determinism', () => {
     }
   });
 
-  it('the quoted line repeats every four bars (the cue follows the bed chord)', () => {
+  it('the quoted line repeats every four bars', () => {
     for (const p of PHASES) {
       for (let b = 0; b < 8; b++) {
         const quote = (bar: number): string =>
-          JSON.stringify(notesOf(p, bar).filter((n) => !(isPrismCueBar(bar) && n.step >= PRISM_ARP_STEP)).map((n) => [n.step, n.durSteps, n.voice]));
+          JSON.stringify(notesOf(p, bar).map((n) => [n.step, n.durSteps, n.voice]));
         expect(quote(b + PRISM_LOOP_BARS), `phase ${p} bar ${b}`).toBe(quote(b));
       }
     }
@@ -207,60 +202,15 @@ describe('prism determinism', () => {
 
   it('a bar before the join is empty', () => {
     expect(notesOf(1, -1)).toEqual([]);
-    expect(prismArp(-1)).toEqual([]);
-  });
-});
-
-describe('prism cue: the rising arpeggio lands before each flash', () => {
-  const BARS = 16;
-
-  it('the damage cycle is exactly two bars at 120 BPM and the cue is one second long', () => {
-    expect(CYCLE_SEC / BAR_SEC).toBe(2);
-    expect(PRISM_ARP_NOTES * STEP_SEC).toBe(1);
   });
 
-  it('over 16 bars every flash (a cycle line, from bar 2) is preceded by eight rising sixteenths', () => {
+  it('no bar locked cue: the second half of bars 1 and 3 holds no note', () => {
     for (const p of PHASES) {
-      for (let flashBar = 2; flashBar <= BARS; flashBar += 2) {
-        const flash = flashBar * BAR_SEC;
-        expect(flash % CYCLE_SEC).toBe(0);
-        const cue = notesOf(p, flashBar - 1).filter((n) => n.voice === 0 && n.step >= PRISM_ARP_STEP);
-        expect(cue.length, `phase ${p} flash at bar ${flashBar}`).toBe(PRISM_ARP_NOTES);
-        const starts = cue.map((n) => (flashBar - 1) * BAR_SEC + n.step * STEP_SEC);
-        const ends = cue.map((n, i) => (starts[i] ?? 0) + n.durSteps * STEP_SEC);
-        // Every note ends by the flash; the cue begins a second early, ahead of the 0.5 s run to white.
-        for (const e of ends) expect(e).toBeLessThanOrEqual(flash + 1e-9);
-        expect(flash - (starts[0] ?? flash)).toBeGreaterThanOrEqual(RUN_TO_WHITE_SEC);
-        expect(Math.max(...ends)).toBeCloseTo(flash, 9);
-        for (let i = 1; i < cue.length; i++) {
-          expect(cue[i]?.step).toBe((cue[i - 1]?.step ?? 0) + 1);
-          expect(cue[i]?.midi ?? 0, `phase ${p} bar ${flashBar}`).toBeGreaterThan(cue[i - 1]?.midi ?? 0);
-          expect(cue[i]?.vel ?? 0).toBeGreaterThan(cue[i - 1]?.vel ?? 1);
-        }
+      for (let b = 0; b < 16; b++) {
+        const late = notesOf(p, b).filter((n) => n.step >= PRISM_HALF);
+        if (HALF_BARS.includes(b % PRISM_LOOP_BARS)) expect(late, `phase ${p} bar ${b}`).toEqual([]);
       }
     }
-  });
-
-  it('the cue is the only thing in the second half of a cue bar, and no other bar has one', () => {
-    for (const p of PHASES) {
-      for (let b = 0; b < BARS; b++) {
-        const late = notesOf(p, b).filter((n) => n.voice === 0 && n.step >= PRISM_ARP_STEP);
-        if (isPrismCueBar(b)) expect(late.map((n) => n.step)).toEqual(Array.from({ length: PRISM_ARP_NOTES }, (_, i) => PRISM_ARP_STEP + i));
-        else expect(prismArp(b)).toEqual([]);
-      }
-    }
-  });
-
-  it('the arpeggio is stacked thirds on the bar chord: A, F, C, G on bars 1, 3, 5, 7', () => {
-    const roots = [9, 5, 0, 7];
-    [1, 3, 5, 7].forEach((bar, i) => {
-      const arp = prismArp(bar);
-      const h = harmonyForBar(bar, BOSS_KEYS[4]);
-      expect(h.root).toBe(roots[i]);
-      expect((arp[0]?.midi ?? -1) % 12).toBe(roots[i]);
-      for (const n of arp) expect(inChord(n.midi, h), `bar ${bar} midi ${n.midi}`).toBe(true);
-      expect(arp.map((n) => n.step)).toEqual(Array.from({ length: PRISM_ARP_NOTES }, (_, k) => PRISM_ARP_STEP + k));
-    });
   });
 });
 
@@ -343,7 +293,7 @@ describe('prism through the bus', () => {
     uninstall();
   });
 
-  it('16 voices, 3 boss voices, no steals, every note in the scale, a rising cue before each cycle line', () => {
+  it('16 voices, 3 boss voices, no steals, every note in the scale', () => {
     startMusic(51);
     bus.emit('sim:threat', { level: 1 });
     for (const k of six) bus.emit('sim:enemyEnter', { kind: k, live: 1 });
@@ -374,15 +324,5 @@ describe('prism through the bus', () => {
     for (const n of boss) expect(inTierScale(n.midi ?? 0, 4), `midi ${n.midi}`).toBe(true);
     const after = boss.filter((n) => n.step >= barLineAfter(at4));
     expect(new Set(after.map((n) => n.voice)).size).toBe(voicesForPhase(prism, 4));
-    // A run of eight consecutive sixteenths, each higher than the last, starting on a half bar.
-    const v0 = boss.filter((n) => n.voice === 0).sort((a, b) => a.step - b.step);
-    let runs = 0;
-    for (let i = 0; i + PRISM_ARP_NOTES <= v0.length; i++) {
-      const run = v0.slice(i, i + PRISM_ARP_NOTES);
-      const first = run[0];
-      if (!first || first.step % STEPS_PER_BAR !== PRISM_ARP_STEP) continue;
-      if (run.every((n, k) => n.step === first.step + k && (k === 0 || (n.midi ?? 0) > (run[k - 1]?.midi ?? 0)))) runs++;
-    }
-    expect(runs).toBeGreaterThanOrEqual(4);
   });
 });
