@@ -67,4 +67,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Read .agents/runs/0287, 0288, 0289. Merge Swarm, Glow, Chorus; glue; push; read the deploy; retest G3C items (Prism window with and without music, hit feedback on Bastion and Tempest, cracks, Bastion phase 3 threat, tier 3 look, Twins enrage, level 55 boss name). On pass: Proctor v3-harden lean, tag v3.0.0, then the Max account switch for wave D.
+G3C retest on e96762b in words: Prism window with and without music, hit feedback on Bastion and Tempest, cracks at 66 and 33, Bastion phase 3 threat, tier 3 look, bosses distinct, Twins enrage visible, level 55 boss name, fps. On pass: Proctor v3-harden (Sonnet, lean, about $3), tag v3.0.0, then the Max account switch for wave D.
