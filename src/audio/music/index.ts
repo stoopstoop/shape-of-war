@@ -16,8 +16,9 @@
 // turning on or off) also earns a 2 bar fill, and every odd pass of the loop ends in one.
 //
 // Boss music (v3 wave B): 'sim:bossEnter', 'sim:bossPhase' and 'sim:bossDown' drive bossLife.ts.
-// The fight moves to the tier's boss bed (A, 120 BPM) on the join bar and back to the level tune
-// a bar after the motif stops; the boss motif (boss.ts) plays as class 'boss' voices; the enemy
+// The fight cross fades into a battle track (battle.ts, tunes.ts BATTLE_TUNES: A, 120 BPM) on the
+// join bar and returns to the level tune two bars after the motif stops; the boss motif (boss.ts,
+// fitted to the battle track's chords) plays as class 'boss' voices; the enemy
 // motifs duck and only the newest three keep a voice; the threat floor is 0.8 while the boss
 // lives. A boss death that ends the level ('game:over' in the same step) rings the defeat
 // stinger out before the engine is released.
@@ -67,7 +68,7 @@ import {
   type WindowCue,
 } from './bossCue';
 import { BOSS_VOICE_MAX } from './engine';
-import { chordToneMidi, harmonyAtStep, type Harmony } from './harmony';
+import { chordToneMidi, harmonyAtStep, harmonyForBar, type Harmony } from './harmony';
 import { createMusicEngine, voiceLength, type MusicContext, type MusicEngine, type NodeLike, type Span, type VoiceTrace } from './engine';
 import {
   clamp01,
@@ -140,7 +141,8 @@ import {
 import { createScheduler, LOOKAHEAD_SEC, planStep, realTimer, TICK_MS, type Scheduler, type Timer } from './scheduler';
 import { endlessBlock, endlessTune, startTune, type RunMode } from './select';
 import { buildBar, STEPS_PER_BAR, structuralFill, type BarPattern, type FillBar, type Layer } from './track';
-import { bossTuneFor, DEFAULT_TUNE, FILL_BARS, tuneById, type Tune, type TuneId } from './tunes';
+import { BATTLE_TUNES, DEFAULT_TUNE, FILL_BARS, tuneById, type TrackId, type Tune, type TuneId } from './tunes';
+import { battleIndexFor, fitBattleNote, xfadeFor, xfadeGain, type Xfade } from './battle';
 
 /** One scheduled note, reported to `onNote` (tests and debugging). */
 export interface NoteLog {
@@ -178,8 +180,8 @@ export interface NoteLog {
   readonly time: number;
   readonly midi: number | null;
   readonly gain: number;
-  /** The tune the note belongs to. */
-  readonly tune?: TuneId;
+  /** The tune (or battle track) the note belongs to. */
+  readonly tune?: TrackId;
 }
 
 export interface MusicGraph {
@@ -288,6 +290,8 @@ interface Session {
   bossHit: boolean;
   /** Crack stages waiting for the next tick (each plays one stinger). */
   readonly cracks: number[];
+  /** The bed cross fade into the battle track (battle.ts), or null. */
+  xfade: Xfade | null;
 }
 
 interface Playing {
@@ -316,6 +320,8 @@ let pendingKill: KillSource | null = null;
 /** Uninstall of the live initMusic install; a new install replaces it. */
 let installed: (() => void) | null = null;
 let installToken = 0;
+/** Battle track index of the last boss fight in this run (a new 'game:start' clears it). */
+let lastBattle: number | null = null;
 
 function defaultVisibility(): VisibilitySource | null {
   return typeof document === 'undefined' ? null : document;
@@ -493,7 +499,11 @@ function bossBar(s: Session, b: BossLife, bar: number): readonly BossMotifNote[]
   const phase = phaseAt(b, bar * STEPS_PER_BAR);
   const c = s.bossCache;
   if (c && c.bar === bar && c.phase === phase && c.id === b.id) return c.notes;
-  const notes = BOSS_MOTIFS[b.id].motif(phase, local);
+  const raw = BOSS_MOTIFS[b.id].motif(phase, local);
+  // Over a battle track every note moves onto the track's chord of that bar.
+  const tune = tuneAt(s, bar);
+  const h = harmonyForBar(localBar(s, bar), tune.key);
+  const notes = tune.battle === true ? raw.map((n) => fitBattleNote(n, h, tune.key, b.tier)) : raw;
   s.bossCache = { bar, phase, id: b.id, notes };
   return notes;
 }
@@ -756,7 +766,7 @@ function onStep(p: Session, step: number, time: number): void {
   const bossTotal = bossSpec === null ? 0 : bossSpec.gain * booked * bossMotifScale(bossSpec.gain, booked) * bossEnv;
   const lm = layerMix(sumGains(mix.gains), enemies, registry, step, live === null ? null : { duck, total: bossTotal });
   const arpYields = p.arpYield.delete(step);
-  for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale), time, sec)) {
+  for (const n of planStep(barFor(p, barIndex), inBar, scaleMix(mix, lm.bedScale * xfadeGain(p.xfade, step)), time, sec)) {
     if (arpYields && n.layer === 'arp') continue;
     p.engine.play(n, w.tune.bed);
     if (noteHook) logNote(w.tune, { role: 'bed', layer: n.layer, kind: null, step, time, midi: n.midi, gain: n.gain });
@@ -872,7 +882,12 @@ function onBossEnter(id: BossId, tier: BossTier): void {
   s.bossCache = null;
   s.bossExtraEnd = 0;
   s.defeatEnd = 0;
-  bookTune(s, sched, Math.floor(next.joinStep / STEPS_PER_BAR), bossTuneFor(tier, s.preBossTune));
+  // A battle track picked from the level seed and the boss, never the last fight's track.
+  const idx = battleIndexFor(s.seed, id, lastBattle);
+  lastBattle = idx;
+  const battle = BATTLE_TUNES[idx] ?? DEFAULT_TUNE;
+  s.xfade = xfadeFor(sched.nextStep, next.joinStep);
+  bookTune(s, sched, Math.floor(next.joinStep / STEPS_PER_BAR), battle);
 }
 
 function onBossPhase(id: BossId, phase: number): void {
@@ -962,8 +977,8 @@ function drainBossCues(s: Session, now: number, sched: Scheduler): void {
   }
 }
 
-/** Bars of the boss bed after the motif stops, under the defeat stinger, before the level tune returns. */
-const RESTORE_BARS = 1;
+/** Bars of the battle track after the motif stops, under the defeat chord, before the level tune returns. */
+const RESTORE_BARS = 2;
 
 function onBossDown(id: BossId): void {
   const p = playing;
@@ -1084,6 +1099,8 @@ export function initMusic(opts: MusicOptions = {}): () => void {
     // other mode restarts with the right tune.
     b.on('game:start', (p) => {
       runMode = p.mode;
+      // A new run: the first boss may get any battle track.
+      lastBattle = null;
       const cur = playing;
       if (cur && cur.session.mode !== p.mode && cur.scheduler.nextStep <= STEPS_PER_BAR) startMusic(cur.session.seed);
     }),
@@ -1211,6 +1228,7 @@ export function startMusic(seed: number): boolean {
     bossTick: BOSS_TICK_GATE_INIT,
     bossHit: false,
     cracks: [],
+    xfade: null,
   };
   const scheduler: Scheduler = createScheduler({
     clock: { now: () => ctx.currentTime },
@@ -1323,7 +1341,7 @@ export interface MusicState {
   /** Kills seen (scored kills, pops, wells and burst segments), kill notes and chords played this session. */
   readonly kills: Readonly<KillStats>;
   /** The tune at the next step to be scheduled, or null when nothing plays. */
-  readonly tune: TuneId | null;
+  readonly tune: TrackId | null;
   /** That tune's tempo, or 0 when nothing plays. */
   readonly bpm: number;
   /** The boss with a music state (alive, or releasing after its death), or null. */
@@ -1363,7 +1381,7 @@ export function musicState(): MusicState {
     motifSteals: steals?.motif ?? 0,
     kills: { ...(p?.session.stats ?? { seen: 0, notes: 0, chords: 0 }) },
     boss: p?.session.boss?.id ?? null,
-    bossTier: tune?.bossTier ?? null,
+    bossTier: tune?.battle === true ? (p?.session.boss?.tier ?? null) : null,
     bossVoices: p?.engine.bossVoiceCount ?? 0,
     bossSteals: steals?.boss ?? 0,
     duck: p ? duckAt(p.session.boss, p.scheduler.nextStep) : 1,
@@ -1372,17 +1390,19 @@ export function musicState(): MusicState {
   };
 }
 export { CUT1_KEEP, LAYER_KINDS } from './layers';
-export { TUNE_IDS, TUNES, type Tune, type TuneId } from './tunes';
+export { BATTLE_IDS, BATTLE_TUNES, TUNE_IDS, TUNES, type BattleId, type TrackId, type Tune, type TuneId } from './tunes';
 
 export { BOSS_MOTIFS } from './boss';
 
 /**
- * The tune a boss fight of `tier` plays over (docs/12 "Design: boss music"): the tier's boss bed
- * in A at 120 BPM (tunes.ts BOSS_TUNES), whatever the active tune. The music switches to it by
- * itself on 'sim:bossEnter'; this is for tests and the debug overlay.
+ * The battle track a fight with boss `id` plays (G3C retest): the track playing now during a
+ * fight, else the one the next 'sim:bossEnter' of `id` would pick (battle.ts battleIndexFor of
+ * the level seed and the boss, never the last fight's track). The music switches by itself on
+ * 'sim:bossEnter'; this is for tests and the debug overlay.
  */
-export function selectBossTune(tier: BossTier): Tune {
+export function selectBossTune(id: BossId): Tune {
   const p = playing;
-  const active = p ? tuneAt(p.session, Math.floor(p.scheduler.nextStep / STEPS_PER_BAR)) : DEFAULT_TUNE;
-  return bossTuneFor(tier, active);
+  const now = p ? tuneAt(p.session, Math.floor(p.scheduler.nextStep / STEPS_PER_BAR)) : null;
+  if (now !== null && now.battle === true) return now;
+  return BATTLE_TUNES[battleIndexFor(p?.session.seed ?? 0, id, lastBattle)] ?? DEFAULT_TUNE;
 }

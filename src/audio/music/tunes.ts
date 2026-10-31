@@ -19,6 +19,12 @@ import type { Layer } from './track';
 export const TUNE_IDS = ['neon', 'tide', 'ember', 'orbit'] as const;
 export type TuneId = (typeof TUNE_IDS)[number];
 
+/** The boss battle tracks (G3C retest: boss fights get their own music, at least three tracks). */
+export const BATTLE_IDS = ['verdict', 'meridian', 'requiem'] as const;
+export type BattleId = (typeof BATTLE_IDS)[number];
+/** Any track the music can play: a level tune or a battle track. */
+export type TrackId = TuneId | BattleId;
+
 /** Tempo range every tune keeps (brief: 100 to 132 BPM). */
 export const BPM_MIN = 100;
 export const BPM_MAX = 132;
@@ -85,7 +91,7 @@ export interface ChordVoicing {
 }
 
 export interface Tune {
-  readonly id: TuneId;
+  readonly id: TrackId;
   readonly name: string;
   /** One line on the character, for the hand-off and the debug overlay. */
   readonly mood: string;
@@ -107,8 +113,13 @@ export interface Tune {
   readonly arpAlt: ArpFigure;
   readonly drums: Drums;
   readonly bed: BedTimbre;
-  /** Set on a boss bed (BOSS_TUNES): the boss tier it plays under. Absent on the level tunes. */
-  readonly bossTier?: 1 | 2 | 3 | 4;
+  /** Set on a boss battle track (BATTLE_TUNES). Absent on the level tunes. */
+  readonly battle?: true;
+}
+
+/** A level tune (TUNES): its id is one of TUNE_IDS. */
+export interface LevelTune extends Tune {
+  readonly id: TuneId;
 }
 
 const hit = (step: number, vel: number): DrumHit => ({ step, vel });
@@ -145,7 +156,7 @@ const EIGHTHS: readonly number[] = STEPS16.filter((s) => s % 2 === 0);
 // Neon Drive: the original track. A natural minor, 120 BPM, Am F C G two bars each, four on
 // the floor. Its first pass is note for note the v2.1 bed.
 
-const NEON: Tune = {
+const NEON: LevelTune = {
   id: 'neon',
   name: 'Neon Drive',
   mood: 'driving four on the floor, A minor, square arp over a saw pad',
@@ -196,7 +207,7 @@ const T_D = triad('D', 'III', 2, 4);
 const T_A = triad('A', 'VII', 9, 4);
 const T_FSM = triad('F#m', 'v', 6, 3);
 
-const TIDE: Tune = {
+const TIDE: LevelTune = {
   id: 'tide',
   name: 'Glass Tide',
   mood: 'half time and floating, B dorian, triangle arp in eighths over a soft pad',
@@ -241,7 +252,7 @@ const T_AB = triad('Ab', 'bII', 8, 4);
 const T_EB = triad('Eb', 'bVI', 3, 4);
 const T_FM = triad('Fm', 'vii', 5, 3);
 
-const EMBER: Tune = {
+const EMBER: LevelTune = {
   id: 'ember',
   name: 'Ember Gate',
   mood: 'dark and urgent, G phrygian, galloping saw bass and sixteenth hats',
@@ -299,7 +310,7 @@ const T_D2 = triad('D', 'VI', 2, 4);
 const T_CSM = triad('C#m', 'v', 1, 3);
 const T_E2 = triad('E', 'VII', 4, 4);
 
-const ORBIT: Tune = {
+const ORBIT: LevelTune = {
   id: 'orbit',
   name: 'Low Orbit',
   mood: 'broken beat and wide, F# minor, sine arp in syncopated pairs over a wide saw pad',
@@ -363,12 +374,12 @@ export function bedWaveTrim(layer: Layer, bed: BedTimbre): number {
 }
 
 /** Every tune, in selection order. Index 0 is the original track. */
-export const TUNES: readonly Tune[] = [NEON, TIDE, EMBER, ORBIT];
+export const TUNES: readonly LevelTune[] = [NEON, TIDE, EMBER, ORBIT];
 
-export const DEFAULT_TUNE: Tune = NEON;
+export const DEFAULT_TUNE: LevelTune = NEON;
 
 /** Pure: a tune by id (the default for an unknown id). */
-export function tuneById(id: string): Tune {
+export function tuneById(id: string): LevelTune {
   return TUNES.find((t) => t.id === id) ?? DEFAULT_TUNE;
 }
 
@@ -401,15 +412,13 @@ export const FILL_PERC: readonly DrumHit[] = [hit(4, 1), hit(8, 0.6), hit(12, 1)
 export const FILL_RUN: readonly number[] = [0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6];
 
 // ---------------------------------------------------------------------------------------
-// Boss beds (v3 wave B, docs/13 SPEC 3.9 item 4). A boss motif is in A minor at 120 BPM inside
-// its tier scale, so whatever tune the level plays, a boss fight moves to a boss bed in A at
-// 120 BPM: Neon Drive's drums, pad and arp figure with the octave bounce as the main bass line,
-// over a chord plan built from the tier scale, so every boss motif note agrees with the chords.
-//   tier 1 (minor pentatonic): Am F C G, the original plan;
+// Boss keys (v3 wave B, docs/13 SPEC 3.9 item 4). A boss motif is composed in A at 120 BPM
+// inside its tier scale, over a chord plan built from that scale (two bars a chord):
+//   tier 1 (minor pentatonic): Am F C G;
 //   tier 2 (natural minor with a raised seventh): Am F Dm E, the E major chord carries the G sharp;
 //   tier 3 (phrygian second): Am Bb Gm Bb, the flat second leaning back onto the tonic;
-//   tier 4 (natural minor): Am F C G again; Prism's quoting loop and its cue arpeggio sit on it.
-// Each chord lasts two bars. The id stays 'neon' (the bed is Neon Drive's); bossTier marks it.
+//   tier 4 (natural minor): Am F C G; Prism's quoting loop sits on it.
+// The fight itself plays a battle track (below); motif notes are fitted to its chords at play time.
 
 const B_DM = triad('Dm', 'iv', 2, 3);
 const B_E = triad('E', 'V', 4, 4);
@@ -424,38 +433,134 @@ export const BOSS_KEYS: Readonly<Record<1 | 2 | 3 | 4, Key>> = {
   4: DEFAULT_KEY,
 };
 
-const BOSS_VOICINGS: Readonly<Record<string, ChordVoicing>> = {
-  ...NEON.voicings,
-  Dm: voiced(B_DM, 2),
-  E: voiced(B_E, 3),
-  Bb: voiced(B_BB, 1),
-  Gm: voiced(B_GM, 4),
+// ---------------------------------------------------------------------------------------
+// Boss battle tracks (G3C retest, Ryan: "unique battle boss music so users become accustomed to
+// the type of battle when they hear the change", minor keys, at least three tracks). A boss fight
+// leaves the level tune for one of these. All three keep the boss bed grid: tonic A (the boss
+// motifs are composed in A), 120 BPM, so a bar is 2 s and Prism's 4 s cycle sits on bar lines.
+// The 140 to 160 BPM drive comes from density, not tempo: hats on every sixteenth, a busy bass
+// and one chord a bar (the level tunes change chord every two bars). Each track has its own
+// progression, bass line, drum pattern, timbres and a signature hook: a fixed arp figure that
+// never rests at random (restP 0), so the same figure comes round every bar pair.
+// BOSS_KEYS above stays the key the boss motifs are composed in; at play time each motif note is
+// fitted to the battle track's chord and scale (battle.ts fitBattleNote).
+
+const T_EM = triad('Em', 'v', 4, 3);
+
+/** Iron Verdict: A harmonic minor, four on the floor with a clap on two and four, saw over saw. */
+const VERDICT: Tune = {
+  id: 'verdict',
+  name: 'Iron Verdict',
+  mood: 'boss: A harmonic minor, Am Am F E Am Dm E E, four on the floor, rising square hook',
+  bpm: 120,
+  stepSec: 60 / 120 / 4,
+  root: A4,
+  key: { tonic: 9, scale: [9, 11, 0, 2, 4, 5, 8], bars: [HARMONIES.Am, HARMONIES.Am, HARMONIES.F, B_E, HARMONIES.Am, B_DM, B_E, B_E] },
+  loopBars: 8,
+  voicings: voicings([voiced(HARMONIES.Am, 0), voiced(HARMONIES.F, 1), voiced(B_E, 3), voiced(B_DM, 2)]),
+  bass: [bh(0, 0, 1, 1), bh(1, 0, 1, 0.6), bh(2, 3, 1, 0.8), bh(4, 0, 1, 0.9), bh(5, 0, 1, 0.6), bh(6, 3, 1, 0.8), bh(8, 0, 1, 0.95), bh(9, 0, 1, 0.6), bh(10, 3, 1, 0.8), bh(12, 2, 1, 0.85), bh(13, 2, 1, 0.6), bh(14, 1, 2, 0.8)],
+  bassAlt: EIGHTHS.map((s) => bh(s, s === 6 || s === 14 ? 2 : 0, 2, s % 8 === 0 ? 1 : 0.8)),
+  arp: {
+    a: [0, 2, 4, 2, 5, 4, 2, 4, 0, 2, 4, 2, 7, 5, 4, 2],
+    b: [5, 4, 2, 0, 1, 2, 4, 5, 7, 5, 4, 5, 2, 1, 0, -1],
+    rests: [3, 11],
+    restP: 0,
+  },
+  arpAlt: {
+    a: [0, 0, 4, 4, 2, 2, 5, 5, 4, 4, 2, 2, 1, 1, 0, 0],
+    b: [5, 5, 4, 4, 2, 2, 4, 4, 7, 7, 5, 5, 4, 4, 2, 2],
+    rests: ODD_STEPS,
+    restP: 0,
+  },
+  drums: {
+    kick: [hit(0, 1), hit(4, 0.9), hit(8, 0.95), hit(12, 0.9)],
+    kickTurn: [hit(13, 0.7)],
+    perc: [hit(4, 1), hit(12, 1)],
+    percOdd: [hit(10, 0.5)],
+    hat: STEPS16.map((s) => (s % 2 === 1 ? hh(s, s % 4 === 3 ? 0.7 : 0.5, true) : hh(s, s % 4 === 2 ? 1 : 0.65, false))),
+  },
+  bed: { bass: 'sawtooth', pad: 'sawtooth', arp: 'square', padDetune: 14 },
+  battle: true,
 };
 
-function bossTune(tier: 1 | 2 | 3 | 4, mood: string): Tune {
-  return {
-    ...NEON,
-    name: `Boss tier ${tier}`,
-    mood,
-    key: BOSS_KEYS[tier],
-    voicings: BOSS_VOICINGS,
-    bass: NEON.bassAlt,
-    bassAlt: NEON.bass,
-    bossTier: tier,
-  };
-}
-
-/** The boss bed of each tier. Pure data. */
-export const BOSS_TUNES: Readonly<Record<1 | 2 | 3 | 4, Tune>> = {
-  1: bossTune(1, 'boss tier 1: Am F C G, octave bounce bass, A minor pentatonic motifs'),
-  2: bossTune(2, 'boss tier 2: Am F Dm E, harmonic minor motifs'),
-  3: bossTune(3, 'boss tier 3: Am Bb Gm Bb, phrygian motifs'),
-  4: bossTune(4, 'boss tier 4: Am F C G, natural minor quoting loop'),
+/** Black Meridian: A phrygian, a broken kick under a half time clap, stabbing saw hook. */
+const MERIDIAN: Tune = {
+  id: 'meridian',
+  name: 'Black Meridian',
+  mood: 'boss: A phrygian, Am Bb Am Gm F Gm Bb Bb, broken kick, half time clap, repeated note hook',
+  bpm: 120,
+  stepSec: 60 / 120 / 4,
+  root: A4,
+  key: { tonic: 9, scale: [9, 10, 0, 2, 4, 5, 7], bars: [HARMONIES.Am, B_BB, HARMONIES.Am, B_GM, HARMONIES.F, B_GM, B_BB, B_BB] },
+  loopBars: 8,
+  voicings: voicings([voiced(HARMONIES.Am, 0), voiced(B_BB, 2), voiced(B_GM, -1), voiced(HARMONIES.F, 1)]),
+  bass: [bh(0, 0, 3, 1), bh(3, 0, 1, 0.75), bh(4, 3, 1, 0.8), bh(6, 0, 2, 0.8), bh(8, 0, 1, 0.95), bh(9, 0, 1, 0.6), bh(10, 3, 1, 0.8), bh(11, 0, 1, 0.7), bh(12, 2, 2, 0.85), bh(14, 3, 1, 0.75), bh(15, 2, 1, 0.7)],
+  bassAlt: [bh(0, 0, 4, 1), bh(4, 0, 2, 0.8), bh(6, 3, 2, 0.8), bh(8, 0, 4, 0.95), bh(12, 2, 2, 0.8), bh(14, 1, 2, 0.75)],
+  arp: {
+    a: [4, 4, 3, 4, 4, 2, 1, 0, 4, 4, 3, 4, 5, 4, 2, 1],
+    b: [4, 4, 3, 4, 4, 6, 5, 4, 2, 2, 1, 2, 1, 0, -1, 0],
+    rests: [2, 10],
+    restP: 0,
+  },
+  arpAlt: {
+    a: [0, 1, 2, 1, 0, 1, 2, 4, 0, 1, 2, 1, 0, -1, 0, 1],
+    b: [4, 2, 1, 2, 4, 5, 4, 2, 1, 0, -1, 0, 1, 2, 1, 0],
+    rests: [3, 7, 11, 15],
+    restP: 0,
+  },
+  drums: {
+    kick: [hit(0, 1), hit(3, 0.8), hit(6, 0.85), hit(10, 0.9)],
+    kickTurn: [hit(13, 0.7)],
+    perc: [hit(8, 1)],
+    percOdd: [hit(12, 0.5), hit(14, 0.4)],
+    hat: STEPS16.map((s) => (s % 2 === 1 ? hh(s, s % 4 === 3 ? 0.75 : 0.5, true) : hh(s, 0.8, false))),
+  },
+  bed: { bass: 'square', pad: 'sawtooth', arp: 'sawtooth', padDetune: 18 },
+  battle: true,
 };
 
-/** Pure: the tune a boss fight of this tier plays over: the tier's boss bed (any active tune). */
-export function bossTuneFor(tier: number, active: Tune): Tune {
-  void active;
-  const t = Math.trunc(tier);
-  return t === 2 || t === 3 || t === 4 ? BOSS_TUNES[t] : BOSS_TUNES[1];
-}
+/** Glass Requiem: A natural minor, half time kick and clap, bell like leaping triangle hook. */
+const REQUIEM: Tune = {
+  id: 'requiem',
+  name: 'Glass Requiem',
+  mood: 'boss: A natural minor, Am Em F C Dm Am Em G, half time with double time hats, leaping hook',
+  bpm: 120,
+  stepSec: 60 / 120 / 4,
+  root: A4,
+  key: { tonic: 9, scale: [9, 11, 0, 2, 4, 5, 7], bars: [HARMONIES.Am, T_EM, HARMONIES.F, HARMONIES.C, B_DM, HARMONIES.Am, T_EM, HARMONIES.G] },
+  loopBars: 8,
+  voicings: voicings([
+    voiced(HARMONIES.Am, 0),
+    voiced(T_EM, 3),
+    voiced(HARMONIES.F, 1),
+    voiced(HARMONIES.C, 1),
+    voiced(B_DM, 2),
+    voiced(HARMONIES.G, -1),
+  ]),
+  bass: [bh(0, 0, 2, 1), bh(2, 0, 1, 0.7), bh(3, 1, 1, 0.7), bh(4, 2, 2, 0.85), bh(6, 0, 2, 0.75), bh(8, 0, 2, 0.95), bh(10, 2, 1, 0.75), bh(11, 1, 1, 0.7), bh(12, 0, 2, 0.85), bh(14, 3, 2, 0.8)],
+  bassAlt: [bh(0, 0, 6, 1), bh(6, 2, 2, 0.75), bh(8, 0, 4, 0.9), bh(12, 3, 2, 0.8), bh(14, 2, 2, 0.75)],
+  arp: {
+    a: [0, 2, 5, 2, 1, 2, 5, 6, 0, 2, 5, 2, 4, 2, 1, 2],
+    b: [5, 4, 0, 4, 5, 4, 2, 1, 0, 1, 2, 4, 2, 1, 0, -1],
+    rests: [],
+    restP: 0,
+  },
+  arpAlt: {
+    a: [0, 0, 5, 5, 2, 2, 6, 6, 4, 4, 2, 2, 1, 1, 2, 2],
+    b: [5, 5, 2, 2, 4, 4, 1, 1, 0, 0, 2, 2, -1, -1, 0, 0],
+    rests: ODD_STEPS,
+    restP: 0,
+  },
+  drums: {
+    kick: [hit(0, 1), hit(7, 0.75), hit(10, 0.85)],
+    kickTurn: [hit(13, 0.65)],
+    perc: [hit(8, 1)],
+    percOdd: [hit(11, 0.45)],
+    hat: STEPS16.map((s) => (s % 2 === 1 ? hh(s, 0.5, true) : hh(s, s % 4 === 0 ? 0.9 : 0.6, false))),
+  },
+  bed: { bass: 'triangle', pad: 'square', arp: 'triangle', padDetune: 7 },
+  battle: true,
+};
+
+/** The boss battle tracks, in BATTLE_IDS order. */
+export const BATTLE_TUNES: readonly Tune[] = [VERDICT, MERIDIAN, REQUIEM];

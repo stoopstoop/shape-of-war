@@ -8,7 +8,7 @@ import { inScale } from '../../../src/audio/music/harmony';
 import { TICK_MS } from '../../../src/audio/music/scheduler';
 import { endlessTune, startTune } from '../../../src/audio/music/select';
 import { STEPS_PER_BAR } from '../../../src/audio/music/track';
-import { BOSS_TUNES, DEFAULT_TUNE, FILL_KICK, tuneById, TUNES, type TuneId } from '../../../src/audio/music/tunes';
+import { BATTLE_TUNES, DEFAULT_TUNE, FILL_KICK, tuneById, TUNES, type TrackId, type TuneId } from '../../../src/audio/music/tunes';
 import { Bus } from '../../../src/core/events';
 import { levelSeed, segmentSeed } from '../../../src/levelgen/leveldef';
 import { FakeContext, FakeNode, FakeTimer } from './fakeAudio';
@@ -47,7 +47,7 @@ describe('a level plays its tune', () => {
     expect(musicState().tune).toBeNull();
     expect(musicState().bpm).toBe(0);
     const run = 0x229578a8;
-    let prev: TuneId | null = null;
+    let prev: TrackId | null = null;
     for (let i = 1; i <= 8; i++) {
       const seed = levelSeed(run, i);
       startMusic(seed);
@@ -172,10 +172,10 @@ describe('fills at a phase change', () => {
 });
 
 describe('boss hook', () => {
-  it('selectBossTune returns the tier boss bed, idle or playing any tune', () => {
-    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(BOSS_TUNES[tier]);
+  it('selectBossTune returns a battle track, idle or playing any tune', () => {
+    for (const id of ['warden', 'ember', 'prism'] as const) expect(BATTLE_TUNES).toContain(selectBossTune(id));
     startMusic(levelSeed(7, 3));
     expect(tuneById(musicState().tune ?? '')).toBeDefined();
-    for (const tier of [1, 2, 3, 4] as const) expect(selectBossTune(tier)).toBe(BOSS_TUNES[tier]);
+    for (const id of ['warden', 'ember', 'prism'] as const) expect(selectBossTune(id).battle).toBe(true);
   });
 });

@@ -9,7 +9,7 @@ import { createMusicEngine } from '../../../src/audio/music/engine';
 import { initMusic, musicState, startMusic, stopMusic, type MusicGraph, type NoteLog } from '../../../src/audio/music/index';
 import { TICK_MS } from '../../../src/audio/music/scheduler';
 import { startTune, tuneIndexForKey, tuneIndexForLevelSeed } from '../../../src/audio/music/select';
-import { bedWaveTrim, DEFAULT_TUNE, tuneById, TUNES, WAVE_WEIGHT, type TuneId } from '../../../src/audio/music/tunes';
+import { bedWaveTrim, DEFAULT_TUNE, tuneById, TUNES, WAVE_WEIGHT, type TrackId, type TuneId } from '../../../src/audio/music/tunes';
 import { Bus } from '../../../src/core/events';
 import { hash01 } from '../../../src/core/rng';
 import { levelSeed } from '../../../src/levelgen/leveldef';
@@ -48,7 +48,7 @@ const RUN_SEEDS_1000 = Array.from({ length: 1000 }, (_, i) => Math.floor(hash01(
 
 describe('B20: levels 1, 2 and 3 of run seed 42 through startMusic and stopMusic', () => {
   it('play three different tunes, and every note of a level is in its own tune', () => {
-    const ids: (TuneId | null)[] = [];
+    const ids: (TrackId | null)[] = [];
     for (const n of [1, 2, 3]) {
       const before = log.length;
       expect(startMusic(levelSeed(42, n) >>> 0)).toBe(true);
@@ -84,7 +84,7 @@ describe('B20: levels 1, 2 and 3 of run seed 42 through startMusic and stopMusic
     // The rig does what main.ts dispatch does: reduce, then apply musicCue with the new level's seed.
     const run = 42;
     let flow: FlowState = initialFlow(1);
-    const heard: (TuneId | null)[] = [];
+    const heard: (TrackId | null)[] = [];
     const ok: LevelResult = { mode: 'adventure', levelIndex: 1, score: 1, stars: 1, success: true, par: 1, best: 1, newBest: false, hash: 'h' };
     const act = (a: FlowAction): void => {
       const prev = flow;
