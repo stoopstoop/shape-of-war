@@ -9,13 +9,21 @@
 // percent), at most 8 live adds, through the normal spawn path.
 // Scratch: t0 add clock, t1 open seconds left, t2 regrow countdown, n1 0 shielded or 1 broken,
 // angle pod orbit angle, n0 move state, t3 move state clock, dir locked charge heading, n2 marker id.
+//
+// Split (G3C): at the stage 2 crack (below 33 percent) the body and any pods vanish and three
+// Broodlings take over (Kind.BossPart, PartType.Broodling, 20 u, 60 hits each, slot = role): slot 0
+// chases the ship, slot 1 orbits it at 200 u and lays Slime every 2 s, slot 2 flees and launches
+// Darts every 4 s. Contact with any Broodling kills. The fight ends with the third one, once.
+// Split scratch: t0 slime clock, t1 dart clock, angle the orbiter's angle around the ship.
+import { bus } from '../../core/events';
 import * as dart from '../enemies/dart';
-import { angleBetween, distBetween, moveHeading, moveTo, moveToHit, targetOf, turnToward } from '../steer';
+import { dropSlime } from '../enemies/slime';
+import { angleBetween, distBetween, moveHeading, moveTo, moveToHit, stepToward, targetOf, turnToward } from '../steer';
 import { Kind, type World } from '../world';
-import { countParts, livePart, spawnAdd, spawnLaneMarker, spawnPart } from './core';
+import { bossEnraged, clearHazards, countParts, crackBody, livePart, spawnAdd, spawnLaneMarker, spawnPart } from './core';
 import { hazardTelegraph, wrapPi } from './kit';
-import type { BossState } from './state';
-import { BROOD } from './table';
+import { bossOf, type BossState } from './state';
+import { BROOD, BROODLING, ENRAGE_RATE, MAX_PARTS } from './table';
 import { BossMode, PartType, type BossDef } from './types';
 import { removeEntity } from '../remove';
 
@@ -253,4 +261,120 @@ export function entryHome(d: number): number {
   return d - BROOD.entrySlide;
 }
 
-export const def: BossDef = { reset, step, onPhase, entryHome };
+// ---------------------------------------------------------------------------------------------
+// Split into Broodlings
+
+/** Broodling roles, by part slot. */
+export const enum BroodlingRole {
+  Chase = 0,
+  Orbit = 1,
+  Flee = 2,
+}
+
+/** Pure: heading of a fleeing Broodling. Away from the ship, bent toward the arena centre (at most 90 degrees) as it nears a wall. */
+export function fleeHeading(away: number, toCentre: number, fromCentre: number): number {
+  const k = Math.min(1, Math.max(0, (fromCentre - 250) / 250));
+  const side = Math.min(Math.PI / 2, Math.max(-Math.PI / 2, wrapPi(toCentre - away)));
+  return wrapPi(away + side * k);
+}
+
+/** Split the body into three Broodlings. Called once, from the stage 2 crack. */
+function splitBody(w: World, id: number, bs: BossState): void {
+  const x = w.x[id] ?? 0;
+  const y = w.y[id] ?? 0;
+  const lead = angleBetween(w, id, targetOf(w, id));
+  dropMarker(w, bs);
+  clearHazards(w);
+  for (let k = 0; k < MAX_PARTS; k++) {
+    const p = livePart(w, bs, k);
+    if (p > 0) removeEntity(w, p); // pods go with the body (no fx: the body burst is the crack)
+    bs.parts[k] = -1;
+  }
+  removeEntity(w, id);
+  bs.id = -1;
+  bs.split = true;
+  bs.open = false;
+  bs.openLeft = -1;
+  bs.mode = BossMode.Attacking;
+  bs.t0 = BROODLING.firstDelay;
+  bs.t1 = BROODLING.firstDelay;
+  let made = 0;
+  for (let k = 0; k < BROODLING.count; k++) {
+    const a = lead + (k * TAU) / BROODLING.count;
+    const p = spawnPart(w, bs, k, PartType.Broodling, x + Math.cos(a) * BROODLING.spawnRing, y + Math.sin(a) * BROODLING.spawnRing, BROODLING.hp, BROODLING.radius);
+    if (p < 0) continue;
+    w.rot[p] = a;
+    made++;
+    if (k === BroodlingRole.Orbit) bs.angle = Math.atan2((w.y[p] ?? 0) - (w.y[0] ?? 0), (w.x[p] ?? 0) - (w.x[0] ?? 0));
+  }
+  bs.splitEv.parts = made;
+  bus.emit('sim:bossSplit', bs.splitEv);
+}
+
+/** Core hook after the body took damage and lived: report the cracks, split once at stage 2. */
+export function cracks(w: World, id: number, bs: BossState): void {
+  crackBody(bs, 0, w.hp[id] ?? 0, bs.maxHp, w.x[id] ?? 0, w.y[id] ?? 0);
+  if (!bs.split && (bs.crack[0] ?? 0) >= 2) splitBody(w, id, bs);
+}
+
+function slotOf(bs: BossState, id: number): number {
+  for (let k = 0; k < MAX_PARTS; k++) if (bs.parts[k] === id) return k;
+  return -1;
+}
+
+/** Launch Darts from a Broodling toward the ship, through the normal spawn path. */
+function launchDarts(w: World, id: number, bs: BossState): void {
+  const d = (w.radius[id] ?? 0) + BROOD.addPad + dart.def.radius;
+  const toShip = angleBetween(w, id, targetOf(w, id));
+  const n = BROODLING.dartsPerWave;
+  for (let k = 0; k < n; k++) {
+    const a = toShip + (k - (n - 1) / 2) * BROODLING.dartSpreadDeg * DEG;
+    spawnAdd(w, bs, dart.def, (w.x[id] ?? 0) + Math.cos(a) * d, (w.y[id] ?? 0) + Math.sin(a) * d);
+  }
+}
+
+/** One step of a Broodling (Kind.BossPart, PartType.Broodling). Paused while the ship is down or the boss is staggered. */
+export function stepBroodling(w: World, id: number, dt: number): void {
+  const bs = bossOf(w);
+  if (bs === null || bs.status !== 'alive' || !bs.split || !w.ship.active || bs.stagger > 0) return;
+  const adt = bossEnraged(w) ? dt * ENRAGE_RATE : dt;
+  const ship = targetOf(w, id);
+  switch (slotOf(bs, id)) {
+    case BroodlingRole.Chase: {
+      const rot = turnToward(w.rot[id] ?? 0, angleBetween(w, id, ship), BROODLING.turnRate * dt);
+      w.rot[id] = rot;
+      moveHeading(w, id, rot, BROODLING.chaseSpeed, dt);
+      return;
+    }
+    case BroodlingRole.Orbit: {
+      bs.angle = wrapPi(bs.angle + BROODLING.orbitRate * dt);
+      const tx = (w.x[ship] ?? 0) + Math.cos(bs.angle) * BROODLING.orbitRadius;
+      const ty = (w.y[ship] ?? 0) + Math.sin(bs.angle) * BROODLING.orbitRadius;
+      w.rot[id] = Math.atan2(ty - (w.y[id] ?? 0), tx - (w.x[id] ?? 0));
+      stepToward(w, id, tx, ty, BROODLING.orbitSpeed * dt);
+      bs.t0 -= adt;
+      if (bs.t0 <= 0) {
+        bs.t0 += BROODLING.slimeEvery;
+        dropSlime(w, id, w.x[id] ?? 0, w.y[id] ?? 0);
+      }
+      return;
+    }
+    case BroodlingRole.Flee: {
+      const x = w.x[id] ?? 0;
+      const y = w.y[id] ?? 0;
+      const want = fleeHeading(angleBetween(w, ship, id), Math.atan2(-y, -x), Math.sqrt(x * x + y * y));
+      const rot = turnToward(w.rot[id] ?? 0, want, BROODLING.fleeTurnRate * dt);
+      w.rot[id] = rot;
+      moveHeading(w, id, rot, BROODLING.fleeSpeed, dt);
+      bs.t1 -= adt;
+      if (bs.t1 <= 0) {
+        bs.t1 += BROODLING.dartEvery;
+        launchDarts(w, id, bs);
+      }
+      return;
+    }
+    default:
+  }
+}
+
+export const def: BossDef = { reset, step, onPhase, entryHome, cracks };

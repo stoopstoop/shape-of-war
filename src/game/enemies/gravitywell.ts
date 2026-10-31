@@ -11,6 +11,12 @@
 // to under 5 percent within 100 ms of leaving the radius. Bullets have no channel and take
 // PULL_BULLET x falloff as a plain acceleration. Bullet and enemy strengths keep their v1.0 ratios
 // to the ship pull.
+//
+// Super nova (G3C): a live well erupts after NOVA_SEC seconds (hashed per well from the level seed
+// and the well index, 5 to 7 s, no PRNG). From then until it dies the pull radius is x1.25 and the
+// ship, enemy and bullet pull strengths are x1.3. The ship can still leave: the settled pull at
+// contact range is under 0.42 of ship speed, so the net escape speed stays above 0.55 x ship speed.
+// 'sim:wellNova' fires once per well. A bomb resets mass, radius and HP but not the nova.
 import { bus } from '../../core/events';
 import { BULLET_RADIUS, killBullet, STYLE_ORBIT, STYLE_SPREAD, styleRadius } from '../bullets';
 import { emitHit, emitKill, killEnemy } from '../combat';
@@ -42,16 +48,52 @@ export const EXPLODE_RADIUS = 220;
 /** Channel values below this (u/s) snap to 0 so no residue lingers. */
 const PULL_EPS = 1e-3;
 
-/** Pull falloff in [0, 1]: 0 at and beyond the rim, (1 - d / R)^2 inside, 1 at the centre. */
-export function pullFalloff(d: number): number {
-  if (d >= PULL_RADIUS) return 0;
-  const u = 1 - Math.max(0, d) / PULL_RADIUS;
+/** Seconds a well exists before it erupts (the middle of the 5 to 7 s window). */
+export const NOVA_SEC = 6;
+/** Per well spread around NOVA_SEC: the eruption lands in NOVA_SEC +- NOVA_SPREAD. */
+export const NOVA_SPREAD = 1;
+/** Nova pull radius multiplier. */
+export const NOVA_RADIUS_MULT = 1.25;
+/** Nova pull strength multiplier (ship, enemies and bullets). */
+export const NOVA_PULL_MULT = 1.3;
+/** Pull radius of a well in nova, u. */
+export const NOVA_RADIUS = PULL_RADIUS * NOVA_RADIUS_MULT;
+
+/**
+ * Pure: seconds after which well number index (0 based) of the level with this seed erupts, in
+ * [NOVA_SEC - NOVA_SPREAD, NOVA_SEC + NOVA_SPREAD). A 32 bit integer mix, so no PRNG state.
+ */
+export function novaSecFor(seed: number, index: number): number {
+  let h = Math.imul((seed >>> 0) ^ Math.imul(index + 1, 0x9e3779b1), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  const u = (h >>> 0) / 4294967296;
+  return NOVA_SEC - NOVA_SPREAD + 2 * NOVA_SPREAD * u;
+}
+
+/** True once the well entity id has erupted (render, audio and tests). False for a non well id. */
+export function wellInNova(w: World, id: number): boolean {
+  const g = gs(w);
+  for (let i = 0; i < g.wellCount; i++) if (g.wellIds[i] === id) return g.wellNova[i] === 1;
+  return false;
+}
+
+function pullRadiusOf(nova: boolean): number {
+  return nova ? NOVA_RADIUS : PULL_RADIUS;
+}
+
+/** Pull falloff in [0, 1]: 0 at and beyond the rim, (1 - d / R)^2 inside, 1 at the centre. R is NOVA_RADIUS in nova. */
+export function pullFalloff(d: number, nova = false): number {
+  const r = pullRadiusOf(nova);
+  if (d >= r) return 0;
+  const u = 1 - Math.max(0, d) / r;
   return u * u;
 }
 
 /** Settled (terminal) pull speed on the ship at distance d from one well centre, u/s. */
-export function settledShipPull(d: number): number {
-  return PULL_SHIP_MAX * pullFalloff(d);
+export function settledShipPull(d: number, nova = false): number {
+  return (nova ? PULL_SHIP_MAX * NOVA_PULL_MULT : PULL_SHIP_MAX) * pullFalloff(d, nova);
 }
 
 /** Per step retention factor of a pull channel: exact solution of v' = -PULL_DAMP x v. */
@@ -140,11 +182,13 @@ function pullExempt(w: World, id: number): boolean {
 }
 
 /** One well: ship contact and pull, bullet hits and pull, enemy feeding and pull. */
-function stepOneWell(w: World, well: number, dt: number, blend: number): void {
+function stepOneWell(w: World, well: number, dt: number, blend: number, nova: boolean): void {
   const g = gs(w);
   const wx = w.x[well] ?? 0;
   const wy = w.y[well] ?? 0;
-  const pr2 = PULL_RADIUS * PULL_RADIUS;
+  const pr = pullRadiusOf(nova);
+  const pr2 = pr * pr;
+  const mult = nova ? NOVA_PULL_MULT : 1;
 
   if (w.ship.active) {
     const dx = wx - (w.x[0] ?? 0);
@@ -153,8 +197,8 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
     const touch = (w.radius[well] ?? 0) + SHIP_RADIUS;
     if (d < touch && w.ship.invuln <= 0) {
       killShip(w);
-    } else if (d < PULL_RADIUS && d > 1e-6) {
-      const a = (blend * settledShipPull(d)) / d;
+    } else if (d < pr && d > 1e-6) {
+      const a = (blend * settledShipPull(d, nova)) / d;
       g.shipPullX += dx * a;
       g.shipPullY += dy * a;
     }
@@ -186,7 +230,7 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
       continue;
     }
     if (d < 1e-6) continue;
-    const a = (PULL_BULLET * pullFalloff(d) * dt) / d;
+    const a = (mult * PULL_BULLET * pullFalloff(d, nova) * dt) / d;
     p.vx[b] = (p.vx[b] ?? 0) + dx * a;
     p.vy[b] = (p.vy[b] ?? 0) + dy * a;
   }
@@ -204,10 +248,21 @@ function stepOneWell(w: World, well: number, dt: number, blend: number): void {
       continue;
     }
     if (d < 1e-6 || pullExempt(w, id)) continue;
-    const a = (blend * PULL_ENEMY_MAX * pullFalloff(d)) / d;
+    const a = (blend * mult * PULL_ENEMY_MAX * pullFalloff(d, nova)) / d;
     g.pvx[id] = (g.pvx[id] ?? 0) + dx * a;
     g.pvy[id] = (g.pvy[id] ?? 0) + dy * a;
   }
+}
+
+/** Age well slot i by dt and let it erupt once its hashed time is up ('sim:wellNova', once). */
+function tickNova(w: World, id: number, i: number, dt: number): void {
+  const g = gs(w);
+  if (g.wellNova[i] === 1 || !g.wellNovaOn) return;
+  const age = (g.wellAge[i] ?? 0) + dt;
+  g.wellAge[i] = age;
+  if (age < novaSecFor(w.level.seed, i)) return;
+  g.wellNova[i] = 1;
+  bus.emit('sim:wellNova', { id, x: w.x[id] ?? 0, y: w.y[id] ?? 0 });
 }
 
 /** Snap a channel component to 0 once it is negligible. */
@@ -234,7 +289,10 @@ export function stepWells(w: World, dt: number): void {
 
   for (let i = g.wellCount - 1; i >= 0; i--) {
     const id = g.wellIds[i] ?? -1;
-    if (id > 0 && w.alive[id] === 1 && w.kind[id] === Kind.GravityWell) stepOneWell(w, id, dt, 1 - k);
+    if (id > 0 && w.alive[id] === 1 && w.kind[id] === Kind.GravityWell) {
+      tickNova(w, id, i, dt);
+      stepOneWell(w, id, dt, 1 - k, g.wellNova[i] === 1);
+    }
   }
 
   for (let id = 1; id < w.cap; id++) {

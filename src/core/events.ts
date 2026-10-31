@@ -93,6 +93,10 @@ export interface Events {
   'sim:bossWindow': { id: BossId; open: boolean; secondsLeft: number };
   /** Swarm to Glow and Chorus: a boss body first fell below 66 (stage 1) or 33 (stage 2) percent of its hit points. */
   'sim:bossCrack': { id: BossId; stage: 1 | 2; x: number; y: number };
+  /** Swarm to Glow and Chorus: Brood broke into three Broodlings at its stage 2 crack, once; the body is gone. */
+  'sim:bossSplit': { id: BossId; parts: number };
+  /** Swarm to Glow and Chorus: a Gravity well erupted into a super nova (wider, stronger pull), once per well. */
+  'sim:wellNova': { id: number; x: number; y: number };
   /** Swarm to Glow and Chorus: Turbo started (active true, at the ship) or ended. */
   'fx:turbo': { active: boolean; x: number; y: number };
   /** Swarm (A) to Ledger: at most every 100 ms and on change. */

@@ -30,6 +30,8 @@ export const enum PartType {
   Turret = 2,
   /** Twins: the second body, a full size boss body of radius w.radius. */
   Twin = 3,
+  /** Brood after its stage 2 crack: one of three small spawns (slot 0 chases, 1 orbits and lays Slime, 2 flees and spawns Darts). */
+  Broodling = 4,
 }
 
 /** Where a boss is in its life on this level or Endless segment. */

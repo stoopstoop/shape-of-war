@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
 import { damageBoss, damageBossPart, livePart } from '../../src/game/bosses/core';
 import { MAX_PARTS } from '../../src/game/bosses/table';
+import { PartType } from '../../src/game/bosses/types';
 import { stepGame } from '../../src/game/game';
 import type { BossId } from '../../src/levelgen/leveldef';
 import { bs, bossGame, enter, park } from './bossHelpers';
@@ -29,8 +30,21 @@ function fightSeconds(id: BossId): number {
   let podClock = 0;
   for (let i = 0; i < 120 * 400; i++) {
     let pod = -1;
-    for (let k = 0; k < MAX_PARTS && pod < 0; k++) pod = livePart(w, s, k);
-    if (pod > 0) {
+    for (let k = 0; k < MAX_PARTS && pod < 0; k++) {
+      const p = livePart(w, s, k);
+      if (p > 0 && w.a[p] !== PartType.Broodling) pod = p;
+    }
+    if (s.split) {
+      // After Brood's split the gunner keeps the same fire on the Broodlings (perfect aim), one at a time.
+      acc += OPEN_FIRE * DT;
+      const n = Math.floor(acc);
+      let target = -1;
+      for (let k = 0; k < MAX_PARTS && target < 0; k++) target = livePart(w, s, k);
+      if (n > 0 && target > 0) {
+        damageBossPart(w, target, n, 0, 0);
+        acc -= n;
+      }
+    } else if (pod > 0) {
       podClock += DT;
       if (podClock >= POD_REACTION) {
         damageBossPart(w, pod, 9999, 0, 0);

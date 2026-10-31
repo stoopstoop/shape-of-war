@@ -98,7 +98,7 @@ describe('spread golden (v1 identical)', () => {
   });
 
   it('a generated band 2 level with kills equals v1 for 30 s with pickups off', () => {
-    const w = createGame(generateLevel(0x1234, 9), { vibrate: () => undefined, weaponPickups: false });
+    const w = createGame(generateLevel(0x1234, 9), { vibrate: () => undefined, weaponPickups: false, wellNova: false });
     let h = 2166136261;
     for (let i = 0; i < 3600; i++) {
       stepGame(w, DT, script(i));

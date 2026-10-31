@@ -8,7 +8,7 @@
 // and its bonus.
 import { afterEach, describe, expect, it } from 'vitest';
 import { bus } from '../../src/core/events';
-import { bossHittable, bossHolding, bossPending, damageBoss, isBossTarget } from '../../src/game/bosses/core';
+import { bossHittable, bossHolding, bossPending, countParts, damageBoss, damageBossPart, isBossTarget, livePart } from '../../src/game/bosses/core';
 import { bossOf } from '../../src/game/bosses/state';
 import { isTargetable } from '../../src/game/combat';
 import { createGame, objectiveClock, stepGame } from '../../src/game/game';
@@ -124,6 +124,16 @@ function play(level: number, plan: Plan): { w: World; r: Run } {
       die(w);
       r.deaths++;
       r.deadAtDown = !w.ship.active && !bossPending(w);
+    }
+    if (plan === 'deadAtKill' && bossHolding(w) && s !== null && s.split && countParts(w, s) === 1 && w.ship.active) {
+      // A split Brood has no body: the killing blow is the last Broodling's.
+      const last = [0, 1, 2, 3].map((k) => livePart(w, s, k)).find((p) => p > 0) ?? -1;
+      if (last > 0 && (w.hp[last] ?? 0) <= 40) {
+        expect(damageBossPart(w, last, 40, w.x[last] ?? 0, w.y[last] ?? 0)).toBe(true);
+        die(w);
+        r.deaths++;
+        r.deadAtDown = !w.ship.active && !bossPending(w);
+      }
     }
     aim(w, input, shootBoss);
     const o = w.level.objective;

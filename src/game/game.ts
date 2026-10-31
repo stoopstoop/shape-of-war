@@ -33,6 +33,8 @@ export interface GameOptions {
   capacity?: number;
   /** Settings "Weapon pickups" (docs/11). Default on. Same as calling setWeaponPickups after create. */
   weaponPickups?: boolean;
+  /** Gravity well super nova after 5 to 7 s (G3C). Default on; the v1 golden tests turn it off to stay v1 identical. */
+  wellNova?: boolean;
 }
 
 export const HUD_INTERVAL = 0.1;
@@ -49,6 +51,7 @@ export function createGame(level: LevelDef, opts: GameOptions = {}): World {
   if (opts.scoring !== undefined) g.scoring = opts.scoring;
   if (opts.logSpawns === true) g.spawnLog = [];
   if (opts.weaponPickups !== undefined) setWeaponPickups(w, opts.weaponPickups);
+  if (opts.wellNova !== undefined) g.wellNovaOn = opts.wellNova;
   syncMultiplier(w);
   spawnWells(w);
   initLevelBoss(w); // V3: arms LevelDef.boss when present; nothing otherwise
