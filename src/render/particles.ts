@@ -13,6 +13,7 @@ import { getEffectsTier, MAX_PARTICLE_CAP, onEffectsTierChanged, particleCapFor,
 import { planFx, type FxEvent } from './fx';
 import { deflectSparkCount, deflectSparkParticle } from './hitFx';
 import { currentRender, palette } from './neon';
+import { NOVA_EMIT_RATE, novaDriftParticle } from './wellNova';
 import {
   clearParticlePool,
   createParticlePool,
@@ -370,6 +371,25 @@ export function emitGeomSparkle(e: Emitter, x: number, y: number, colour: number
     geomSparkleParticle(trailScratch, x, y, trailSeq, colour);
     if (!pushTrail()) break;
   }
+}
+
+let novaSeq = 0;
+
+/**
+ * Nova shimmer stream for one erupted well for one frame: NOVA_EMIT_RATE per second drift outward
+ * and fade in 2 s. Trail particles, so they never push the pool past the shed threshold of the
+ * tier cap and are shed first. e is the nova slot's emitter. Returns the number written.
+ */
+export function emitNovaShimmer(e: Emitter, x: number, y: number, r: number, pink: number, white: number, dt: number): number {
+  const n = stepEmitter(e, NOVA_EMIT_RATE, dt);
+  let written = 0;
+  for (let k = 0; k < n; k++) {
+    novaSeq = (novaSeq + 1) | 0;
+    novaDriftParticle(trailScratch, x, y, r, novaSeq, pink, white);
+    if (!pushTrail()) break;
+    written++;
+  }
+  return written;
 }
 
 /** Live trail particle budget: TRAIL_SHED_FRAC of the current limit (trails never pass it). */

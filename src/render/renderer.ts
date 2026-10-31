@@ -250,7 +250,7 @@ import {
   type ThreatPulse,
   type WallFeature,
 } from './mapFx';
-import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, trailsActive } from './particles';
+import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, emitNovaShimmer, trailsActive } from './particles';
 import { bossSlot, isFloorSlot, KIND_NUM, partVisualSlot, specFor } from './shapeSpecs';
 // V3 wave D: the Prism gem (hue cycle, chromatic ghost, run to white; bossPrism.ts, prismFx.ts).
 import {
@@ -396,17 +396,33 @@ import {
   createBossCracks,
   createBossFlashThrottle,
   createBossWindow,
+  accentRgb,
+  bossAccent,
+  bossPartTint,
   crackEvent,
-  CRACK_PTS,
+  edgeFlicker,
+  FRACTURE_DIM,
+  FRACTURE_SEGS,
+  fractureGrow,
+  FRAG_PTS,
+  fragmentPts,
+  FRAGS_PER_STAGE,
+  GAPS_PER_STAGE,
   hitFlashAlpha,
   hitSparkCount,
   onBossCrack,
   onBossWindow,
+  outlineRadius,
   pieceAlpha,
   pieceDrift,
-  pieceWedge,
+  pieceSpin,
   PIECE_LIFE,
   resetBossCracks,
+  SEG_FLOATS,
+  segmentPortion,
+  stepBossCracks,
+  unevenPulse,
+  type AccentPart,
   resetBossWindow,
   stepBossWindow,
   tier3HaloAlpha,
@@ -419,6 +435,23 @@ import {
   windowWhite,
   type WindowRing,
 } from './bossIdentity';
+import {
+  createNovaState,
+  NOVA_ARM_PTS,
+  NOVA_ARMS,
+  NOVA_ORBITERS,
+  NOVA_REACH,
+  novaAny,
+  novaEvent,
+  novaGrow,
+  novaOrbiter,
+  novaSlotFor,
+  novaSpiral,
+  NOVA_SLOTS,
+  onWellNova,
+  stepNovaState,
+  type Orbiter,
+} from './wellNova';
 import type { ShapePrim } from './shapeSpecs';
 import { createEnemyBulletLayer } from './enemyBullets';
 import type { EnemyBulletFrame, EnemyBulletsLike } from './enemyBulletFx';
@@ -1015,16 +1048,26 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let bossFlashAge = Number.POSITIVE_INFINITY;
   let bossSparkSeq = 0;
   const bossCracks = createBossCracks();
-  const PIECES = 2;
+  // v31: outline fragments, FRAGS_PER_STAGE per stage, each a short polyline (world units, relative
+  // to its centre, already rotated into the world) that drifts out, tumbles and fades.
+  const PIECES = FRAGS_PER_STAGE * 2;
   const pieceAge = new Float64Array(PIECES).fill(Number.POSITIVE_INFINITY);
   const pieceX = new Float64Array(PIECES);
   const pieceY = new Float64Array(PIECES);
   const pieceDx = new Float64Array(PIECES);
   const pieceDy = new Float64Array(PIECES);
-  const pieceA = new Float64Array(PIECES);
-  const pieceScale = new Float64Array(PIECES);
-  const pieceStage = new Uint8Array(PIECES);
-  const wedge = new Float32Array(6);
+  const pieceSpinDir = new Int8Array(PIECES);
+  const piecePts = new Float32Array(PIECES * FRAG_PTS * 2);
+  const fragScratch = new Float32Array(FRAG_PTS * 2);
+  const fragCentre = new Float32Array(2);
+  // Two tone scratch (Spindle axis, Tempest tail) and the nova spiral arm buffer.
+  const accentPts = new Float32Array(12);
+  const novaArm = new Float32Array(NOVA_ARM_PTS * 2);
+  const novaOrb: Orbiter = { x: 0, y: 0, a: 0, u: 0 };
+  const nova = createNovaState();
+  const novaEm: { acc: number }[] = Array.from({ length: NOVA_SLOTS }, () => ({ acc: 0 }));
+  const novaG = new Graphics({ label: 'wellNova' });
+  let novaShown = false;
   const winRing: WindowRing = { r: 0, alpha: 0, width: 0 };
   const BODIES = 3;
   const bodyX = new Float64Array(BODIES);
@@ -1694,16 +1737,36 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const rot = bossSeen ? (bodyRot[0] ?? 0) : bossView.rot;
     const s = stage >= 2 ? 2 : 1;
     if (!crackEvent(bossCracks, s, wa - rot, bossIdx * 17 + s)) return;
-    const k = s - 1;
-    pieceAge[k] = 0;
-    pieceX[k] = bossDrawX;
-    pieceY[k] = bossDrawY;
-    pieceDx[k] = Math.cos(wa);
-    pieceDy[k] = Math.sin(wa);
-    pieceA[k] = wa;
-    pieceScale[k] = (bossSeen ? (bodyScale[0] ?? 1) : 1) * bossBodyR(bossIdx);
-    pieceStage[k] = s;
-    burstBoss(px, py, palette[bossColourOf(bossIdx)], 10 * s, 120, 380, 0.3, 0.7);
+    // The outline pieces that fell out of this stage's gaps break away in the boss colour.
+    const outline = BOSS_OUTLINES[bossIdx];
+    if (outline !== undefined) {
+      const sc = bossSeen ? (bodyScale[0] ?? 1) : 1;
+      const c = Math.cos(rot) * sc;
+      const sn = Math.sin(rot) * sc;
+      for (let j = 0; j < FRAGS_PER_STAGE; j++) {
+        const k = (s - 1) * FRAGS_PER_STAGE + j;
+        const gi = ((s - 1) * GAPS_PER_STAGE + (j % GAPS_PER_STAGE)) * 2;
+        fragmentPts(outline, bossCracks.gaps[gi] ?? 0, (bossCracks.gaps[gi + 1] ?? 0.06) * 1.3, fragScratch, fragCentre);
+        const lx = fragCentre[0] ?? 0;
+        const ly = fragCentre[1] ?? 0;
+        const wx = lx * c - ly * sn;
+        const wy = lx * sn + ly * c;
+        const len = Math.sqrt(wx * wx + wy * wy) || 1;
+        pieceAge[k] = 0;
+        pieceX[k] = bossDrawX + wx;
+        pieceY[k] = bossDrawY + wy;
+        pieceDx[k] = wx / len;
+        pieceDy[k] = wy / len;
+        pieceSpinDir[k] = (j & 1) === 0 ? 1 : -1;
+        for (let q = 0; q < FRAG_PTS; q++) {
+          const fx = fragScratch[q * 2] ?? 0;
+          const fy = fragScratch[q * 2 + 1] ?? 0;
+          piecePts[(k * FRAG_PTS + q) * 2] = fx * c - fy * sn;
+          piecePts[(k * FRAG_PTS + q) * 2 + 1] = fx * sn + fy * c;
+        }
+      }
+    }
+    burstBoss(px, py, palette[bossColourOf(bossIdx)], 6 * s, 80, 240, 0.3, 0.7);
   }
 
   /**
@@ -1766,6 +1829,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bossFlashAge += dt;
     for (let k = 0; k < PIECES; k++) pieceAge[k] = (pieceAge[k] ?? 0) + dt;
     stepBossWindow(bossWin, dt);
+    stepBossCracks(bossCracks, dt);
     addCount = 0;
     ghostAge += dt;
     laneHazards = 0;
@@ -2295,6 +2359,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // G3C: the Prism window and the 66 and 33 percent cracks (Swarm, parallel run).
     onBossWindow(bus, onWindow),
     onBossCrack(bus, onCrack),
+    // v31: a gravity well erupts into a supernova (Swarm, parallel run).
+    onWellNova(bus, (id, x, y) => {
+      novaEvent(nova, id, x, y);
+    }),
   ];
   offFx.push(
     onEffectsTierChanged((t) => {
@@ -2642,17 +2710,191 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     if (close) g.closePath();
   }
 
-  /** One crack stage on the boss body: a dark cut with a hot seam, and the gap of the lost piece. */
-  function drawCrack(g: Graphics, line: Float32Array, angle: number, stage: number, rs: number, lw: number, hot: number, a: number): void {
+  /** Add the grown part of a fracture network (body radii) at the main body transform. */
+  function fracturePath(g: Graphics, net: Float32Array, grow: number, x: number, y: number, rot: number, rs: number): void {
+    const c = Math.cos(rot) * rs;
+    const s = Math.sin(rot) * rs;
+    for (let k = 0; k < FRACTURE_SEGS; k++) {
+      const b = k * SEG_FLOATS;
+      const p = segmentPortion(grow, net[b + 4] ?? 0, net[b + 5] ?? 1);
+      if (p <= 0) continue;
+      const x0 = net[b] ?? 0;
+      const y0 = net[b + 1] ?? 0;
+      const x1 = x0 + ((net[b + 2] ?? 0) - x0) * p;
+      const y1 = y0 + ((net[b + 3] ?? 0) - y0) * p;
+      g.moveTo(x + x0 * c - y0 * s, y + x0 * s + y0 * c).lineTo(x + x1 * c - y1 * s, y + x1 * s + y1 * c);
+    }
+  }
+
+  /** Add a short arc along the boss outline from a0 to a1 (local radians) at the body transform. */
+  function outlineArc(g: Graphics, a0: number, a1: number, x: number, y: number, rot: number, sc: number): void {
+    const p = BOSS_OUTLINES[bossIdx];
+    if (p === undefined) return;
+    for (let q = 0; q <= 3; q++) {
+      const t = a0 + ((a1 - a0) * q) / 3;
+      const r = outlineRadius(p, t) * sc;
+      const wx = x + Math.cos(t + rot) * r;
+      const wy = y + Math.sin(t + rot) * r;
+      if (q === 0) g.moveTo(wx, wy);
+      else g.lineTo(wx, wy);
+    }
+  }
+
+  /**
+   * v31 battle damage in the boss palette, never white: a dark fracture network in the boss hue at
+   * 40 percent brightness grows in from each hit side, the outline loses short segments at the
+   * crack points with dimmer flickering edges beside them, and after stage 2 the body pulses
+   * unevenly.
+   */
+  function drawDamage(g: Graphics, hue: number, rs: number, lw: number, a: number, timeSec: number): void {
+    const st = bossCracks.stage;
+    if (st < 1) return;
     const x = bodyX[0] ?? 0;
     const y = bodyY[0] ?? 0;
     const rot = bodyRot[0] ?? 0;
-    unitPath(g, pieceWedge(angle, stage, wedge), 3, x, y, rot, rs * 1.04, true);
-    g.fill({ color: 0x000000, alpha: 0.92 * a }).stroke({ width: lw * 0.4, color: hot, alpha: 0.8 * a });
-    unitPath(g, line, CRACK_PTS, x, y, rot, rs, false);
-    g.stroke({ width: lw * 1.3, color: 0x000000, alpha: 0.85 * a });
-    unitPath(g, line, CRACK_PTS, x, y, rot, rs, false);
-    g.stroke({ width: lw * 0.35, color: hot, alpha: a });
+    const sc = bodyScale[0] ?? 1;
+    const dim = mixRgb(hue, 0x000000, 1 - FRACTURE_DIM);
+    for (let s = 1; s <= st; s++) {
+      const net = s === 1 ? bossCracks.frac1 : bossCracks.frac2;
+      const grow = fractureGrow(s === 1 ? bossCracks.age1 : bossCracks.age2);
+      // A soft dark bed under the seam, then the seam itself in the dimmed hue.
+      fracturePath(g, net, grow, x, y, rot, rs);
+      g.stroke({ width: lw * 1.1, color: 0x000000, alpha: 0.45 * a, cap: 'round' });
+      fracturePath(g, net, grow, x, y, rot, rs);
+      g.stroke({ width: lw * 0.5, color: dim, alpha: 0.95 * a, cap: 'round' });
+    }
+    // Outline gaps: the lit edge is cut through at each crack point; its neighbours flicker dim.
+    const n = st * GAPS_PER_STAGE;
+    for (let k = 0; k < n; k++) {
+      const ga = bossCracks.gaps[k * 2] ?? 0;
+      const gh = bossCracks.gaps[k * 2 + 1] ?? 0.06;
+      outlineArc(g, ga - gh * 2.4, ga + gh * 2.4, x, y, rot, sc);
+      g.stroke({ width: lw * 2.6, color: 0x000000, alpha: (1 - edgeFlicker(timeSec, k)) * 0.8 * a });
+      outlineArc(g, ga - gh, ga + gh, x, y, rot, sc);
+      g.stroke({ width: lw * 3, color: 0x000000, alpha: 0.9 * a });
+    }
+    // Stage 2: the body throbs out of step, a dim glow in its own colour over a darkening.
+    const p = unevenPulse(st, timeSec);
+    if (p > 0 || st >= 2) {
+      outlinePath(g, x, y, rot, sc);
+      g.fill({ color: 0x000000, alpha: 0.12 * (1 - p) * a }).stroke({ width: lw * 1.3, color: hue, alpha: 0.32 * p * a });
+    }
+  }
+
+  /** The RGB of an accent part of the live boss under the live palette, or -1 when it has none. */
+  function accentOf(part: AccentPart): number {
+    const t = bossAccent(bossIdx, part);
+    return t === null ? -1 : accentRgb(t, palette);
+  }
+
+  /** v31 two tone: the accent parts of the live boss over its primary body (no allocation). */
+  function drawAccents(g: Graphics, rs: number, lw: number, a: number, timeSec: number): void {
+    const R = bossBodyR(bossIdx);
+    const tint = accentOf;
+    const x = bodyX[0] ?? 0;
+    const y = bodyY[0] ?? 0;
+    const rot = bodyRot[0] ?? 0;
+    const sc = bodyScale[0] ?? 1;
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    let col = tint('rim');
+    if (col >= 0) {
+      outlinePath(g, x, y, rot, sc * 0.94);
+      g.stroke({ width: lw * 0.55, color: col, alpha: 0.85 * a });
+    }
+    col = tint('core');
+    if (col >= 0) g.circle(x, y, rs * 0.32).stroke({ width: rs * 0.14, color: col, alpha: 0.85 * a });
+    col = tint('sparks');
+    if (col >= 0) {
+      for (let k = 0; k < 4; k++) {
+        const ph = timeSec * 0.8 + k * 0.27;
+        const u = ph - Math.floor(ph);
+        const ang = k * 1.71 + timeSec * 0.9;
+        const rr = rs * (0.55 + 0.6 * u);
+        g.circle(x + Math.cos(ang) * rr, y + Math.sin(ang) * rr, lw * (0.9 - 0.5 * u)).fill({ color: col, alpha: (1 - u) * 0.9 * a });
+      }
+    }
+    col = tint('axis');
+    if (col >= 0) {
+      g.moveTo(x - c * rs * 0.95, y - s * rs * 0.95).lineTo(x + c * rs * 0.95, y + s * rs * 0.95);
+      g.stroke({ width: lw * 0.7, color: col, alpha: 0.9 * a });
+    }
+    col = tint('tips');
+    if (col >= 0) {
+      g.circle(x + c * rs * 0.98, y + s * rs * 0.98, lw * 1.2).circle(x - c * rs * 0.98, y - s * rs * 0.98, lw * 1.2);
+      g.fill({ color: col, alpha: 0.95 * a });
+    }
+    col = tint('split');
+    if (col >= 0) {
+      g.moveTo(x + s * rs * 0.85, y - c * rs * 0.85).lineTo(x - s * rs * 0.85, y + c * rs * 0.85);
+      g.stroke({ width: lw * 0.45, color: col, alpha: 0.8 * a });
+    }
+    col = tint('centre');
+    if (col >= 0) g.circle(x, y, rs * 0.39).stroke({ width: rs * 0.12, color: col, alpha: 0.85 * a });
+    col = tint('tail');
+    if (col >= 0) {
+      // A kite tail streaming behind the nose (local -x), waving gently.
+      for (let k = 0; k < 6; k++) {
+        const u = k / 5;
+        const lx = -rs * (0.75 + 0.9 * u);
+        const ly = Math.sin(timeSec * 4 + u * 4) * rs * 0.16 * u;
+        accentPts[k * 2] = x + lx * c - ly * s;
+        accentPts[k * 2 + 1] = y + lx * s + ly * c;
+      }
+      for (let k = 0; k < 6; k++) {
+        if (k === 0) g.moveTo(accentPts[0] ?? x, accentPts[1] ?? y);
+        else g.lineTo(accentPts[k * 2] ?? x, accentPts[k * 2 + 1] ?? y);
+      }
+      g.stroke({ width: lw * 0.6, color: col, alpha: 0.9 * a, cap: 'round' });
+    }
+    // Twins: one gold and one silver core.
+    for (let b = 0; b < bodyCount && b < 2; b++) {
+      col = tint(b === 0 ? 'coreA' : 'coreB');
+      if (col < 0) break;
+      g.circle(bodyX[b] ?? 0, bodyY[b] ?? 0, R * (bodyScale[b] ?? 1) * 0.3).stroke({ width: R * (bodyScale[b] ?? 1) * 0.12, color: col, alpha: 0.9 * a });
+    }
+  }
+
+  /**
+   * v31 supernova wells: a swirling two arm spiral in white hot pink, shimmer points spiralling
+   * inward, a wider faint pull ring, and the outward shimmer stream from the shared pool. One
+   * Graphics, rebuilt only while a nova is live. Called per erupted well from drawEntities.
+   */
+  function drawNova(slot: number, x: number, y: number, r: number, pullR: number, timeSec: number, dt: number): void {
+    const g = novaG;
+    const age = nova.age[slot] ?? 0;
+    const grow = novaGrow(age);
+    const reach = r * NOVA_REACH * grow;
+    const pink = palette.homing;
+    const hot = mixRgb(pink, 0xffffff, 0.45);
+    // Faint wide ring at the new pull radius, breathing slowly.
+    g.circle(x, y, pullR).stroke({ width: 1.5, color: pink, alpha: (0.14 + 0.06 * Math.sin(timeSec * 2.4)) * grow });
+    for (let arm = 0; arm < NOVA_ARMS; arm++) {
+      novaSpiral(timeSec, arm, reach, novaArm);
+      for (let k = 0; k < NOVA_ARM_PTS; k++) {
+        const px = x + (novaArm[k * 2] ?? 0);
+        const py = y + (novaArm[k * 2 + 1] ?? 0);
+        if (k === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.stroke({ width: 4.5, color: pink, alpha: 0.35 * grow, cap: 'round' });
+      for (let k = 0; k < NOVA_ARM_PTS; k++) {
+        const px = x + (novaArm[k * 2] ?? 0);
+        const py = y + (novaArm[k * 2 + 1] ?? 0);
+        if (k === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.stroke({ width: 1.6, color: hot, alpha: 0.9 * grow, cap: 'round' });
+    }
+    // White hot core.
+    g.circle(x, y, r * 0.45 * grow).fill({ color: hot, alpha: 0.55 });
+    // Shimmer points falling inward along the swirl.
+    for (let k = 0; k < NOVA_ORBITERS; k++) {
+      novaOrbiter(timeSec, k, reach, novaOrb);
+      g.circle(x + novaOrb.x, y + novaOrb.y, 1.2 + novaOrb.u).fill({ color: (k & 1) === 0 ? 0xffffff : hot, alpha: novaOrb.a * grow });
+    }
+    const em = novaEm[slot];
+    if (em !== undefined) emitNovaShimmer(em, x, y, r, pink, mixRgb(pink, 0xffffff, 0.8), dt);
   }
 
   /**
@@ -2664,7 +2906,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const g = bossOver;
     const u = bossUnder;
     const active = bossView.active && bossSeen;
-    const piecesLive = (pieceAge[0] ?? Infinity) < PIECE_LIFE || (pieceAge[1] ?? Infinity) < PIECE_LIFE;
+    let piecesLive = false;
+    for (let k = 0; k < PIECES; k++) if ((pieceAge[k] ?? Infinity) < PIECE_LIFE) piecesLive = true;
     if (!active && !piecesLive) {
       if (bossOverShown) {
         g.clear();
@@ -2726,10 +2969,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
           const s = Math.sin(a);
           g.moveTo(x + c * rs * 0.98, y + s * rs * 0.98).lineTo(x + c * rs * 1.22, y + s * rs * 1.22);
         }
-        g.stroke({ width: lw * 1.8, color: hue, alpha: 0.9 * bodyA });
+        const grey = accentOf('turrets');
+        g.stroke({ width: lw * 1.8, color: grey >= 0 ? grey : hue, alpha: 0.9 * bodyA });
       }
-      if (bossCracks.stage >= 1) drawCrack(g, bossCracks.line1, bossCracks.angle1, 1, rs, lw, hot, bodyA);
-      if (bossCracks.stage >= 2) drawCrack(g, bossCracks.line2, bossCracks.angle2, 2, rs, lw, hot, bodyA);
+      // Two tone accents, then the battle damage over them (the gaps cut both).
+      drawAccents(g, rs, lw, bodyA, timeSec);
+      drawDamage(g, hue, rs, lw, bodyA, timeSec);
       // Prism: the whole body runs to white with a contracting ring, then holds a white flash.
       if (bossIdx === BOSS_PRISM) {
         const wv = bossWin.known ? windowWhite(bossWin) : bossView.exposed === true ? 1 : 0;
@@ -2754,23 +2999,38 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         }
       }
     }
-    // Broken pieces drift 40 u outward and dissolve in 0.8 s.
+    // Outline fragments drift outward, tumble and fade over 1.2 s, in the boss colour.
     for (let k = 0; k < PIECES; k++) {
       const age = pieceAge[k] ?? Infinity;
       if (age >= PIECE_LIFE) continue;
       const d = pieceDrift(age);
       const a = pieceAlpha(age);
-      const st = pieceStage[k] ?? 1;
-      pieceWedge(0, st, wedge);
+      const sp = pieceSpin(age, pieceSpinDir[k] ?? 1);
+      const c = Math.cos(sp);
+      const s = Math.sin(sp);
       const px = (pieceX[k] ?? 0) + (pieceDx[k] ?? 0) * d;
       const py = (pieceY[k] ?? 0) + (pieceDy[k] ?? 0) * d;
-      unitPath(g, wedge, 3, px, py, (pieceA[k] ?? 0), pieceScale[k] ?? R, true);
-      g.fill({ color: hue, alpha: 0.45 * a }).stroke({ width: lw, color: hot, alpha: a });
+      for (let q = 0; q < FRAG_PTS; q++) {
+        const fx = piecePts[(k * FRAG_PTS + q) * 2] ?? 0;
+        const fy = piecePts[(k * FRAG_PTS + q) * 2 + 1] ?? 0;
+        const wx = px + fx * c - fy * s;
+        const wy = py + fx * s + fy * c;
+        if (q === 0) g.moveTo(wx, wy);
+        else g.lineTo(wx, wy);
+      }
+      g.stroke({ width: lw, color: hue, alpha: a, cap: 'round' });
     }
   }
 
   function drawEntities(w: World, alpha: number, timeSec: number, dt: number): void {
     growPools(w.cap);
+    // v31 nova layer: one Graphics, cleared and rebuilt only while a nova is live.
+    const novaLive = novaAny(nova);
+    if (novaLive || novaShown) {
+      novaG.clear();
+      novaShown = novaLive;
+      if (novaLive && novaG.parent !== entities) entities.addChild(novaG);
+    }
     if (enemyFxDirty) {
       enemyFx.clear();
       enemyFxGlow.clear();
@@ -2840,7 +3100,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const baseTint = isPart
         ? isTwinPart(w.a[i] ?? 0)
           ? bossTint
-          : palette[bossColourOf(bossIdx)]
+          : bossPartTint(bossIdx, palette[bossColourOf(bossIdx)], palette)
         : isBoss
           ? bossTint
           : spec.tint === null
@@ -2981,6 +3241,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       } else if (i === 0 && kind === KIND_SHIP && turboK > 0) {
         ev.glowMul *= turboGlow(turboK, timeSec);
       }
+      // v31: an erupted well draws its supernova swirl and sheds its shimmer stream.
+      if (kind === KIND_GRAVITY_WELL && novaLive) {
+        const r = w.radius[i] ?? WELL_BASE_RADIUS;
+        const slot = novaSlotFor(nova, i, w.x[i] ?? ev.x, w.y[i] ?? ev.y, r);
+        if (slot >= 0) drawNova(slot, ev.x, ev.y, r, wellPullRadius(r), timeSec, dt);
+      }
       // Wells pull the lattice into a dimple (at most MAX_WELLS, read every frame).
       if (kind === KIND_GRAVITY_WELL && !teleNow && wellsSeen < MAX_WELLS && lattice.sim) {
         addForce(lattice.sim, ev.x, ev.y, wellPullRadius(w.radius[i] ?? 0), WELL_PULL_ACCEL);
@@ -3011,6 +3277,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
     if (!prismDrawn && prismLayer) prismLayer.hide();
     drawBossIdentity(timeSec);
+    if (novaLive) stepNovaState(nova, dt);
     drawPops(dt);
     stats.entities = live;
   }

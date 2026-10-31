@@ -8,20 +8,32 @@ import {
   BOSS_OUTLINES,
   bossAttackKey,
   bossFlashAllow,
-  buildCrack,
+  buildFracture,
   createBossCracks,
   createBossFlashThrottle,
   createBossWindow,
-  CRACK_PTS,
-  CRACK_REACH,
   crackEvent,
+  edgeFlicker,
+  EDGE_FLICKER_MIN,
+  FRACTURE_GROW_SEC,
+  FRACTURE_SEGS,
+  fractureGrow,
+  FRAG_PTS,
+  fragmentPts,
+  GAPS_PER_STAGE,
   hitFlashAlpha,
   hitSparkCount,
+  outlineRadius,
   pieceAlpha,
   pieceDrift,
-  pieceWedge,
+  pieceSpin,
   PIECE_DRIFT,
+  PIECE_LIFE,
   resetBossCracks,
+  SEG_FLOATS,
+  segmentPortion,
+  stepBossCracks,
+  unevenPulse,
   stepBossWindow,
   tier3HaloAlpha,
   twinsFlare,
@@ -102,43 +114,103 @@ describe('hit throttle', () => {
   });
 });
 
-describe('crack geometry', () => {
-  it('builds a jagged crack inside the body, deterministic', () => {
-    const a = buildCrack(0.7, 3, new Float32Array(CRACK_PTS * 2));
-    const b = buildCrack(0.7, 3, new Float32Array(CRACK_PTS * 2));
-    expect(Array.from(a)).toEqual(Array.from(b));
-    for (let k = 0; k < CRACK_PTS; k++) {
-      const x = a[k * 2] ?? 0;
-      const y = a[k * 2 + 1] ?? 0;
-      expect(Math.hypot(x, y)).toBeLessThanOrEqual(CRACK_REACH + 0.2);
+describe('crack state maths (v31 battle damage)', () => {
+  const net = (a: number, seed: number, stage: number): Float32Array => buildFracture(a, seed, stage, new Float32Array(FRACTURE_SEGS * SEG_FLOATS));
+
+  it('the fracture starts at the hit edge, stays inside the body and is deterministic', () => {
+    const a = net(0.7, 3, 1);
+    expect(Array.from(a)).toEqual(Array.from(net(0.7, 3, 1)));
+    expect(Math.atan2(a[1] ?? 0, a[0] ?? 0)).toBeCloseTo(0.7);
+    for (let k = 0; k < FRACTURE_SEGS; k++) {
+      const b = k * SEG_FLOATS;
+      expect(Math.hypot(a[b + 2] ?? 0, a[b + 3] ?? 0)).toBeLessThan(1);
+      expect(a[b + 5] ?? 0).toBeGreaterThan(a[b + 4] ?? 0);
+      expect(a[b + 5] ?? 0).toBeLessThanOrEqual(1);
     }
-    expect(a[0]).toBeCloseTo(Math.cos(0.7) * CRACK_REACH);
   });
 
-  it('stages only rise; stage 2 adds a second crack; reset clears', () => {
+  it('stage 2 reaches deeper; growth runs from the edge over the grow time', () => {
+    const deep = (n: Float32Array): number => {
+      let m = 1;
+      for (let k = 0; k < FRACTURE_SEGS; k++) m = Math.min(m, Math.hypot(n[k * SEG_FLOATS + 2] ?? 0, n[k * SEG_FLOATS + 3] ?? 0));
+      return m;
+    };
+    expect(deep(net(0, 5, 2))).toBeLessThan(deep(net(0, 5, 1)));
+    expect(fractureGrow(0)).toBe(0);
+    expect(fractureGrow(FRACTURE_GROW_SEC)).toBe(1);
+    expect(segmentPortion(0.5, 0.6, 0.8)).toBe(0);
+    expect(segmentPortion(0.7, 0.6, 0.8)).toBeCloseTo(0.5);
+    expect(segmentPortion(0.9, 0.6, 0.8)).toBe(1);
+  });
+
+  it('stages only rise, lay gaps near the hit angle, grow on the clock, reset clears', () => {
     const c = createBossCracks();
     expect(crackEvent(c, 1, 0.5, 1)).toBe(true);
     expect(c.stage).toBe(1);
-    const first = Array.from(c.line1);
+    expect(c.gaps[0]).toBeCloseTo(0.5);
+    for (let k = 0; k < GAPS_PER_STAGE; k++) expect(Math.abs((c.gaps[k * 2] ?? 0) - 0.5)).toBeLessThan(0.7);
+    const first = Array.from(c.frac1);
+    stepBossCracks(c, 0.2);
+    expect(c.age1).toBeCloseTo(0.2);
     expect(crackEvent(c, 1, 2, 1)).toBe(false);
     expect(crackEvent(c, 2, 2, 1)).toBe(true);
     expect(c.stage).toBe(2);
-    expect(Array.from(c.line1)).toEqual(first);
-    expect(Array.from(c.line2)).not.toEqual(first);
+    expect(Array.from(c.frac1)).toEqual(first);
+    expect(Array.from(c.frac2)).not.toEqual(first);
+    expect(c.gaps[GAPS_PER_STAGE * 2]).toBeCloseTo(2);
     resetBossCracks(c);
     expect(c.stage).toBe(0);
   });
 
-  it('the stage 2 piece is larger; pieces drift 40 u and dissolve in 0.8 s', () => {
-    const area = (p: Float32Array): number =>
-      Math.abs(((p[2] ?? 0) - (p[0] ?? 0)) * ((p[5] ?? 0) - (p[1] ?? 0)) - ((p[4] ?? 0) - (p[0] ?? 0)) * ((p[3] ?? 0) - (p[1] ?? 0))) / 2;
-    const s1 = pieceWedge(1, 1, new Float32Array(6));
-    const s2 = pieceWedge(1, 2, new Float32Array(6));
-    expect(area(s2)).toBeGreaterThan(area(s1));
+  it('a stage 2 first lays a grown stage 1 too', () => {
+    const c = createBossCracks();
+    crackEvent(c, 2, 1, 4);
+    expect(c.stage).toBe(2);
+    expect(c.age1).toBe(FRACTURE_GROW_SEC);
+    expect(c.age2).toBe(0);
+  });
+
+  it('edges flicker dimmer but never out; the uneven pulse waits for stage 2', () => {
+    for (let t = 0; t < 3; t += 0.07) {
+      const f = edgeFlicker(t, 2);
+      expect(f).toBeGreaterThanOrEqual(EDGE_FLICKER_MIN - 1e-9);
+      expect(f).toBeLessThanOrEqual(1 + 1e-9);
+      expect(unevenPulse(1, t)).toBe(0);
+      const p = unevenPulse(2, t);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThanOrEqual(1);
+    }
+    // Uneven: successive beats differ in height.
+    expect(Math.abs(unevenPulse(2, 0.19) - unevenPulse(2, 0.19 + 1 / 1.3))).toBeGreaterThan(0.01);
+  });
+
+  it('outline radius follows circles, hexagons and polygons', () => {
+    expect(outlineRadius({ t: 'circle', r: 10 }, 1)).toBe(10);
+    const hex = { t: 'regularPoly', r: 10, sides: 6, rot: 0 } as const;
+    expect(outlineRadius(hex, -Math.PI / 2)).toBeCloseTo(10);
+    expect(outlineRadius(hex, -Math.PI / 2 + Math.PI / 6)).toBeCloseTo(10 * Math.cos(Math.PI / 6));
+    const sq = { t: 'poly', pts: [5, 5, -5, 5, -5, -5, 5, -5] } as const;
+    expect(outlineRadius(sq, 0)).toBeCloseTo(5);
+    expect(outlineRadius(sq, Math.PI / 4)).toBeCloseTo(5 * Math.SQRT2);
+  });
+
+  it('fragments are short outline arcs that drift 46 u, tumble and fade over 1.2 s', () => {
+    const out = new Float32Array(FRAG_PTS * 2);
+    const ctr = new Float32Array(2);
+    fragmentPts({ t: 'circle', r: 50 }, 0, 0.1, out, ctr);
+    expect(ctr[0] ?? 0).toBeGreaterThan(49);
+    let sx = 0;
+    for (let k = 0; k < FRAG_PTS; k++) sx += out[k * 2] ?? 0;
+    expect(Math.abs(sx)).toBeLessThan(1e-4);
     expect(pieceDrift(0)).toBe(0);
-    expect(pieceDrift(0.8)).toBeCloseTo(PIECE_DRIFT);
+    expect(pieceDrift(PIECE_LIFE)).toBeCloseTo(PIECE_DRIFT);
+    expect(PIECE_LIFE).toBe(1.2);
     expect(pieceAlpha(0)).toBe(1);
-    expect(pieceAlpha(0.8)).toBe(0);
+    expect(pieceAlpha(PIECE_LIFE)).toBe(0);
+    expect(pieceAlpha(0.6)).toBeLessThan(0.5);
+    expect(pieceSpin(0, 1)).toBe(0);
+    expect(pieceSpin(0.6, 1)).toBeGreaterThan(0);
+    expect(pieceSpin(0.6, -1)).toBeCloseTo(-pieceSpin(0.6, 1));
   });
 });
 
