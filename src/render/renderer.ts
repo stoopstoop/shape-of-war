@@ -289,6 +289,7 @@ import { BOSS_IDS } from '../levelgen/leveldef';
 import {
   approach,
   BOSS_BROOD,
+  BOSS_SPINDLE,
   BOSS_BURST_WHITE,
   BOSS_DEATH_SHAKE_PX,
   BOSS_DEATH_SHAKE_SEC,
@@ -428,10 +429,6 @@ import {
   bossAccent,
   bossPartTint,
   crackEvent,
-  edgeFlicker,
-  FRACTURE_DIM,
-  FRACTURE_SEGS,
-  fractureGrow,
   FRAG_PTS,
   fragmentPts,
   FRAGS_PER_STAGE,
@@ -446,10 +443,7 @@ import {
   pieceSpin,
   PIECE_LIFE,
   resetBossCracks,
-  SEG_FLOATS,
-  segmentPortion,
   stepBossCracks,
-  unevenPulse,
   type AccentPart,
   resetBossWindow,
   stepBossWindow,
@@ -463,10 +457,19 @@ import {
   windowWhite,
   type WindowRing,
 } from './bossIdentity';
+// Look v32: crack layout and damage maths, the Ember flame body, the nova colour cycle.
+import { dimRgb, FRACTURE_BRIGHTNESS, FRACTURE_ORIGIN_R, FRACTURE_PTS, fractureGrow, fracturePointAt, GAP_CUT, outlineFlicker, SCORCH_CUT, shoulderDim } from './bossDamage';
+import { EMBER_TONGUES, FLAME_BANDS, FLAME_STOP_COUNT, flameAt, flameColour, flameStops, flameTongue, TONGUE_FLOATS } from './emberFlame';
 import {
   createNovaState,
   NOVA_ARM_PTS,
   NOVA_ARMS,
+  NOVA_HUES,
+  novaColour,
+  novaCycleStops,
+  novaHaloR,
+  novaPulse,
+  novaShift,
   NOVA_ORBITERS,
   NOVA_REACH,
   novaAny,
@@ -1106,6 +1109,16 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   let bossSeen = false;
   const bossUnder = new Graphics({ label: 'bossUnder' });
   const bossOver = new Graphics({ label: 'bossOver' });
+  // Look v32: crack gaps, scorch and the stage 2 flicker take light away from the boss outline with
+  // the erase blend (no dark paint), drawn just before bossOver so the fracture glow sits on top.
+  const bossErase = new Graphics({ label: 'bossErase' });
+  bossErase.blendMode = 'erase';
+  // Look v32 scratch: Ember flame tongues and stop colours, the nova cycle stops (no per frame allocation).
+  const flamePts = new Float32Array(EMBER_TONGUES * TONGUE_FLOATS);
+  const flameRgb = new Uint32Array(FLAME_STOP_COUNT);
+  const novaStops = new Uint32Array(NOVA_HUES);
+  /** Sim clock (w.time) of the frame, driving the Ember flame motion. */
+  let flameTime = 0;
   let bossOverShown = false;
   /** G3A weak point cue: 'sim:bossExposed' state (EXPOSE_UNKNOWN until the event arrives). */
   let exposeEvent = EXPOSE_UNKNOWN;
@@ -2030,7 +2043,10 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const dy = Math.sin(bossDrawRot);
       const from = EMBER_NOSE * bossBodyR(bossIdx) * bossDrawScale;
       const len = rayWallDistance(features, bx, by, dx, dy, EMBER_LANE_LEN);
-      if (len > from) planEmberLane(hazardBuf, bx + dx * from, by + dy * from, bossDrawRot, len - from, la, tint, halo);
+      // Look v32: the dash lane glows in the flame palette, shimmering between orange and yellow.
+      flameStops(palette, flameRgb);
+      const lane = flameColour(flameRgb, 0.35, timeSec, 5);
+      if (len > from) planEmberLane(hazardBuf, bx + dx * from, by + dy * from, bossDrawRot, len - from, la, lane, halo);
     } else if (bossIdx === BOSS_MIRAGE) {
       const r = MIRAGE_SHIELD * bossBodyR(bossIdx) * bossDrawScale;
       const open = mirageArcOpenness(bossView.mode, bossView.modeT);
@@ -2066,11 +2082,14 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const dx = Math.cos(rot);
       const dy = Math.sin(rot);
       // Flame from the notched tail, blown back along the facing; hot sparks along the dash.
+      // Look v32: the dash flame and sparks take the flame palette, shifting colour frame to frame.
+      flameStops(palette, flameRgb);
+      const ft = w.time;
       const flame = emberFlameRate(bossView.mode, dashing, t);
-      if (flame > 0) emitEnemyTrail(emberFlameEm, flame, x - dx * R * 0.4, y - dy * R * 0.4, dx * 300, dy * 300, ENEMY_TRAIL_SWIRL, mixRgb(tint, palette.yellow, 0.35), dt);
+      if (flame > 0) emitEnemyTrail(emberFlameEm, flame, x - dx * R * 0.4, y - dy * R * 0.4, dx * 300, dy * 300, ENEMY_TRAIL_SWIRL, flameColour(flameRgb, (ft * 3.7) % 0.75, ft, 1), dt);
       else emberFlameEm.acc = 0;
       const spark = emberSparkRate(dashing, t);
-      if (spark > 0) emitEnemyTrail(emberSparkEm, spark, x, y, vx, vy, ENEMY_TRAIL_CHARGER, mixRgb(tint, 0xffffff, 0.45), dt);
+      if (spark > 0) emitEnemyTrail(emberSparkEm, spark, x, y, vx, vy, ENEMY_TRAIL_CHARGER, flameAt(flameRgb, 0.7 + ((ft * 5.3) % 0.3)), dt);
       else emberSparkEm.acc = 0;
     } else if (bossIdx === BOSS_MIRAGE && jumped) {
       // Ghost at the old spot (off on Low through afterimageAlpha) and a landing flash at the new one.
@@ -2225,6 +2244,11 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     bulletFrame.alpha = alpha;
     bulletFrame.timeSec = timeSec;
     bulletFrame.effects = getEffectsTier();
+    // Look v32: Ember's fan bullets take the flame palette while Ember is the live boss.
+    if (bossView.active && bossIdx === BOSS_EMBER) {
+      flameStops(palette, flameRgb);
+      bulletFrame.flame = flameRgb;
+    } else bulletFrame.flame = null;
     enemyBulletLayer.draw(pool, bulletFrame, dt);
     stats.enemyBullets = enemyBulletLayer.live;
     stats.bulletSprites = enemyBulletLayer.layer.shown;
@@ -2764,20 +2788,25 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     if (close) g.closePath();
   }
 
-  /** Add the grown part of a fracture network (body radii) at the main body transform. */
-  function fracturePath(g: Graphics, net: Float32Array, grow: number, x: number, y: number, rot: number, rs: number): void {
+  /**
+   * Add a fracture polygon (body radii) at the main body transform, grown share g out from its fan
+   * origin (ex, ey): every point is pulled toward it by g, so the front spreads in from the hit side.
+   */
+  function fracturePoly(g: Graphics, net: Float32Array, grow: number, ex: number, ey: number, x: number, y: number, rot: number, rs: number): void {
     const c = Math.cos(rot) * rs;
     const s = Math.sin(rot) * rs;
-    for (let k = 0; k < FRACTURE_SEGS; k++) {
-      const b = k * SEG_FLOATS;
-      const p = segmentPortion(grow, net[b + 4] ?? 0, net[b + 5] ?? 1);
-      if (p <= 0) continue;
-      const x0 = net[b] ?? 0;
-      const y0 = net[b + 1] ?? 0;
-      const x1 = x0 + ((net[b + 2] ?? 0) - x0) * p;
-      const y1 = y0 + ((net[b + 3] ?? 0) - y0) * p;
-      g.moveTo(x + x0 * c - y0 * s, y + x0 * s + y0 * c).lineTo(x + x1 * c - y1 * s, y + x1 * s + y1 * c);
+    for (let k = 0; k < FRACTURE_PTS; k++) {
+      const q = fracturePointAt(k) * 2;
+      const lx = ex + ((net[q] ?? 0) - ex) * grow;
+      const ly = ey + ((net[q + 1] ?? 0) - ey) * grow;
+      const wx = x + lx * c - ly * s;
+      const wy = y + lx * s + ly * c;
+      if (k === 0) g.moveTo(wx, wy);
+      else g.lineTo(wx, wy);
     }
+    // Close through the fan origin (the growth anchor), which keeps the polygon star shaped.
+    g.lineTo(x + ex * c - ey * s, y + ex * s + ey * c);
+    g.closePath();
   }
 
   /** Add a short arc along the boss outline from a0 to a1 (local radians) at the body transform. */
@@ -2795,43 +2824,61 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   /**
-   * v31 battle damage in the boss palette, never white: a dark fracture network in the boss hue at
-   * 40 percent brightness grows in from each hit side, the outline loses short segments at the
-   * crack points with dimmer flickering edges beside them, and after stage 2 the body pulses
-   * unevenly.
+   * Look v32 battle damage in the boss palette, with no black or dark strokes. On the erase layer e:
+   * each gap cuts the neon outline out and dims its shoulders on an uneven flicker, the fill beside
+   * it scorches (loses alpha, so it goes see through, never black), and after stage 2 the whole
+   * outline flickers unevenly. On g, over the body: a soft fracture glow in the boss hue at 35
+   * percent brightness that spreads in from each hit side with a noisy, branching front.
    */
-  function drawDamage(g: Graphics, hue: number, rs: number, lw: number, a: number, timeSec: number): void {
+  function drawDamage(g: Graphics, e: Graphics, hue: number, rs: number, lw: number, a: number, timeSec: number): void {
     const st = bossCracks.stage;
     if (st < 1) return;
     const x = bodyX[0] ?? 0;
     const y = bodyY[0] ?? 0;
     const rot = bodyRot[0] ?? 0;
     const sc = bodyScale[0] ?? 1;
-    const dim = mixRgb(hue, 0x000000, 1 - FRACTURE_DIM);
+    const glow = dimRgb(hue, FRACTURE_BRIGHTNESS);
+    const ember = dimRgb(hue, FRACTURE_BRIGHTNESS * 1.7);
     for (let s = 1; s <= st; s++) {
       const net = s === 1 ? bossCracks.frac1 : bossCracks.frac2;
       const grow = fractureGrow(s === 1 ? bossCracks.age1 : bossCracks.age2);
-      // A soft dark bed under the seam, then the seam itself in the dimmed hue.
-      fracturePath(g, net, grow, x, y, rot, rs);
-      g.stroke({ width: lw * 1.1, color: 0x000000, alpha: 0.45 * a, cap: 'round' });
-      fracturePath(g, net, grow, x, y, rot, rs);
-      g.stroke({ width: lw * 0.5, color: dim, alpha: 0.95 * a, cap: 'round' });
+      if (grow <= 0) continue;
+      const ang = s === 1 ? bossCracks.angle1 : bossCracks.angle2;
+      const ex = Math.cos(ang) * FRACTURE_ORIGIN_R;
+      const ey = Math.sin(ang) * FRACTURE_ORIGIN_R;
+      // Soft layers: the full front faint, a tighter inner body, a warm seam close to the hit.
+      fracturePoly(g, net, grow, ex, ey, x, y, rot, rs);
+      g.fill({ color: glow, alpha: 0.5 * a });
+      fracturePoly(g, net, grow * 0.68, ex, ey, x, y, rot, rs);
+      g.fill({ color: glow, alpha: 0.45 * a });
+      fracturePoly(g, net, grow * 0.32, ex, ey, x, y, rot, rs);
+      g.fill({ color: ember, alpha: 0.4 * a });
     }
-    // Outline gaps: the lit edge is cut through at each crack point; its neighbours flicker dim.
+    const outline = BOSS_OUTLINES[bossIdx];
     const n = st * GAPS_PER_STAGE;
     for (let k = 0; k < n; k++) {
       const ga = bossCracks.gaps[k * 2] ?? 0;
       const gh = bossCracks.gaps[k * 2 + 1] ?? 0.06;
-      outlineArc(g, ga - gh * 2.4, ga + gh * 2.4, x, y, rot, sc);
-      g.stroke({ width: lw * 2.6, color: 0x000000, alpha: (1 - edgeFlicker(timeSec, k)) * 0.8 * a });
-      outlineArc(g, ga - gh, ga + gh, x, y, rot, sc);
-      g.stroke({ width: lw * 3, color: 0x000000, alpha: 0.9 * a });
+      // Shoulders: the line either side of the gap dims and flickers.
+      outlineArc(e, ga - gh * 2.6, ga + gh * 2.6, x, y, rot, sc);
+      e.stroke({ width: lw * 2.6, color: 0xffffff, alpha: shoulderDim(timeSec, k) * a });
+      // Core: the line drops out.
+      outlineArc(e, ga - gh, ga + gh, x, y, rot, sc);
+      e.stroke({ width: lw * 4, color: 0xffffff, alpha: GAP_CUT * a, cap: 'round' });
+      // Scorch: the fill just inside the gap loses alpha, softly.
+      if (outline !== undefined) {
+        const r = outlineRadius(outline, ga) * sc * 0.8;
+        const cx = x + Math.cos(ga + rot) * r;
+        const cy = y + Math.sin(ga + rot) * r;
+        e.circle(cx, cy, rs * 0.22).fill({ color: 0xffffff, alpha: SCORCH_CUT * 0.5 * a });
+        e.circle(cx, cy, rs * 0.12).fill({ color: 0xffffff, alpha: SCORCH_CUT * 0.6 * a });
+      }
     }
-    // Stage 2: the body throbs out of step, a dim glow in its own colour over a darkening.
-    const p = unevenPulse(st, timeSec);
-    if (p > 0 || st >= 2) {
-      outlinePath(g, x, y, rot, sc);
-      g.fill({ color: 0x000000, alpha: 0.12 * (1 - p) * a }).stroke({ width: lw * 1.3, color: hue, alpha: 0.32 * p * a });
+    // Stage 2: the whole outline drops in brightness on an uneven, noise driven beat.
+    const f = outlineFlicker(st, timeSec);
+    if (f > 0) {
+      outlinePath(e, x, y, rot, sc);
+      e.stroke({ width: lw * 2.4, color: 0xffffff, alpha: f * a });
     }
   }
 
@@ -2839,6 +2886,57 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   function accentOf(part: AccentPart): number {
     const t = bossAccent(bossIdx, part);
     return t === null ? -1 : accentRgb(t, palette);
+  }
+
+  /**
+   * Look v32 Ember flame: EMBER_TONGUES tongues round the diamond core licking toward screen up, each
+   * shaded in FLAME_BANDS bands from deep red at the root through orange and yellow to a white hot
+   * tip, the mix reshuffling every 0.5 s, with a thin bright edge. Motion on the sim clock t.
+   */
+  function drawEmberFlame(g: Graphics, x: number, y: number, rot: number, rs: number, lw: number, a: number, t: number): void {
+    flameStops(palette, flameRgb);
+    for (let k = 0; k < EMBER_TONGUES; k++) {
+      flameTongue(k, t, rs, rot, flamePts);
+      const o = k * TONGUE_FLOATS;
+      const rt = o + (FLAME_BANDS + 1) * 2;
+      for (let j = 0; j < FLAME_BANDS; j++) {
+        const col = flameColour(flameRgb, (j + 0.5) / FLAME_BANDS, t, k);
+        g.moveTo(x + (flamePts[o + j * 2] ?? 0), y + (flamePts[o + j * 2 + 1] ?? 0))
+          .lineTo(x + (flamePts[o + (j + 1) * 2] ?? 0), y + (flamePts[o + (j + 1) * 2 + 1] ?? 0))
+          .lineTo(x + (flamePts[rt + (j + 1) * 2] ?? 0), y + (flamePts[rt + (j + 1) * 2 + 1] ?? 0))
+          .lineTo(x + (flamePts[rt + j * 2] ?? 0), y + (flamePts[rt + j * 2 + 1] ?? 0))
+          .closePath();
+        g.fill({ color: col, alpha: (0.78 - 0.08 * j) * a });
+      }
+      for (let j = 0; j <= FLAME_BANDS; j++) {
+        const px = x + (flamePts[o + j * 2] ?? 0);
+        const py = y + (flamePts[o + j * 2 + 1] ?? 0);
+        if (j === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      for (let j = FLAME_BANDS - 1; j >= 0; j--) g.lineTo(x + (flamePts[rt + j * 2] ?? 0), y + (flamePts[rt + j * 2 + 1] ?? 0));
+      g.stroke({ width: lw * 0.45, color: flameColour(flameRgb, 0.6, t, k + 3), alpha: 0.85 * a, join: 'round' });
+    }
+  }
+
+  /**
+   * Look v32 Spindle thread: two thin white strands wound round the axis, turning, so the spindle
+   * reads as spinning. (c, s) is the facing; the strands pinch to the axis at both tips.
+   */
+  function drawSpindleThread(g: Graphics, x: number, y: number, c: number, s: number, rs: number, lw: number, a: number, timeSec: number): void {
+    const n = 16;
+    for (let strand = 0; strand < 2; strand++) {
+      for (let q = 0; q <= n; q++) {
+        const u = -1 + (2 * q) / n;
+        const along = u * rs * 0.95;
+        const off = Math.sin(u * Math.PI * 2.5 + timeSec * 7 + strand * Math.PI) * rs * 0.15 * (1 - u * u);
+        const px = x + c * along - s * off;
+        const py = y + s * along + c * off;
+        if (q === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.stroke({ width: lw * 0.3, color: 0xffffff, alpha: (strand === 0 ? 0.9 : 0.5) * a, join: 'round' });
+    }
   }
 
   /** v31 two tone: the accent parts of the live boss over its primary body (no allocation). */
@@ -2851,6 +2949,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const sc = bodyScale[0] ?? 1;
     const c = Math.cos(rot);
     const s = Math.sin(rot);
+    if (bossIdx === BOSS_EMBER) drawEmberFlame(g, x, y, rot, rs, lw, a, flameTime);
     let col = tint('rim');
     if (col >= 0) {
       outlinePath(g, x, y, rot, sc * 0.94);
@@ -2875,9 +2974,18 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
     col = tint('tips');
     if (col >= 0) {
-      g.circle(x + c * rs * 0.98, y + s * rs * 0.98, lw * 1.2).circle(x - c * rs * 0.98, y - s * rs * 0.98, lw * 1.2);
+      // Look v32: sharp needle tips past the star points on the axis, not round dots.
+      for (let e = -1; e <= 1; e += 2) {
+        const bx = x + e * c * rs * 0.9;
+        const by = y + e * s * rs * 0.9;
+        g.moveTo(x + e * c * rs * 1.22, y + e * s * rs * 1.22)
+          .lineTo(bx - s * lw * 1.3, by + c * lw * 1.3)
+          .lineTo(bx + s * lw * 1.3, by - c * lw * 1.3)
+          .closePath();
+      }
       g.fill({ color: col, alpha: 0.95 * a });
     }
+    if (bossIdx === BOSS_SPINDLE) drawSpindleThread(g, x, y, c, s, rs, lw, a, timeSec);
     col = tint('split');
     if (col >= 0) {
       g.moveTo(x + s * rs * 0.85, y - c * rs * 0.85).lineTo(x - s * rs * 0.85, y + c * rs * 0.85);
@@ -2909,46 +3017,66 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     }
   }
 
+  /** Segments per colour run along a nova arm. */
+  const NOVA_RUN = 2;
+
+  /** Add points k0 to k1 of the arm buffer around (x, y) as one polyline. */
+  function novaRun(g: Graphics, x: number, y: number, k0: number, k1: number): void {
+    for (let k = k0; k <= k1; k++) {
+      const px = x + (novaArm[k * 2] ?? 0);
+      const py = y + (novaArm[k * 2 + 1] ?? 0);
+      if (k === k0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+  }
+
   /**
-   * v31 supernova wells: a swirling two arm spiral in white hot pink, shimmer points spiralling
-   * inward, a wider faint pull ring, and the outward shimmer stream from the shared pool. One
-   * Graphics, rebuilt only while a nova is live. Called per erupted well from drawEntities.
+   * Supernova wells (v31, look v32). Over 1 s after the eruption the well turns from its red into a
+   * shimmering multicolour state: a two arm spiral whose colour cycles through the hue ring along its
+   * length (one full cycle per 2 s), swirl points that pulse in brightness as they fall inward, a halo
+   * breathing between 1.0x and 1.15x of the pull radius, and the outward shimmer stream from the shared
+   * pool, coloured per particle from the same cycle. Every nova draws into one shared Graphics (one
+   * batch, normal blend), rebuilt only while a nova is live. Called per erupted well from drawEntities.
    */
   function drawNova(slot: number, x: number, y: number, r: number, pullR: number, timeSec: number, dt: number): void {
     const g = novaG;
     const age = nova.age[slot] ?? 0;
     const grow = novaGrow(age);
+    const shift = novaShift(age);
     const reach = r * NOVA_REACH * grow;
-    const pink = palette.homing;
-    const hot = mixRgb(pink, 0xffffff, 0.45);
-    // Faint wide ring at the new pull radius, breathing slowly.
-    g.circle(x, y, pullR).stroke({ width: 1.5, color: pink, alpha: (0.14 + 0.06 * Math.sin(timeSec * 2.4)) * grow });
+    const red = palette.red;
+    novaCycleStops(palette, novaStops);
+    // Breathing halo at the pull radius: two strokes, its colour sliding round the ring.
+    const hr = novaHaloR(timeSec, pullR);
+    const hc = novaColour(novaStops, red, 0, timeSec, shift);
+    g.circle(x, y, hr).stroke({ width: 5, color: hc, alpha: (0.12 + 0.08 * Math.sin(timeSec * 5.3)) * grow });
+    g.circle(x, y, hr).stroke({ width: 1.6, color: mixRgb(hc, 0xffffff, 0.3), alpha: (0.3 + 0.15 * Math.sin(timeSec * 3.1)) * grow });
+    // Spiral arms in short runs of NOVA_RUN segments, each run one colour step along the arm (about
+    // ten steps per arm, so the eight hue ring reads along it): a wide soft pass, then a hot core.
     for (let arm = 0; arm < NOVA_ARMS; arm++) {
       novaSpiral(timeSec, arm, reach, novaArm);
-      for (let k = 0; k < NOVA_ARM_PTS; k++) {
-        const px = x + (novaArm[k * 2] ?? 0);
-        const py = y + (novaArm[k * 2 + 1] ?? 0);
-        if (k === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
+      for (let k0 = 0; k0 < NOVA_ARM_PTS - 1; k0 += NOVA_RUN) {
+        const k1 = Math.min(NOVA_ARM_PTS - 1, k0 + NOVA_RUN);
+        const u = (k0 + k1) / 2 / (NOVA_ARM_PTS - 1);
+        const c = novaColour(novaStops, red, u + arm * 0.5, timeSec, shift);
+        novaRun(g, x, y, k0, k1);
+        g.stroke({ width: 5, color: c, alpha: 0.35 * grow, cap: 'round' });
+        novaRun(g, x, y, k0, k1);
+        g.stroke({ width: 1.8, color: mixRgb(c, 0xffffff, 0.35), alpha: 0.9 * grow, cap: 'round' });
       }
-      g.stroke({ width: 4.5, color: pink, alpha: 0.35 * grow, cap: 'round' });
-      for (let k = 0; k < NOVA_ARM_PTS; k++) {
-        const px = x + (novaArm[k * 2] ?? 0);
-        const py = y + (novaArm[k * 2 + 1] ?? 0);
-        if (k === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
-      }
-      g.stroke({ width: 1.6, color: hot, alpha: 0.9 * grow, cap: 'round' });
     }
-    // White hot core.
-    g.circle(x, y, r * 0.45 * grow).fill({ color: hot, alpha: 0.55 });
-    // Shimmer points falling inward along the swirl.
+    // Hot core, tinted by the cycle as the shift completes.
+    const core = mixRgb(novaColour(novaStops, red, 0.5, timeSec * 0.5, shift), 0xffffff, 0.45);
+    g.circle(x, y, r * 0.45 * grow).fill({ color: core, alpha: 0.55 });
+    // Swirl points falling inward, each pulsing in brightness and coloured from the cycle.
     for (let k = 0; k < NOVA_ORBITERS; k++) {
       novaOrbiter(timeSec, k, reach, novaOrb);
-      g.circle(x + novaOrb.x, y + novaOrb.y, 1.2 + novaOrb.u).fill({ color: (k & 1) === 0 ? 0xffffff : hot, alpha: novaOrb.a * grow });
+      const c = novaColour(novaStops, red, novaOrb.u + k / NOVA_ORBITERS, timeSec, shift);
+      const p = novaPulse(timeSec, k);
+      g.circle(x + novaOrb.x, y + novaOrb.y, 1.1 + novaOrb.u + p * 0.8).fill({ color: mixRgb(c, 0xffffff, 0.25 * p), alpha: novaOrb.a * p * grow });
     }
     const em = novaEm[slot];
-    if (em !== undefined) emitNovaShimmer(em, x, y, r, pink, mixRgb(pink, 0xffffff, 0.8), dt);
+    if (em !== undefined) emitNovaShimmer(em, x, y, r, red, novaStops, shift, timeSec, dt);
   }
 
   /**
@@ -2962,18 +3090,26 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     const active = bossView.active && bossSeen;
     let piecesLive = false;
     for (let k = 0; k < PIECES; k++) if ((pieceAge[k] ?? Infinity) < PIECE_LIFE) piecesLive = true;
+    const e = bossErase;
     if (!active && !piecesLive) {
       if (bossOverShown) {
         g.clear();
         u.clear();
+        e.clear();
         bossOverShown = false;
       }
       return;
     }
     if (u.parent !== entities) entities.addChildAt(u, 0);
-    if (entities.children[entities.children.length - 1] !== g) entities.addChild(g);
+    // The erase layer sits right under bossOver, both over every body.
+    const top = entities.children.length;
+    if (entities.children[top - 1] !== g || entities.children[top - 2] !== e) {
+      entities.addChild(e);
+      entities.addChild(g);
+    }
     g.clear();
     u.clear();
+    e.clear();
     bossOverShown = true;
     const hue = palette[bossColourOf(bossIdx)];
     const hot = mixRgb(hue, 0xffffff, 0.6);
@@ -3028,7 +3164,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       }
       // Two tone accents, then the battle damage over them (the gaps cut both).
       drawAccents(g, rs, lw, bodyA, timeSec);
-      drawDamage(g, hue, rs, lw, bodyA, timeSec);
+      drawDamage(g, e, hue, rs, lw, bodyA, timeSec);
       // Prism: the whole body runs to white with a contracting ring, then holds a white flash.
       if (bossIdx === BOSS_PRISM) {
         const wv = bossWin.known ? windowWhite(bossWin) : bossView.exposed === true ? 1 : 0;
@@ -3078,6 +3214,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
 
   function drawEntities(w: World, alpha: number, timeSec: number, dt: number): void {
     growPools(w.cap);
+    flameTime = w.time;
     // v31 nova layer: one Graphics, cleared and rebuilt only while a nova is live.
     const novaLive = novaAny(nova);
     if (novaLive || novaShown) {

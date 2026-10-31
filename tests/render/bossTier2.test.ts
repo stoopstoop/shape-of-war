@@ -27,7 +27,7 @@ import {
   bossBodyR,
   buildBossSpec,
   buildPartSpec,
-  emberArrow,
+  emberDiamond,
   EMBER_NOSE,
   EXPOSED_BOSS_SPECS,
   GRAVITAS_RINGS,
@@ -106,8 +106,8 @@ describe('tier 2 registry coverage', () => {
       const first = buildBossSpec(id, 0).layers[0]?.prims[0];
       expect(first?.t, `boss ${id}`).not.toBe('regularPoly');
     }
-    // Ember: an arrowhead with its nose on +x past the rim.
-    expect(buildBossSpec(BOSS_EMBER, 0).layers[0]?.prims[0]).toEqual(emberArrow(bossBodyR(BOSS_EMBER)));
+    // Ember: a diamond core with its nose on +x past the rim (look v32; the flame is a render effect).
+    expect(buildBossSpec(BOSS_EMBER, 0).layers[0]?.prims[0]).toEqual(emberDiamond(bossBodyR(BOSS_EMBER)));
     expect(buildBossSpec(BOSS_EMBER, 0).radius).toBeCloseTo(EMBER_NOSE * bossBodyR(BOSS_EMBER), 1);
     // Mirage: an open shield ring whose gap is centred on +x.
     expect(buildBossSpec(BOSS_MIRAGE, 0).layers[0]?.prims[0]).toEqual(mirageShield(bossBodyR(BOSS_MIRAGE)));

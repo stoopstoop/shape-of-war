@@ -30,12 +30,16 @@ export const BOSS_PRISM = 9;
 /** Tier per boss index, docs/13 schedule: three tier 1, three tier 2, three tier 3, one tier 4. */
 export const BOSS_TIER_BY_ID: readonly BossTier[] = [1, 1, 1, 2, 2, 2, 3, 3, 3, 4];
 
-/** Palette key per boss index (docs/12 schedule colours). */
+/**
+ * Palette key per boss index (docs/12 schedule colours). Look v32: Ember's body primary is the deep
+ * flame red (its flame tongues carry the orange, yellow and white), so it sits at least 30 degrees
+ * from Spindle's yellow; its HUD key in src/ui stays bossOrange until that module follows.
+ */
 export const BOSS_COLOUR_BY_ID: readonly PaletteKey[] = [
   'bossBlue',
   'bossGreen',
   'bossYellow',
-  'bossOrange',
+  'bossRed',
   'bossMagenta',
   'bossViolet',
   'bossRed',

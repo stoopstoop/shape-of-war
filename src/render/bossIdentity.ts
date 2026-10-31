@@ -4,7 +4,9 @@
 // Pure functions and small state records only; the renderer owns the Graphics.
 import type { Bus, EventKey } from '../core/events';
 import { BOSS_IDS } from '../levelgen/leveldef';
-import { hash01 } from './color';
+import { crackLayout, FRACTURE_GROW_SEC, FRACTURE_PTS, GAPS_PER_STAGE, type CrackLayout } from './bossDamage';
+
+export { FRACTURE_GROW_SEC, GAPS_PER_STAGE } from './bossDamage';
 import { BOSS_BROOD, BOSS_COUNT, BOSS_WARDEN, bossColourOf, bossIndex } from './bossLook';
 import { bossBodyR, buildBossSpec } from './bossShapes';
 import type { PaletteKey } from './neon';
@@ -98,7 +100,6 @@ export interface AccentEntry {
 }
 
 const tone = (key: PaletteKey, white = 0, black = 0): AccentTone => ({ key, white, black });
-const DEEP_RED = tone('bossRed', 0, 0.42);
 const SILVER = tone('bossBlue', 0.72);
 const GREY = tone('white', 0, 0.42);
 const GOLD = tone('bossYellow', 0.08);
@@ -113,8 +114,8 @@ export const BOSS_TWO_TONE: readonly (readonly AccentEntry[])[] = [
     { part: 'axis', tone: tone('cyan') },
     { part: 'tips', tone: PALE },
   ],
-  /* Ember */ [
-    { part: 'core', tone: DEEP_RED },
+  /* Ember (look v32: white hot core inside the flame) */ [
+    { part: 'core', tone: tone('yellow', 0.6) },
     { part: 'sparks', tone: tone('bossYellow', 0.25) },
   ],
   /* Mirage */ [{ part: 'split', tone: PALE }],
@@ -310,26 +311,12 @@ export function hitSparkCount(seq: number): number {
   return 2 + ((seq | 0) & 1);
 }
 
-// Cracks (v31): battle damage in the boss's own palette. The outline loses short segments at the
-// crack points (dark gaps whose edges flicker dimmer), a fracture network in the boss hue at 40
-// percent brightness grows from the hit side, outline fragments tumble away, and after stage 2 the
-// body pulses unevenly. Nothing here is white.
+// Cracks (look v32): battle damage in the boss's own palette, never black. The outline drops out
+// at the crack points (gaps cut through the neon line, with dimmed shoulders), a soft fracture glow
+// in the boss hue at 35 percent brightness spreads in from the hit side with a noisy branching edge,
+// the fill near the gaps scorches (loses alpha), outline fragments tumble away in the boss colour,
+// and after stage 2 the whole outline flickers unevenly. The layout maths is in bossDamage.ts.
 
-/** Segments per fracture network (one trunk plus branches) and floats per segment. */
-export const FRACTURE_SEGS = 12;
-export const SEG_FLOATS = 6;
-/** Trunk segments and how far the trunk reaches in (body radii) per stage. */
-export const TRUNK_SEGS = 5;
-export const FRACTURE_REACH: readonly [number, number] = [0.55, 0.8];
-/** The network grows over this many seconds from the hit side. */
-export const FRACTURE_GROW_SEC = 0.6;
-/** Fracture colour: the boss hue at this brightness. */
-export const FRACTURE_DIM = 0.4;
-/** Outline gaps per stage and their half width range (radians). */
-export const GAPS_PER_STAGE = 3;
-export const GAP_HALF: readonly [number, number] = [0.05, 0.09];
-/** Flicker of the outline beside a gap: the edge dims down to this share. */
-export const EDGE_FLICKER_MIN = 0.45;
 /** Outline fragments per stage, points per fragment, drift (u), life (s) and spin (rad/s). */
 export const FRAGS_PER_STAGE = 3;
 export const FRAG_PTS = 4;
@@ -345,23 +332,31 @@ export interface BossCracks {
   /** Seconds since each stage landed (drives the growth). */
   age1: number;
   age2: number;
-  /** Fracture networks: FRACTURE_SEGS x (x0, y0, x1, y1, o0, o1) in body radii; o is growth order. */
+  /** Fracture polygons: FRACTURE_PTS (x, y) pairs in body radii (see crackLayout). */
   frac1: Float32Array;
   frac2: Float32Array;
   /** Outline gaps: (angle, half width) pairs, GAPS_PER_STAGE per stage, stage 1 first. */
   gaps: Float32Array;
+  /** Layout views over the arrays above, one per stage (built once). */
+  readonly lay1: CrackLayout;
+  readonly lay2: CrackLayout;
 }
 
 export function createBossCracks(): BossCracks {
+  const frac1 = new Float32Array(FRACTURE_PTS * 2);
+  const frac2 = new Float32Array(FRACTURE_PTS * 2);
+  const gaps = new Float32Array(GAPS_PER_STAGE * 2 * 2);
   return {
     stage: 0,
     angle1: 0,
     angle2: 0,
     age1: 0,
     age2: 0,
-    frac1: new Float32Array(FRACTURE_SEGS * SEG_FLOATS),
-    frac2: new Float32Array(FRACTURE_SEGS * SEG_FLOATS),
-    gaps: new Float32Array(GAPS_PER_STAGE * 2 * 2),
+    frac1,
+    frac2,
+    gaps,
+    lay1: { gaps: gaps.subarray(0, GAPS_PER_STAGE * 2), frac: frac1 },
+    lay2: { gaps: gaps.subarray(GAPS_PER_STAGE * 2), frac: frac2 },
   };
 }
 
@@ -411,85 +406,6 @@ export function outlineRadius(p: ShapePrim, theta: number): number {
   return best;
 }
 
-function writeSeg(out: Float32Array, k: number, x0: number, y0: number, x1: number, y1: number, o0: number, o1: number): void {
-  const b = k * SEG_FLOATS;
-  out[b] = x0;
-  out[b + 1] = y0;
-  out[b + 2] = x1;
-  out[b + 3] = y1;
-  out[b + 4] = o0;
-  out[b + 5] = o1;
-}
-
-/**
- * Pure: a fracture network from the edge at local angle a growing inward, written into out
- * (FRACTURE_SEGS segments, body radii). A gently wandering trunk of TRUNK_SEGS segments, then short
- * branches forking off its joints at shallow angles. Growth order runs 0 at the edge to 1 at the
- * farthest tip. Deterministic in (a, seed, stage); no PRNG.
- */
-export function buildFracture(a: number, seed: number, stage: number, out: Float32Array): Float32Array {
-  const ang = fin(a, 0);
-  const reach = FRACTURE_REACH[stage >= 2 ? 1 : 0];
-  const step = reach / TRUNK_SEGS;
-  const tipO = 0.7;
-  let x = Math.cos(ang) * 0.96;
-  let y = Math.sin(ang) * 0.96;
-  let dir = ang + Math.PI + (hash01(seed * 7 + 1) - 0.5) * 0.5;
-  for (let k = 0; k < TRUNK_SEGS; k++) {
-    dir += (hash01(seed * 11 + k) - 0.5) * 0.42;
-    const nx = x + Math.cos(dir) * step;
-    const ny = y + Math.sin(dir) * step;
-    writeSeg(out, k, x, y, nx, ny, (k / TRUNK_SEGS) * tipO, ((k + 1) / TRUNK_SEGS) * tipO);
-    x = nx;
-    y = ny;
-  }
-  // Branches fork from trunk joints, alternating sides, shorter further in.
-  for (let k = TRUNK_SEGS; k < FRACTURE_SEGS; k++) {
-    const j = 1 + ((k - TRUNK_SEGS) % (TRUNK_SEGS - 1));
-    const base = (j - 1) * SEG_FLOATS;
-    const bx = out[base + 2] ?? 0;
-    const by = out[base + 3] ?? 0;
-    const tdx = bx - (out[base] ?? 0);
-    const tdy = by - (out[base + 1] ?? 0);
-    const side = (k & 1) === 0 ? 1 : -1;
-    const d = Math.atan2(tdy, tdx) + side * (0.45 + hash01(seed * 17 + k) * 0.5);
-    const len = step * (0.6 + hash01(seed * 19 + k) * 0.6) * (1 - j / (TRUNK_SEGS + 2));
-    const o0 = (j / TRUNK_SEGS) * tipO;
-    writeSeg(out, k, bx, by, bx + Math.cos(d) * len, by + Math.sin(d) * len, o0, Math.min(1, o0 + 0.3));
-  }
-  return out;
-}
-
-/** Pure: growth level 0 to 1 of a fracture network at age seconds (eased). */
-export function fractureGrow(age: number): number {
-  return smooth(fin(age, FRACTURE_GROW_SEC) / FRACTURE_GROW_SEC);
-}
-
-/** Pure: drawn share 0 to 1 of a segment with growth order o0..o1 at growth level g. */
-export function segmentPortion(g: number, o0: number, o1: number): number {
-  if (g <= o0) return 0;
-  if (g >= o1 || o1 <= o0) return 1;
-  return (g - o0) / (o1 - o0);
-}
-
-/** Pure: lay GAPS_PER_STAGE outline gaps around local angle a into out at the stage's slot. */
-export function buildGaps(a: number, seed: number, stage: number, out: Float32Array): Float32Array {
-  const base = (stage >= 2 ? 1 : 0) * GAPS_PER_STAGE * 2;
-  for (let k = 0; k < GAPS_PER_STAGE; k++) {
-    const off = k === 0 ? 0 : (k % 2 === 0 ? 1 : -1) * (0.25 + hash01(seed * 23 + k) * 0.35);
-    out[base + k * 2] = fin(a, 0) + off;
-    out[base + k * 2 + 1] = GAP_HALF[0] + (GAP_HALF[1] - GAP_HALF[0]) * hash01(seed * 29 + k);
-  }
-  return out;
-}
-
-/** Pure: brightness share of the outline beside gap k at timeSec (an uneven flicker, never 0). */
-export function edgeFlicker(timeSec: number, k: number): number {
-  const t = fin(timeSec, 0);
-  const w = Math.sin(t * 13.7 + k * 2.3) * 0.6 + Math.sin(t * 5.1 + k * 0.9) * 0.4;
-  return EDGE_FLICKER_MIN + (1 - EDGE_FLICKER_MIN) * (0.5 + 0.5 * w);
-}
-
 /**
  * Apply 'sim:bossCrack' (stage 1 or 2) at local angle a. Stages only rise; a repeat is ignored. A
  * stage 2 that arrives first also lays the stage 1 damage (already grown). Returns true when the
@@ -501,14 +417,12 @@ export function crackEvent(c: BossCracks, stage: number, a: number, seed: number
   if (c.stage < 1) {
     c.angle1 = s === 1 ? a : a + Math.PI * 0.8;
     c.age1 = s === 1 ? 0 : FRACTURE_GROW_SEC;
-    buildFracture(c.angle1, seed, 1, c.frac1);
-    buildGaps(c.angle1, seed, 1, c.gaps);
+    crackLayout(1, seed, c.angle1, c.lay1);
   }
   if (s === 2) {
     c.angle2 = a;
     c.age2 = 0;
-    buildFracture(a, seed + 101, 2, c.frac2);
-    buildGaps(a, seed + 101, 2, c.gaps);
+    crackLayout(2, seed + 101, a, c.lay2);
   }
   c.stage = s;
   return true;
@@ -566,16 +480,6 @@ export function pieceAlpha(age: number): number {
 export function pieceSpin(age: number, dir: number): number {
   const a = clamp01(fin(age, PIECE_LIFE) / PIECE_LIFE) * PIECE_LIFE;
   return (dir < 0 ? -1 : 1) * PIECE_SPIN * (a - (a * a) / (PIECE_LIFE * 3));
-}
-
-/** Pure: uneven body pulse 0..1 after stage 2 (two beats out of step, sharpened); 0 before. */
-export function unevenPulse(stage: number, timeSec: number): number {
-  if (stage < 2) return 0;
-  const t = fin(timeSec, 0);
-  const a = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 1.3);
-  const b = 0.6 + 0.4 * Math.sin(t * Math.PI * 2 * 0.37 + 1.1);
-  const v = clamp01(a * b);
-  return v * v;
 }
 
 // Tier 3 halo and Twins flare

@@ -1,9 +1,14 @@
-// Supernova well (v31). On 'sim:wellNova' a gravity well erupts: a swirling two arm spiral in white
-// hot pink with shimmering points orbiting inward, a wider faint pull ring, and a slow stream of
-// shimmering particles that drift outward and fade in 2 s (harmless, from the shared particle pool).
-// Pure maths and small fixed state only; the renderer owns the Graphics and the pool.
+// Supernova well (v31, look v32). On 'sim:wellNova' a gravity well erupts: over 1 s it turns from its
+// red into a shimmering multicolour state. A two arm spiral whose colour cycles through the hue ring
+// along its length (one full cycle per 2 s), shimmer points spiralling inward that pulse in
+// brightness, a halo breathing between 1.0x and 1.15x of the pull radius, and a slow stream of
+// particles that drift outward and fade in 2 s (harmless, from the shared particle pool), each
+// coloured from the same cycle. Pure maths and small fixed state only; the renderer owns the
+// Graphics and the pool.
 import type { Bus, EventKey } from '../core/events';
 import { hash01 } from './color';
+import { mixRgb } from './mapFx';
+import type { PaletteKey } from './neon';
 import type { TrailSpec } from './particlePool';
 
 function fin(v: number, d: number): number {
@@ -20,7 +25,7 @@ export const NOVA_SPIN = 2.2;
 /** Spiral reach as a multiple of the well's drawn radius. */
 export const NOVA_REACH = 2.1;
 /** Shimmer points orbiting inward per nova and the seconds one takes from rim to core. */
-export const NOVA_ORBITERS = 12;
+export const NOVA_ORBITERS = 24;
 export const NOVA_INFALL_SEC = 1.6;
 /** Outward drift stream: particles per second per nova, their life and speed range (u/s). */
 export const NOVA_EMIT_RATE = 14;
@@ -30,6 +35,77 @@ export const NOVA_DRIFT_SPEED: readonly [number, number] = [16, 30];
 export const NOVA_PARTICLE_BUDGET = 32;
 /** Eruption flare: the spiral grows in over this many seconds. */
 export const NOVA_GROW_SEC = 0.35;
+/** Particles a nova may add in all (swirl points plus the steady stream), and its extra draws. */
+export const NOVA_ADDED_PARTICLES_MAX = 96;
+export const NOVA_DRAWS_PER_WELL = 1;
+
+// Colour cycle (look v32)
+
+/** The hue ring the nova cycles through: palette keys, so the cycle follows applyNeon. */
+export const NOVA_HUE_KEYS: readonly PaletteKey[] = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'magenta'];
+export const NOVA_HUES = NOVA_HUE_KEYS.length;
+/** One full trip round the hue ring per this many seconds. */
+export const NOVA_CYCLE_SEC = 2;
+/** The well turns from its red to the cycle over this many seconds after the eruption. */
+export const NOVA_SHIFT_SEC = 1;
+/** Halo radius as a multiple of the nova pull radius: breathes between these, at NOVA_HALO_HZ. */
+export const NOVA_HALO_MUL: readonly [number, number] = [1, 1.15];
+export const NOVA_HALO_HZ = 0.9;
+
+/** Pure: the cycle stop colours under a palette, written into out (NOVA_HUES entries). */
+export function novaCycleStops(pal: Readonly<Record<PaletteKey, number>>, out: Uint32Array): Uint32Array {
+  for (let k = 0; k < NOVA_HUES; k++) {
+    const key = NOVA_HUE_KEYS[k];
+    if (key !== undefined) out[k] = pal[key];
+  }
+  return out;
+}
+
+/**
+ * Pure: the cycle colour at position u (0 core to 1 tip, any real wraps) at timeSec: the ring is
+ * laid once along u and slides one full turn per NOVA_CYCLE_SEC. Neighbouring stops blend.
+ */
+export function novaCycleColour(stops: Uint32Array, u: number, timeSec: number): number {
+  const n = stops.length;
+  if (n === 0) return 0xffffff;
+  const p = fin(u, 0) + fin(timeSec, 0) / NOVA_CYCLE_SEC;
+  const v = (p - Math.floor(p)) * n;
+  const i = Math.floor(v) % n;
+  return mixRgb(stops[i] ?? 0, stops[(i + 1) % n] ?? 0, v - Math.floor(v));
+}
+
+/** Pure: share 0 (the well's red) to 1 (full cycle) at age seconds after the eruption, eased. */
+export function novaShift(age: number): number {
+  const u = Math.max(0, Math.min(1, fin(age, NOVA_SHIFT_SEC) / NOVA_SHIFT_SEC));
+  return u * u * (3 - 2 * u);
+}
+
+/** Pure: a nova colour: the base red mixed into the cycle colour at u by the shift share. */
+export function novaColour(stops: Uint32Array, base: number, u: number, timeSec: number, shift: number): number {
+  return mixRgb(base, novaCycleColour(stops, u, timeSec), shift);
+}
+
+/** Pure: halo radius at timeSec for a pull radius, breathing between NOVA_HALO_MUL. */
+export function novaHaloR(timeSec: number, pullR: number): number {
+  const b = 0.5 + 0.5 * Math.sin(fin(timeSec, 0) * NOVA_HALO_HZ * Math.PI * 2);
+  return Math.max(0, fin(pullR, 0)) * (NOVA_HALO_MUL[0] + (NOVA_HALO_MUL[1] - NOVA_HALO_MUL[0]) * b);
+}
+
+/** Pure: brightness pulse 0.35 to 1 of swirl point k at timeSec (each point beats on its own). */
+export function novaPulse(timeSec: number, k: number): number {
+  const t = fin(timeSec, 0);
+  return 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * (5 + (k % 5)) + k * 2.1));
+}
+
+/** Pure: stream particle seq's colour: its own place on the ring, sliding with the cycle. */
+export function novaStreamColour(stops: Uint32Array, base: number, seq: number, timeSec: number, shift: number): number {
+  return novaColour(stops, base, hash01(seq * 3 + 11), timeSec, shift);
+}
+
+/** Pure: particles one nova adds at most: the swirl points plus the steady outward stream. */
+export function novaAddedParticles(): number {
+  return NOVA_ORBITERS + novaSteadyParticles();
+}
 
 export interface NovaState {
   /** Seconds since the eruption, or Infinity for a free slot. */

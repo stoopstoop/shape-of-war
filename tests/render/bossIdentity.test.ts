@@ -8,16 +8,11 @@ import {
   BOSS_OUTLINES,
   bossAttackKey,
   bossFlashAllow,
-  buildFracture,
   createBossCracks,
   createBossFlashThrottle,
   createBossWindow,
   crackEvent,
-  edgeFlicker,
-  EDGE_FLICKER_MIN,
   FRACTURE_GROW_SEC,
-  FRACTURE_SEGS,
-  fractureGrow,
   FRAG_PTS,
   fragmentPts,
   GAPS_PER_STAGE,
@@ -30,10 +25,7 @@ import {
   PIECE_DRIFT,
   PIECE_LIFE,
   resetBossCracks,
-  SEG_FLOATS,
-  segmentPortion,
   stepBossCracks,
-  unevenPulse,
   stepBossWindow,
   tier3HaloAlpha,
   twinsFlare,
@@ -114,35 +106,7 @@ describe('hit throttle', () => {
   });
 });
 
-describe('crack state maths (v31 battle damage)', () => {
-  const net = (a: number, seed: number, stage: number): Float32Array => buildFracture(a, seed, stage, new Float32Array(FRACTURE_SEGS * SEG_FLOATS));
-
-  it('the fracture starts at the hit edge, stays inside the body and is deterministic', () => {
-    const a = net(0.7, 3, 1);
-    expect(Array.from(a)).toEqual(Array.from(net(0.7, 3, 1)));
-    expect(Math.atan2(a[1] ?? 0, a[0] ?? 0)).toBeCloseTo(0.7);
-    for (let k = 0; k < FRACTURE_SEGS; k++) {
-      const b = k * SEG_FLOATS;
-      expect(Math.hypot(a[b + 2] ?? 0, a[b + 3] ?? 0)).toBeLessThan(1);
-      expect(a[b + 5] ?? 0).toBeGreaterThan(a[b + 4] ?? 0);
-      expect(a[b + 5] ?? 0).toBeLessThanOrEqual(1);
-    }
-  });
-
-  it('stage 2 reaches deeper; growth runs from the edge over the grow time', () => {
-    const deep = (n: Float32Array): number => {
-      let m = 1;
-      for (let k = 0; k < FRACTURE_SEGS; k++) m = Math.min(m, Math.hypot(n[k * SEG_FLOATS + 2] ?? 0, n[k * SEG_FLOATS + 3] ?? 0));
-      return m;
-    };
-    expect(deep(net(0, 5, 2))).toBeLessThan(deep(net(0, 5, 1)));
-    expect(fractureGrow(0)).toBe(0);
-    expect(fractureGrow(FRACTURE_GROW_SEC)).toBe(1);
-    expect(segmentPortion(0.5, 0.6, 0.8)).toBe(0);
-    expect(segmentPortion(0.7, 0.6, 0.8)).toBeCloseTo(0.5);
-    expect(segmentPortion(0.9, 0.6, 0.8)).toBe(1);
-  });
-
+describe('crack state maths (look v32 battle damage)', () => {
   it('stages only rise, lay gaps near the hit angle, grow on the clock, reset clears', () => {
     const c = createBossCracks();
     expect(crackEvent(c, 1, 0.5, 1)).toBe(true);
@@ -168,20 +132,6 @@ describe('crack state maths (v31 battle damage)', () => {
     expect(c.stage).toBe(2);
     expect(c.age1).toBe(FRACTURE_GROW_SEC);
     expect(c.age2).toBe(0);
-  });
-
-  it('edges flicker dimmer but never out; the uneven pulse waits for stage 2', () => {
-    for (let t = 0; t < 3; t += 0.07) {
-      const f = edgeFlicker(t, 2);
-      expect(f).toBeGreaterThanOrEqual(EDGE_FLICKER_MIN - 1e-9);
-      expect(f).toBeLessThanOrEqual(1 + 1e-9);
-      expect(unevenPulse(1, t)).toBe(0);
-      const p = unevenPulse(2, t);
-      expect(p).toBeGreaterThanOrEqual(0);
-      expect(p).toBeLessThanOrEqual(1);
-    }
-    // Uneven: successive beats differ in height.
-    expect(Math.abs(unevenPulse(2, 0.19) - unevenPulse(2, 0.19 + 1 / 1.3))).toBeGreaterThan(0.01);
   });
 
   it('outline radius follows circles, hexagons and polygons', () => {
@@ -228,7 +178,7 @@ describe('identity table', () => {
       expect(BOSS_IDENTITY[i]?.hue).toBe(bossColourOf(i));
     }
     expect(BOSS_IDENTITY.map((r) => r.hue)).toEqual([
-      'bossBlue', 'bossGreen', 'bossYellow', 'bossOrange', 'bossMagenta', 'bossViolet', 'bossRed', 'bossRed', 'bossRed', 'bossPrism',
+      'bossBlue', 'bossGreen', 'bossYellow', 'bossRed', 'bossMagenta', 'bossViolet', 'bossRed', 'bossRed', 'bossRed', 'bossPrism',
     ]);
   });
 

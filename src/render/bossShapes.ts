@@ -201,12 +201,15 @@ function broodSpec(o: number): ShapeSpec {
   };
 }
 
-/** Pure: Spindle four point star outline for body radius R (points on the axes). */
+/** Spindle star waist (inner vertex radius share): narrow, so the four tips read sharp (look v32). */
+export const SPINDLE_WAIST = 0.24;
+
+/** Pure: Spindle four point star outline for body radius R (sharp points on the axes). */
 export function spindleStar(R: number): ShapePrim {
   const pts: number[] = [];
   for (let k = 0; k < 8; k++) {
     const a = (k * Math.PI) / 4;
-    pts.push(...polar(k % 2 === 0 ? R : 0.36 * R, a));
+    pts.push(...polar(k % 2 === 0 ? R : SPINDLE_WAIST * R, a));
   }
   return { t: 'poly', pts };
 }
@@ -233,21 +236,25 @@ function spindleSpec(o: number): ShapeSpec {
   };
 }
 
-/** Ember nose length as a multiple of the body radius: the arrowhead points past the rim. */
+/** Ember nose length as a multiple of the body radius: the diamond points past the rim. */
 export const EMBER_NOSE = 1.3;
+/** Ember diamond tail and half height as multiples of the body radius. */
+export const EMBER_TAIL = 0.9;
+export const EMBER_HALF_H = 0.72;
 
-/** Pure: Ember arrowhead outline for body radius R, nose on +x (the facing), a notched tail. */
-export function emberArrow(R: number): ShapePrim {
+/** Pure: Ember diamond core outline for body radius R, nose on +x (the facing). */
+export function emberDiamond(R: number): ShapePrim {
   return {
     t: 'poly',
-    pts: [r2(EMBER_NOSE * R), 0, r2(-0.8 * R), r2(0.85 * R), r2(-0.35 * R), 0, r2(-0.8 * R), r2(-0.85 * R)],
+    pts: [r2(EMBER_NOSE * R), 0, 0, r2(EMBER_HALF_H * R), r2(-EMBER_TAIL * R), 0, 0, r2(-EMBER_HALF_H * R)],
   };
 }
 
 /**
- * Ember (orange, tier 2): an arrowhead with an inner chevron that fills as it opens (hittable only
+ * Ember (flame, tier 2): a diamond core with an inner diamond that fills as it opens (hittable only
  * resting or stunned). The view turns with the facing, so the nose points along the dash. The flame
- * and spark trails, the wind up lane and the Mine pulse are render effects (renderer.ts).
+ * tongues round the core (look v32), the flame and spark trails, the wind up lane and the Mine pulse
+ * are render effects (renderer.ts, emberFlame.ts).
  */
 function emberSpec(o: number): ShapeSpec {
   const id = BOSS_EMBER;
@@ -255,13 +262,13 @@ function emberSpec(o: number): ShapeSpec {
   const w = BOSS_LINE * tierWeight(bossTierOf(id));
   const hm = tierHaloMul(bossTierOf(id));
   const c = bossColourOf(id);
-  const chevron: ShapePrim = { t: 'poly', pts: [r2(0.6 * R), 0, r2(-0.38 * R), r2(0.42 * R), r2(-0.12 * R), 0, r2(-0.38 * R), r2(-0.42 * R)] };
+  const inner: ShapePrim = { t: 'poly', pts: [r2(0.62 * R), 0, 0, r2(0.36 * R), r2(-0.44 * R), 0, 0, r2(-0.36 * R)] };
   return {
     tint: null,
     radius: r2(Math.max(R * BOSS_RIM, EMBER_NOSE * R)),
     layers: [
-      layer([emberArrow(R)], w, { colour: c, fill: lerp(0.1, 0.16, o), haloMul: hm }),
-      layer([chevron], w * 0.7, { colour: c, fill: lerp(0.05, 0.4, o), haloMul: hm }),
+      layer([emberDiamond(R)], w, { colour: c, fill: lerp(0.12, 0.2, o), haloMul: hm }),
+      layer([inner], w * 0.7, { colour: c, fill: lerp(0.05, 0.4, o), haloMul: hm }),
       whiteCore(bossCoreFrac(id, o) * R, w, o),
       rim(R, w, c, hm),
     ],

@@ -9,6 +9,7 @@
 import type { EnemyBulletPool } from '../game/enemyBullets';
 import { tierOf } from './bossLook';
 import { clampNum } from './color';
+import { flameAt } from './emberFlame';
 import type { EffectsTier } from './effects';
 import { hazardTelegraphSec } from './hazardFx';
 import { F_BRING, F_DOT, F_GLOW, pushLine, pushSprite, type FxHalo, type SpriteBuf } from './fxSprites';
@@ -124,6 +125,19 @@ export interface EnemyBulletFrame {
   halo: Readonly<FxHalo>;
   tints: readonly number[];
   white: number;
+  /**
+   * Look v32: when set, tier 2 bullets (Ember's fan) take their colour from these flame stops, each
+   * bullet at its own place on the flame, sliding with time, instead of the flat tier tint.
+   */
+  flame?: Uint32Array | null;
+}
+
+/** Pure: the flame tint of bullet seed (0 to 1) at timeSec: root to yellow, never the white tip. */
+export function flameBulletTint(stops: Uint32Array, seed: number, timeSec: number): number {
+  const p = seed + timeSec * 1.5;
+  const u = p - Math.floor(p);
+  // Ping pong so neighbouring bullets never jump straight from yellow back to deep red.
+  return flameAt(stops, 0.1 + 0.65 * (u < 0.5 ? u * 2 : 2 - u * 2));
 }
 
 /**
@@ -137,12 +151,12 @@ export function planEnemyBullets(pool: EnemyBulletsLike, track: EnemyBulletTrack
     if (pool.alive[i] !== 1) continue;
     live++;
     const tier = tierOf(pool.tier[i] ?? 1);
-    const tint = f.tints[tier] ?? f.white;
     const vx = pool.vx[i] ?? 0;
     const vy = pool.vy[i] ?? 0;
     const arm = pool.arm[i] ?? 0;
     const R = bulletRenderRadius(pool.radius[i] ?? 0);
     const seed = (i * 0.618034) % 1;
+    const tint = tier === 2 && f.flame ? flameBulletTint(f.flame, seed, f.timeSec) : (f.tints[tier] ?? f.white);
     if (arm > 0) {
       const tele = hazardTelegraphSec(tier);
       const p = chargeProgress(arm, tele);

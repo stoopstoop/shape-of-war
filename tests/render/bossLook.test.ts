@@ -73,7 +73,7 @@ describe('boss tiers and line weights', () => {
   it('ten bosses in the docs/13 schedule tiers 1 1 1 2 2 2 3 3 3 4 and colours', () => {
     expect(BOSS_IDS.map((_, i) => bossTierOf(i))).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4]);
     expect([0, 1, 2].map(bossColourOf)).toEqual(['bossBlue', 'bossGreen', 'bossYellow']);
-    expect([3, 4, 5].map(bossColourOf)).toEqual(['bossOrange', 'bossMagenta', 'bossViolet']);
+    expect([3, 4, 5].map(bossColourOf)).toEqual(['bossRed', 'bossMagenta', 'bossViolet']);
     expect([6, 7, 8].map(bossColourOf)).toEqual(['bossRed', 'bossRed', 'bossRed']);
     expect(bossColourOf(9)).toBe('bossPrism');
   });

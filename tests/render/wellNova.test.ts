@@ -2,8 +2,23 @@
 import { describe, expect, it } from 'vitest';
 import { PARTICLE_CAP, TRAIL_SHED_FRAC, createParticlePool, emitTrail, type TrailSpec } from '../../src/render/particlePool';
 import { stepEmitter } from '../../src/render/trails';
+import { chromaOfRgb, hueDistance, hueOfRgb } from '../../src/render/emberFlame';
+import { computePalette, NEON_DEFAULT, neonParams } from '../../src/render/neon';
 import {
   createNovaState,
+  NOVA_ADDED_PARTICLES_MAX,
+  NOVA_CYCLE_SEC,
+  NOVA_DRAWS_PER_WELL,
+  NOVA_HUES,
+  NOVA_SHIFT_SEC,
+  novaAddedParticles,
+  novaColour,
+  novaCycleColour,
+  novaCycleStops,
+  novaHaloR,
+  novaPulse,
+  novaShift,
+  novaStreamColour,
   NOVA_ARM_PTS,
   NOVA_ARMS,
   NOVA_DRIFT_LIFE,
@@ -123,5 +138,71 @@ describe('nova emitter budget', () => {
       }
     }
     expect(pool.live).toBeLessThanOrEqual(Math.floor(300 * TRAIL_SHED_FRAC));
+  });
+});
+
+// Look v32: the multicolour supernova (hue cycle, the 1 s shift from red, halo breathing, budget).
+describe('nova colour cycle (look v32)', () => {
+  const pal = computePalette(neonParams(NEON_DEFAULT).saturation);
+  const stops = novaCycleStops(pal, new Uint32Array(NOVA_HUES));
+
+  it('an arm cycles through at least six distinct hues along its length', () => {
+    const kept: number[] = [];
+    for (let k = 0; k < NOVA_ARM_PTS; k++) {
+      const c = novaCycleColour(stops, k / (NOVA_ARM_PTS - 1), 0.37);
+      const h = hueOfRgb(c);
+      if (chromaOfRgb(c) > 0.3 && kept.every((x) => hueDistance(x, h) >= 25)) kept.push(h);
+    }
+    expect(kept.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('slides one full cycle per 2 s', () => {
+    expect(NOVA_CYCLE_SEC).toBe(2);
+    for (const u of [0, 0.3, 0.71]) {
+      expect(novaCycleColour(stops, u, 0.4)).toBe(novaCycleColour(stops, u, 0.4 + NOVA_CYCLE_SEC));
+      expect(novaCycleColour(stops, u, 0.4)).not.toBe(novaCycleColour(stops, u, 0.4 + NOVA_CYCLE_SEC / 2));
+    }
+  });
+
+  it('turns from the well red into the cycle over 1 s', () => {
+    expect(novaShift(0)).toBe(0);
+    expect(novaShift(NOVA_SHIFT_SEC / 2)).toBeCloseTo(0.5);
+    expect(novaShift(NOVA_SHIFT_SEC)).toBe(1);
+    expect(novaColour(stops, pal.red, 0.6, 0.2, 0)).toBe(pal.red);
+    expect(novaColour(stops, pal.red, 0.6, 0.2, 1)).toBe(novaCycleColour(stops, 0.6, 0.2));
+  });
+
+  it('the halo breathes between 1.0x and 1.15x of the pull radius', () => {
+    let lo = Infinity;
+    let hi = 0;
+    for (let t = 0; t < 3; t += 0.01) {
+      const r = novaHaloR(t, 100);
+      lo = Math.min(lo, r);
+      hi = Math.max(hi, r);
+    }
+    expect(lo).toBeGreaterThanOrEqual(100 - 1e-6);
+    expect(hi).toBeLessThanOrEqual(115 + 1e-6);
+    expect(lo).toBeLessThan(101);
+    expect(hi).toBeGreaterThan(114);
+  });
+
+  it('swirl points pulse in brightness; stream particles take their own place on the cycle', () => {
+    for (let k = 0; k < NOVA_ORBITERS; k++) {
+      const vals = [0, 0.2, 0.4, 0.6, 0.8].map((t) => novaPulse(t, k));
+      expect(Math.min(...vals)).toBeGreaterThanOrEqual(0.35 - 1e-9);
+      expect(Math.max(...vals)).toBeLessThanOrEqual(1 + 1e-9);
+      expect(Math.max(...vals) - Math.min(...vals)).toBeGreaterThan(0.1);
+    }
+    const cols = new Set<number>();
+    for (let seq = 1; seq <= 24; seq++) cols.add(novaStreamColour(stops, pal.red, seq, 0.5, 1));
+    expect(cols.size).toBeGreaterThanOrEqual(12);
+    expect(novaStreamColour(stops, pal.red, 5, 0.5, 0)).toBe(pal.red);
+  });
+
+  it('budget: a nova adds at most 96 particles and one extra draw per well', () => {
+    expect(novaAddedParticles()).toBe(NOVA_ORBITERS + novaSteadyParticles());
+    expect(novaAddedParticles()).toBeLessThanOrEqual(NOVA_ADDED_PARTICLES_MAX);
+    expect(NOVA_ADDED_PARTICLES_MAX).toBe(96);
+    expect(NOVA_DRAWS_PER_WELL).toBe(1);
   });
 });
