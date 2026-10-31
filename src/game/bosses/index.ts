@@ -14,7 +14,7 @@ import * as spindle from './spindle';
 import * as tempest from './tempest';
 import * as prism from './prism';
 import * as twins from './twins';
-import type { BossDef } from './types';
+import { PartType, type BossDef } from './types';
 import * as warden from './warden';
 
 export {
@@ -68,9 +68,15 @@ export function initLevelBoss(w: World): void {
   if (b !== undefined) armBossFromSpec(w, b, b.atSec);
 }
 
+/** Kind.BossPart step: the pulse clock (and orphan removal), then a Broodling's own behaviour. */
+function stepBossPart(w: World, id: number, dt: number): void {
+  stepPart(w, id, dt);
+  if (w.alive[id] === 1 && w.a[id] === PartType.Broodling) brood.stepBroodling(w, id, dt);
+}
+
 /** Register the boss, part and hazard steps with the world. Idempotent. */
 export function registerBossBehaviours(): void {
   registerBehaviour(Kind.Boss, stepBossEntity);
-  registerBehaviour(Kind.BossPart, stepPart);
+  registerBehaviour(Kind.BossPart, stepBossPart);
   registerBehaviour(Kind.BossHazard, stepHazard);
 }

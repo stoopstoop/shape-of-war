@@ -117,6 +117,12 @@ export interface GameState {
   // Wells.
   wellIds: Int32Array;
   wellCount: number;
+  /** Seconds each well slot has lived (drives the super nova). */
+  wellAge: Float64Array;
+  /** 1 once the well in that slot erupted into a nova (stays until it dies). */
+  wellNova: Uint8Array;
+  /** False switches the super nova off (GameOptions.wellNova, v1 golden tests). */
+  wellNovaOn: boolean;
 
   // Snakes.
   snakeHead: Int32Array; // head id per slot, -1 free
@@ -275,6 +281,9 @@ function createState(w: World): GameState {
     invulnerable: false,
     wellIds: new Int32Array(MAX_WELLS).fill(-1),
     wellCount: 0,
+    wellAge: new Float64Array(MAX_WELLS),
+    wellNova: new Uint8Array(MAX_WELLS),
+    wellNovaOn: true,
     snakeHead: new Int32Array(SNAKE_SLOTS).fill(-1),
     snakeSegs: new Int32Array(SNAKE_SLOTS * SNAKE_SEGMENTS).fill(-1),
     pathX: new Float32Array(SNAKE_SLOTS * SNAKE_PATH),

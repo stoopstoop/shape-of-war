@@ -172,6 +172,35 @@ export const BROOD = {
   entrySlide: 40,
 } as const;
 
+/**
+ * Brood split (G3C): at the stage 2 crack the body is replaced by three Broodlings (Kind.BossPart,
+ * PartType.Broodling, slot = role). Stored hit points are tenths of a hit like every boss number.
+ */
+export const BROODLING = {
+  count: 3,
+  radius: 20,
+  /** 60 spread hits each (the table dialect: HP in hits, stored as tenths), 180 hits across the three. */
+  hp: 600,
+  /** Spawn ring around the dead body centre, u. */
+  spawnRing: 40,
+  /** Role 0: seeks the ship, turn limited. Contact kills (every Broodling does). */
+  chaseSpeed: 135,
+  turnRate: 100 * DEG,
+  fleeTurnRate: 180 * DEG,
+  /** Role 1: keeps this distance from the ship, circling at orbitRate rad/s, and lays Slime every slimeEvery s. */
+  orbitRadius: 200,
+  orbitRate: 0.7,
+  orbitSpeed: 230,
+  slimeEvery: 2,
+  /** Role 2: runs from the ship (sliding along walls) and launches dartsPerWave Darts every dartEvery s. */
+  fleeSpeed: 120,
+  dartEvery: 4,
+  dartsPerWave: 2,
+  dartSpreadDeg: 20,
+  /** First Dart wave and first Slime this long after the split. */
+  firstDelay: 1.5,
+} as const;
+
 /** Spindle (tier 1, level 15). */
 export const SPINDLE = {
   orbitRadius: 200,

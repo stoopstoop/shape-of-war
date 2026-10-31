@@ -53,7 +53,7 @@ import {
   WAVE_BUDGET_WITH_BOSS,
   WINDOW_LEAD_INTERVAL,
 } from './table';
-import { BossMode, HazardType, type BossDef } from './types';
+import { BossMode, HazardType, PartType, type BossDef } from './types';
 
 /** spawnHazard result when the hazard would be created on the ship: wait 0.3 s and recheck. */
 export const HAZARD_OVERLAP = -2;
@@ -217,7 +217,8 @@ function viewModeOf(bs: BossState): BossMode {
 
 function emitBossHud(w: World, bs: BossState, dt: number, force: boolean): void {
   bs.hudTimer -= dt;
-  const hp = bs.id > 0 ? (w.hp[bs.id] ?? 0) : 0;
+  // After a split the bar is the sum of the parts' hit points (Brood's Broodlings).
+  const hp = bs.split ? partsHp(w, bs) : bs.id > 0 ? (w.hp[bs.id] ?? 0) : 0;
   const changed = hp !== bs.hudHp || bs.phase !== bs.hudPhase || bs.viewMode !== bs.hudMode;
   if (!changed || (!force && bs.hudTimer > 0)) return;
   bs.hudTimer = BOSS_HUD_INTERVAL;
@@ -248,7 +249,14 @@ export function stepBossSchedule(w: World, dt: number): void {
     return;
   }
   const id = bs.id;
-  if (id <= 0 || w.alive[id] !== 1 || w.kind[id] !== Kind.Boss) {
+  if (bs.split) {
+    if (countParts(w, bs) === 0) {
+      // Every part removed outside the boss rules (a test clearing the world): no reward, no event.
+      bs.status = 'defeated';
+      return;
+    }
+    stepSplit(w, bs, dt);
+  } else if (id <= 0 || w.alive[id] !== 1 || w.kind[id] !== Kind.Boss) {
     // Removed outside the boss rules (a test clearing the world): no reward, no event.
     bs.status = 'defeated';
     bs.id = -1;
@@ -265,6 +273,13 @@ export function stepBossSchedule(w: World, dt: number): void {
   stepWindowLead(bs, dt);
   stepVolleyLaunch(w, bs); // fx:bossShot at launch (shooters only; no op with no volley charging)
   emitBossHud(w, bs, dt, false);
+}
+
+/** A split boss has no body entity to carry its clocks: age and the bomb stagger tick here, paused while the ship is down. */
+function stepSplit(w: World, bs: BossState, dt: number): void {
+  if (!w.ship.active) return;
+  bs.age += dt;
+  if (bs.stagger > 0) bs.stagger = bs.stagger - dt > 0 ? bs.stagger - dt : 0;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -391,6 +406,16 @@ export function bossContacts(w: World, dt: number): boolean {
   if (id > 0 && circlesOverlap(sx, sy, SHIP_RADIUS, w.x[id] ?? 0, w.y[id] ?? 0, w.radius[id] ?? 0)) {
     killShip(w);
     return true;
+  }
+  if (bs.split) {
+    // Broodlings are the body now: contact with any of them kills.
+    for (let k = 0; k < MAX_PARTS; k++) {
+      const p = livePart(w, bs, k);
+      if (p > 0 && w.a[p] === PartType.Broodling && circlesOverlap(sx, sy, SHIP_RADIUS, w.x[p] ?? 0, w.y[p] ?? 0, w.radius[p] ?? 0)) {
+        killShip(w);
+        return true;
+      }
+    }
   }
   for (let h = 1; h < w.cap; h++) {
     if (w.alive[h] !== 1 || w.kind[h] !== Kind.BossHazard) continue;
@@ -589,9 +614,14 @@ export function bossBurst(w: World, bs: BossState, x: number, y: number, id: num
   bus.emit('sfx', 'explode');
 }
 
-function partDamaged(w: World, bs: BossState | null, id: number, applied: number, broke: boolean): void {
+function partDamaged(w: World, bs: BossState | null, id: number, applied: number, broke: boolean, x: number, y: number): void {
   if (bs === null || bs.status !== 'alive') return;
   if (bs.def.onPartDamage !== undefined) bs.def.onPartDamage(w, bs, id, applied, broke);
+  if (bs.split) {
+    // The fight ends with the last part: one kill, one bonus (status leaves 'alive' in defeatBoss).
+    if (broke && countParts(w, bs) === 0) defeatBoss(w, bs, -1, x, y);
+    return;
+  }
   const boss = bossHittable(w);
   if (boss > 0) {
     syncBossPhase(w, bs, boss);
@@ -611,7 +641,7 @@ export function damageBossPart(w: World, id: number, amount: number, hx: number,
   const applied = amt <= 0 ? 0 : amt < prev ? amt : prev > 0 ? prev : 0;
   if (hp > 0) {
     emitHit(g, hx, hy, Kind.BossPart, id, false);
-    partDamaged(w, bs, id, applied, false);
+    partDamaged(w, bs, id, applied, false, w.x[id] ?? 0, w.y[id] ?? 0);
     return false;
   }
   const x = w.x[id] ?? 0;
@@ -622,7 +652,7 @@ export function damageBossPart(w: World, id: number, amount: number, hx: number,
   removeEntity(w, id);
   emitKill(g, x, y, bs === null ? 'white' : bs.row.colour, Kind.BossPart, id);
   bus.emit('sfx', 'explode');
-  partDamaged(w, bs, id, applied, true);
+  partDamaged(w, bs, id, applied, true, x, y);
   return true;
 }
 
@@ -642,7 +672,7 @@ export function bossOnBomb(w: World): void {
   if (bs === null) return;
   clearHazards(w);
   cancelVolley(bs); // the bomb clears the bullets too (player.ts)
-  if (bossHittable(w) > 0) bs.stagger = STAGGER_SEC;
+  if (bossHittable(w) > 0 || (bs.split && bs.status === 'alive')) bs.stagger = STAGGER_SEC;
 }
 
 /**
@@ -657,19 +687,30 @@ export function bossOnShipDeath(w: World): void {
   bs.stagger = 0;
   bs.phaseT = 0;
   bs.retry = 0;
-  if (bs.mode !== BossMode.Entering) bs.def.reset(w, bs.id, bs, false);
+  if (bs.mode !== BossMode.Entering && !bs.split) bs.def.reset(w, bs.id, bs, false); // a split boss has no body to restart
 }
 
-function defeatBoss(w: World, bs: BossState, id: number): void {
+/** Boss hit points on the bar after a split: the live parts' sum, in tenths. */
+function partsHp(w: World, bs: BossState): number {
+  let hp = 0;
+  for (let i = 0; i < MAX_PARTS; i++) {
+    const p = livePart(w, bs, i);
+    if (p > 0) hp += w.hp[p] ?? 0;
+  }
+  return hp;
+}
+
+/** The boss dies: the body id (its position), or a split boss's last part (id -1, position px, py). */
+function defeatBoss(w: World, bs: BossState, id: number, px = 0, py = 0): void {
   const g = gs(w);
-  const x = w.x[id] ?? 0;
-  const y = w.y[id] ?? 0;
+  const x = id > 0 ? (w.x[id] ?? 0) : px;
+  const y = id > 0 ? (w.y[id] ?? 0) : py;
   clearHazards(w);
   clearParts(w, bs);
   cancelVolley(bs);
   bs.viewMode = BossMode.Dying;
   emitBossHud(w, bs, 0, true);
-  removeEntity(w, id);
+  if (id > 0) removeEntity(w, id);
   bs.status = 'defeated';
   bs.id = -1;
   bs.open = false;

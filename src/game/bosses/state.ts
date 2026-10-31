@@ -98,6 +98,12 @@ export interface BossState {
   bonus: number;
   /** True once the boss died through the boss rules (defeatBoss), not a removal outside them. */
   slain: boolean;
+  /**
+   * True once the body split into parts that carry the fight (Brood's Broodlings): the body entity is
+   * gone, bs.id is -1, the parts' hit points are the boss bar and the kill is the last part's.
+   */
+  split: boolean;
+  splitEv: { id: BossId; parts: number };
 
   hudTimer: number;
   hudHp: number;
@@ -177,6 +183,8 @@ function createState(w: World, spec: BossSpec, def: BossDef): BossState {
     budgetAcc: 0,
     bonus: 0,
     slain: false,
+    split: false,
+    splitEv: { id: spec.id, parts: 0 },
     hudTimer: 0,
     hudHp: -1,
     hudPhase: -1,
@@ -245,6 +253,9 @@ export function armState(w: World, spec: BossSpec, def: BossDef, atSec: number):
   s.budgetAcc = 0;
   s.bonus = 0;
   s.slain = false;
+  s.split = false;
+  s.splitEv.id = spec.id;
+  s.splitEv.parts = 0;
   s.hudTimer = 0;
   s.hudHp = -1;
   s.hudPhase = -1;
