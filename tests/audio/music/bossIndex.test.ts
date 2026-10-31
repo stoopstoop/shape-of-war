@@ -23,7 +23,7 @@ import { LAYERS_FULL } from '../../../src/audio/music/layers';
 import { ACCENT_RESERVE, BOSS_STING_GAIN, GAIN_CEILING, HIT_RESERVE, STINGER_GAIN } from '../../../src/audio/music/lifecycle';
 import { TICK_MS } from '../../../src/audio/music/scheduler';
 import { BAR_SEC, STEPS_PER_BAR } from '../../../src/audio/music/track';
-import { BOSS_TUNES, tuneById } from '../../../src/audio/music/tunes';
+import { BATTLE_TUNES, tuneById } from '../../../src/audio/music/tunes';
 import { Bus } from '../../../src/core/events';
 import { Kind } from '../../../src/game/world';
 import type { BossId, BossTier, EnemyKind } from '../../../src/levelgen/leveldef';
@@ -120,10 +120,14 @@ describe('boss entry', () => {
     for (const n of role('bossEntry')) expect(inChord(n.midi ?? 0, harmonyAtStep(at - 0, tide.key))).toBe(true);
     const bedAfter = log.filter((n) => n.role === 'bed' && n.step >= join);
     expect(bedAfter.length).toBeGreaterThan(0);
-    for (const n of bedAfter) expect(n.tune).toBe('neon');
+    const battle = bedAfter[0]?.tune;
+    expect(BATTLE_TUNES.map((t) => t.id)).toContain(battle);
+    for (const n of bedAfter) expect(n.tune).toBe(battle);
     // Steps after the join are 0.125 s apart (120 BPM).
-    const kicks = log.filter((n) => n.role === 'bed' && n.layer === 'kick' && n.step >= join).map((n) => n.time);
-    expect((kicks[1] ?? 0) - (kicks[0] ?? 0)).toBeCloseTo(0.5, 9);
+    const kicks = log.filter((n) => n.role === 'bed' && n.layer === 'kick' && n.step >= join);
+    const k0 = kicks[0];
+    const k1 = kicks[1];
+    expect((k1?.time ?? 0) - (k0?.time ?? 0)).toBeCloseTo(((k1?.step ?? 0) - (k0?.step ?? 0)) * 0.125, 9);
     for (const n of role('boss')) expect(inTierScale(n.midi ?? 0, 2)).toBe(true);
     bus.emit('sim:bossDown', { id: 'ember', x: 0, y: 0 });
     advance(BAR_SEC * 4);
@@ -326,17 +330,27 @@ describe('restart and silence', () => {
     expect(role('bossEntry')).toEqual([]); // a stale stinger is not played late
   });
 
-  it('the same fight gives the same boss notes on every level (no seed)', () => {
-    const run = (seed: number): string => {
+  it('the same fight on the same battle track gives the same boss notes on every level', () => {
+    const run = (seed: number): { tune: string; notes: string } => {
       log = [];
+      bus.emit('game:start', { mode: 'adventure', levelIndex: 0 });
       startMusic(seed);
       advance(BAR_SEC);
       enter('mirage', 2);
       advance(BAR_SEC * 6);
       const join = Math.min(...role('boss').map((n) => n.step));
-      return JSON.stringify(role('boss').map((n) => [n.step - join, n.midi, n.voice]));
+      return { tune: musicState().tune ?? '', notes: JSON.stringify(role('boss').map((n) => [n.step - join, n.midi, n.voice])) };
     };
-    expect(run(1)).toBe(run(987654));
+    const first = run(1);
+    expect(run(1)).toEqual(first);
+    let matched = 0;
+    for (let seed = 2; seed < 40 && matched < 2; seed++) {
+      const r = run(seed);
+      if (r.tune !== first.tune) continue;
+      expect(r.notes).toBe(first.notes);
+      matched++;
+    }
+    expect(matched).toBe(2);
   });
 });
 
@@ -416,7 +430,7 @@ describe('voice budget', () => {
       enter(id, tier);
       advance(BAR_SEC * 5);
       expect(musicState().bossTier).toBe(tier);
-      expect(BOSS_TUNES[tier].bossTier).toBe(tier);
+      expect(BATTLE_TUNES.map((t) => t.id)).toContain(musicState().tune);
       const notes = role('boss');
       expect(notes.length, id).toBeGreaterThan(0);
       for (const n of notes) expect(inTierScale(n.midi ?? 0, tier), id).toBe(true);

@@ -8,10 +8,10 @@ import { pentatonicMidi, pitchClass } from '../../../src/audio/music/scale';
 import { buildBar, structuralFill, type FillBar, type Layer } from '../../../src/audio/music/track';
 import {
   BOSS_KEYS,
-  BOSS_TUNES,
+  BATTLE_IDS,
+  BATTLE_TUNES,
   BPM_MAX,
   BPM_MIN,
-  bossTuneFor,
   DEFAULT_TUNE,
   FILL_BARS,
   TUNE_IDS,
@@ -191,25 +191,38 @@ describe('the tunes differ', () => {
   });
 });
 
-describe('boss hook', () => {
-  it('returns the tier boss bed in A at 120 BPM whatever the active tune (wave B)', () => {
-    for (const t of TUNES) {
-      for (const tier of [1, 2, 3, 4] as const) {
-        const b = bossTuneFor(tier, t);
-        expect(b).toBe(BOSS_TUNES[tier]);
-        expect(b.bpm).toBe(120);
-        expect(b.root).toBe(69);
-        expect(b.key.tonic).toBe(9);
-        expect(b.bossTier).toBe(tier);
-      }
+describe('boss battle tracks', () => {
+  it('three battle tracks, minor, on the boss grid (A, 120 BPM, 8 bar loop), each its own', () => {
+    expect(BATTLE_TUNES.map((t) => t.id)).toEqual([...BATTLE_IDS]);
+    expect(BATTLE_TUNES.length).toBeGreaterThanOrEqual(3);
+    for (const t of BATTLE_TUNES) {
+      expect(t.battle).toBe(true);
+      // 120 BPM: a bar is 2 s, so Prism's 4 s cycle stays on bar lines.
+      expect(t.bpm).toBe(120);
+      expect(t.stepSec * STEPS_PER_BAR * 2).toBeCloseTo(4, 9);
+      expect(t.root).toBe(69);
+      expect(t.key.tonic).toBe(9);
+      // Minor: the scale has the minor third and not the major third; the tonic chord is minor.
+      expect(t.key.scale).toContain(0);
+      expect(t.key.scale).not.toContain(1);
+      const tonic = t.key.bars[0];
+      expect(tonic?.root).toBe(9);
+      expect(tonic?.intervals[1]).toBe(3);
+      // One chord a bar on average at least as often as every level tune changes.
+      expect(new Set(t.key.bars.map((h) => h.name)).size).toBeGreaterThanOrEqual(3);
+      // The hook: a fixed arp figure, never a random rest; hats on every sixteenth (double time).
+      expect(t.arp.restP).toBe(0);
+      expect(t.drums.hat).toHaveLength(16);
     }
-    // Out of range tiers fall back to tier 1.
-    expect(bossTuneFor(0, DEFAULT_TUNE)).toBe(BOSS_TUNES[1]);
+    const sig = (t: Tune): string => JSON.stringify([t.key.bars.map((h) => h.name), t.bass, t.drums, t.arp, t.bed]);
+    const all = [...BATTLE_TUNES, ...TUNES].map(sig);
+    expect(new Set(all).size).toBe(all.length);
+    // Three different minor scales.
+    expect(new Set(BATTLE_TUNES.map((t) => t.key.scale.join(','))).size).toBe(3);
   });
 
-  it('every boss bed chord is built from its key scale and has a voicing', () => {
-    for (const tier of [1, 2, 3, 4] as const) {
-      const t = BOSS_TUNES[tier];
+  it('every battle track chord is built from its key scale and has a voicing', () => {
+    for (const t of BATTLE_TUNES) {
       expect(t.key.bars).toHaveLength(t.loopBars);
       for (const h of t.key.bars) {
         for (const pc of h.tones) expect(t.key.scale).toContain(pc);
@@ -222,9 +235,8 @@ describe('boss hook', () => {
     expect(BOSS_KEYS[3].scale).toContain(10);
   });
 
-  it('every boss bed pitch keeps the harmony rule and the bed stays inside BED_VOICE_MAX', () => {
-    for (const tier of [1, 2, 3, 4] as const) {
-      const t = BOSS_TUNES[tier];
+  it('every battle track pitch keeps the harmony rule and the bed stays inside BED_VOICE_MAX', () => {
+    for (const t of BATTLE_TUNES) {
       const sec = t.stepSec;
       const ev: [number, number][] = [];
       for (let bar = 0; bar < t.loopBars * 4; bar++) {
@@ -233,7 +245,7 @@ describe('boss hook', () => {
           const start = (bar * STEPS_PER_BAR + n.step) * sec;
           ev.push([start, 1], [start + voiceLength(n.layer, n.durSteps * sec), -1]);
           if (n.midi === null) continue;
-          const what = `tier ${tier} bar ${bar} ${n.layer} step ${n.step} midi ${n.midi}`;
+          const what = `${t.id} bar ${bar} ${n.layer} step ${n.step} midi ${n.midi}`;
           expect(inScale(n.midi, t.key), what).toBe(true);
           if (n.layer === 'arp') expect(fitsHarmony(n.midi, bar * STEPS_PER_BAR + n.step, t.key), what).toBe(true);
           else expect(inChord(n.midi, h), what).toBe(true);
@@ -246,11 +258,11 @@ describe('boss hook', () => {
         cur += d;
         peak = Math.max(peak, cur);
       }
-      expect(peak, `tier ${tier}`).toBeLessThanOrEqual(BED_VOICE_MAX);
+      expect(peak, t.id).toBeLessThanOrEqual(BED_VOICE_MAX);
     }
   });
 
-  it('the level tunes are not boss beds', () => {
-    for (const t of TUNES) expect(t.bossTier).toBeUndefined();
+  it('the level tunes are not battle tracks', () => {
+    for (const t of TUNES) expect(t.battle).toBeUndefined();
   });
 });

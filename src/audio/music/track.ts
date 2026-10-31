@@ -28,7 +28,7 @@ import {
   type DrumHit,
   type HatHit,
   type Tune,
-  type TuneId,
+  type TrackId,
 } from './tunes';
 
 export { LOOP_BARS, loopBar, STEPS_PER_BAR, type ChordName } from './harmony';
@@ -69,7 +69,7 @@ export interface BarPattern {
   /** Bar inside the tune's loop. */
   readonly bar: number;
   readonly chord: ChordName;
-  readonly tune: TuneId;
+  readonly tune: TrackId;
   /** Pass of the loop (0 the first time through). */
   readonly pass: number;
   readonly variant: PassVariant;
