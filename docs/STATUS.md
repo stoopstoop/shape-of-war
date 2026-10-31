@@ -68,4 +68,4 @@ Deadline: 2026-10-28T14:49:39Z (kickoff plus 30 hours). Hard outer limit: Consol
 - Dynamic generative music: each enemy type entering the arena adds a note, motif or loop to a composed background track that scales with intensity (Ryan, G3 notes)
 
 ## Next session first action
-Merge Glow: broodling, push, read the deploy, then the v3.1 retest in words (natural cracks, Ember and Spindle distinct, battle music three tracks with cross fades, well supernova, Brood split into three, fps). Then the Max account switch for wave D (weapon combining, orbit redesign, drone pickups), the shield and swarm boss ability, splits on other bosses, the neon menu.
+v3.1 retest on ad4b4d4 in words (natural cracks, Ember and Spindle distinct, battle music three tracks and cross fades, well supernova, Brood split, fps). Then the Max account switch: Ryan logs claude out of the Console key (runbook B.4), restarts the dispatcher without ANTHROPIC_API_KEY so headless runs bill Max; same job files. Wave D next (weapon combining with the orbit redesign, drone pickups), then shield and swarm boss ability, splits on other bosses, neon menu.
