@@ -2,6 +2,7 @@
 // standing roster files in .claude/agents/). OWNERS_V2 holds one table per v2 wave (docs/10 "Agents and
 // ownership" for waves A to E, docs/11 SPEC 7.3 for Chorus). Fixer branches own "only the files named in
 // the brief", so they are audited with ownsFromList (the CLI flag --owns=a,b,c) instead of a table.
+// OWNERS_V3 holds one table per v3 wave (docs/12), keyed by the wave ids A, B, C1, C2, D, E, H, G0, G1.
 // No imports, so Node can run the CLI wrapper with type stripping.
 // Dirs end in "/" and match by prefix; files match exactly; "except" removes exact files from the dirs.
 
@@ -84,6 +85,93 @@ export const OWNERS_V2: Readonly<Record<Wave, Readonly<Record<string, OwnerRule>
 };
 
 export const WAVES: readonly Wave[] = ['A', 'B', 'C', 'D', 'E'];
+
+/**
+ * v3 wave ids as docs/12 names them: A (boss core), B (tier 2), C1 (tier 3), C2 (Prism), D (weapon
+ * combine and drone modes), E (weapon tuning), H (harden), G0 and G1 (the tilt spike and build).
+ * Input form for the CLI is "v3" plus the id, any case: v3A, v3c1, v3h.
+ */
+export type V3Wave = 'A' | 'B' | 'C1' | 'C2' | 'D' | 'E' | 'H' | 'G0' | 'G1';
+export const V3_WAVES: readonly V3Wave[] = ['A', 'B', 'C1', 'C2', 'D', 'E', 'H', 'G0', 'G1'];
+
+const AUDIO_V3: OwnerRule = { dirs: ['src/audio/', 'tests/audio/'], files: [], except: [] };
+const SWARM_BOSSES: OwnerRule = { dirs: ['src/game/bosses/', 'tests/game/'], files: [], except: [] };
+const UI_MAIN: OwnerRule = { dirs: ['src/ui/', 'tests/ui/'], files: ['src/main.ts'], except: [] };
+/** Forge's three files in wave A: a file level carve out of Swarm's src/game/ (docs/12 wave V3-A). */
+const FORGE_BULLET_FILES: readonly string[] = ['src/game/enemyBullets.ts', 'tests/game/enemyBullets.test.ts', 'tests/game/enemyBulletsSim.test.ts'];
+
+/**
+ * v3 ownership per wave (docs/12 "Agents and ownership" in each wave section). Roles that do not run
+ * in a wave are absent. Notes on the readings:
+ *   A: Swarm owns src/game/ with scoring.ts, endless.ts and objective.ts (and tests/scoring/) except
+ *      Forge's three bullet files. Foundry owns src/levelgen/ plus, for this wave only, the pin test,
+ *      its snapshots and the flag sweeps in tests/qa/ (read as the three generator sweep files).
+ *   B: Swarm owns all of src/game/ (game.ts, player.ts, bosses/, combat edits), enemyBullets.ts for
+ *      fixes; Glow render; Chorus audio. Foundry and Ledger idle.
+ *   C1, C2: Swarm src/game/bosses/ and tests/game/ only; Glow render; Chorus audio.
+ *   D: Swarm owns ten named files in src/game/, the chase reads in src/game/enemies/ (not
+ *      gravitywell.ts or the spawner) and tests/game/; Glow, Chorus and Ledger as before. Foundry idles.
+ *   E: Swarm weapons.ts, bullets.ts, bosses/table.ts and tests/game/; Glow render.
+ *   H: Proctor and Scribe. Fixer branches are audited with ownsFromList (--owns=...).
+ *   G0: Glow, one new file in src/render/ plus tests/render/. G1: Glow render; Ledger settings, ui, main.
+ */
+export const OWNERS_V3: Readonly<Record<V3Wave, Readonly<Record<string, OwnerRule>>>> = {
+  A: {
+    swarm: { dirs: ['src/game/', 'tests/game/', 'tests/scoring/'], files: [], except: FORGE_BULLET_FILES },
+    foundry: {
+      dirs: ['src/levelgen/', 'tests/levelgen/', 'tests/qa/__snapshots__/levels/'],
+      files: ['tests/qa/levelSnapshots.test.ts', 'tests/qa/generatorSweep.test.ts', 'tests/qa/generatorFlagSweep.test.ts', 'tests/qa/generatorBossFlagSweep.test.ts'],
+      except: [],
+    },
+    glow: RENDER,
+    ledger: UI_MAIN,
+    forge: { dirs: [], files: FORGE_BULLET_FILES, except: [] },
+  },
+  B: { swarm: { dirs: ['src/game/', 'tests/game/'], files: [], except: [] }, glow: RENDER, chorus: AUDIO_V3 },
+  C1: { swarm: SWARM_BOSSES, glow: RENDER, chorus: AUDIO_V3 },
+  C2: { swarm: SWARM_BOSSES, glow: RENDER, chorus: AUDIO_V3 },
+  D: {
+    swarm: {
+      dirs: ['tests/game/', 'src/game/enemies/'],
+      files: [
+        'src/game/weapons.ts',
+        'src/game/pickup.ts',
+        'src/game/bullets.ts',
+        'src/game/combat.ts',
+        'src/game/drones.ts',
+        'src/game/ship.ts',
+        'src/game/state.ts',
+        'src/game/remove.ts',
+        'src/game/defs.ts',
+        'src/game/steer.ts',
+      ],
+      except: ['src/game/enemies/gravitywell.ts', 'src/game/enemies/spawner.ts'],
+    },
+    glow: RENDER,
+    chorus: AUDIO_V3,
+    ledger: UI_MAIN,
+  },
+  E: {
+    swarm: { dirs: ['tests/game/'], files: ['src/game/weapons.ts', 'src/game/bullets.ts', 'src/game/bosses/table.ts'], except: [] },
+    glow: RENDER,
+  },
+  H: {
+    proctor: PROCTOR,
+    scribe: { dirs: ['docs/handoffs/'], files: ['docs/STATUS.md', 'docs/DECISIONS.md'], except: [] },
+  },
+  G0: { glow: { dirs: ['tests/render/'], files: ['src/render/project.ts'], except: [] } },
+  G1: {
+    glow: RENDER,
+    ledger: { dirs: ['src/ui/', 'tests/ui/', 'tests/settings/'], files: ['src/core/settings.ts', 'src/main.ts'], except: [] },
+  },
+};
+
+/** Pure: the v3 wave id from "v3A", "v3-c1", "V3H" and so on (any case, optional dash), else null. */
+export function parseV3Wave(s: string | undefined): V3Wave | null {
+  const m = /^v3-?([a-z][0-9]?)$/i.exec((s ?? '').trim());
+  const id = (m?.[1] ?? '').toUpperCase();
+  return V3_WAVES.find((x) => x === id) ?? null;
+}
 
 /** Pure: the wave letter if s is one of A to E (any case), else null. */
 export function parseWave(s: string | undefined): Wave | null {
