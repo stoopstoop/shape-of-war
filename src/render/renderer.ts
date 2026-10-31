@@ -251,7 +251,20 @@ import {
   type WallFeature,
 } from './mapFx';
 import { burstBoss, burstSmall, emitBlinkStreak, emitDeflectSparks, emitEnemyTrail, emitGeomSparkle, emitNovaShimmer, trailsActive } from './particles';
-import { bossSlot, isFloorSlot, KIND_NUM, partVisualSlot, specFor } from './shapeSpecs';
+import { bossSlot, isFloorSlot, KIND_NUM, partSlot, partVisualSlot, specFor } from './shapeSpecs';
+// v31: Brood's split into Broodlings (sim:bossSplit): the green shard burst (bossSplit.ts).
+import {
+  SPLIT_LIFE_MAX,
+  SPLIT_LIFE_MIN,
+  SPLIT_RING_MUL,
+  SPLIT_HOT_MIX,
+  SPLIT_SPEED_MAX,
+  SPLIT_SPEED_MIN,
+  splitCoord,
+  splitHotCount,
+  splitKey,
+  splitShardCount,
+} from './bossSplit';
 // V3 wave D: the Prism gem (hue cycle, chromatic ghost, run to white; bossPrism.ts, prismFx.ts).
 import {
   BOSS_PRISM,
@@ -275,6 +288,7 @@ import { enemyBulletsOf } from '../game/enemyBullets';
 import { BOSS_IDS } from '../levelgen/leveldef';
 import {
   approach,
+  BOSS_BROOD,
   BOSS_BURST_WHITE,
   BOSS_DEATH_SHAKE_PX,
   BOSS_DEATH_SHAKE_SEC,
@@ -299,7 +313,21 @@ import {
   TIER_BULLET_KEY,
   type EntranceRing,
 } from './bossLook';
-import { BOSS_LINE, bossBodyR, bossCoreFrac, EMBER_NOSE, isTwinPart, MIRAGE_SHIELD, PART_ANCHOR, PART_POD, PART_TURRET, partR, partType } from './bossShapes';
+import {
+  BOSS_LINE,
+  bossBodyR,
+  bossCoreFrac,
+  EMBER_NOSE,
+  isBroodlingPart,
+  isTwinPart,
+  MIRAGE_SHIELD,
+  PART_ANCHOR,
+  PART_BROODLING,
+  PART_POD,
+  PART_TURRET,
+  partR,
+  partType,
+} from './bossShapes';
 // V3 wave C: tier 3 boss effects (Bastion turret alpha and keep heat, Tempest Slime drips and dash
 // afterimage, Twins tether hum and enrage, the wider tier 3 halo on the hazard layer). Render only.
 import {
@@ -1789,6 +1817,24 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   }
 
   /**
+   * 'sim:bossSplit' (once): Brood broke into Broodlings and its body is already gone from the world,
+   * so the green shard burst goes where the body last drew (bossDrawX, bossDrawY), with a green shock
+   * ring on the map effect tiers. The Broodlings themselves draw as part slots (bossShapes.ts).
+   */
+  function onBossSplit(): void {
+    const x = splitCoord(bossDrawX, 0);
+    const y = splitCoord(bossDrawY, 0);
+    const t = getEffectsTier();
+    const hue = palette[splitKey()];
+    const total = splitShardCount(t);
+    const hot = splitHotCount(total);
+    burstBoss(x, y, hue, total - hot, SPLIT_SPEED_MIN, SPLIT_SPEED_MAX, SPLIT_LIFE_MIN, SPLIT_LIFE_MAX);
+    burstBoss(x, y, mixRgb(hue, 0xffffff, SPLIT_HOT_MIX), hot, SPLIT_SPEED_MIN, SPLIT_SPEED_MAX, SPLIT_LIFE_MIN, SPLIT_LIFE_MAX);
+    if (!mapEffectsOn(t)) return;
+    addPulse(pulsePool, PULSE_RING, x, y, 0, SHOCK_R0, SHOCK_R1 * SPLIT_RING_MUL, SHOCK_LIFE * SPLIT_RING_MUL, hue, 1);
+  }
+
+  /**
    * 'sim:bossDown': the large death burst (capped by effects tier), a 14 px shake for 0.6 s, the bomb
    * style ring in the boss colour, and the lattice shock (or the v1 ripple on Low).
    */
@@ -1902,6 +1948,12 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
   function prewarmExposed(b: number): void {
     for (let s = 0; s < BOSS_OPEN_STEPS; s++) {
       const slot = exposedBossSlot(b, s);
+      contextForSlot(slot);
+      glowTextureFor(slot);
+    }
+    if (b === BOSS_BROOD) {
+      // The Broodling slot too, so the split never builds its context and glow texture mid fight.
+      const slot = partSlot(PART_BROODLING, bossTierOf(b));
       contextForSlot(slot);
       glowTextureFor(slot);
     }
@@ -2351,6 +2403,8 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
     // V3 boss events (Swarm, wave A). Payloads are reused: read the fields now.
     bus.on('sim:bossEnter', (p) => onBossEnter(p.id)),
     bus.on('sim:bossPhase', (p) => onBossPhase(p.id)),
+    // v31: Brood split into three Broodlings (Swarm, merged): the green shard burst.
+    bus.on('sim:bossSplit', () => onBossSplit()),
     bus.on('sim:bossDown', (p) => onBossDown(p.id, p.x, p.y)),
     // G3A: weak point exposure (Swarm, parallel run). Coded against the event name.
     onBossExposed(bus, (on) => {
@@ -3100,7 +3154,9 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
       const baseTint = isPart
         ? isTwinPart(w.a[i] ?? 0)
           ? bossTint
-          : bossPartTint(bossIdx, palette[bossColourOf(bossIdx)], palette)
+          : isBroodlingPart(w.a[i] ?? 0)
+            ? 0xffffff // the Broodling bakes its green and yellow (bossShapes.ts broodlingSpec)
+            : bossPartTint(bossIdx, palette[bossColourOf(bossIdx)], palette)
         : isBoss
           ? bossTint
           : spec.tint === null
@@ -3136,7 +3192,7 @@ export async function createRenderer(host: HTMLElement): Promise<GameRenderer> {
         const a = w.a[i] ?? 0;
         const r = w.radius[i] ?? 0;
         if (r > 0) scale = r / partR(a);
-        if (partType(a) === PART_POD && !isTwinPart(a)) scale *= podPulse(timeSec, hash01(i));
+        if (partType(a) === PART_POD && !isTwinPart(a) && !isBroodlingPart(a)) scale *= podPulse(timeSec, hash01(i));
       }
       // Pickups spin on the render clock (phase per slot) and blink in their last 2 s (w.t).
       const rot = isPickup ? timeSec * PICKUP_SPIN + hash01(i) * Math.PI * 2 : (w.rot[i] ?? 0);

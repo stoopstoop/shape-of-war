@@ -80,7 +80,7 @@ describe('Twins second body', () => {
   it('the twin body is not a small pod: the pod spec is far smaller than the twin body', () => {
     expect(partType(PART_TWIN)).toBe(PART_POD);
     expect(PART_R[PART_POD] ?? 0).toBeLessThan(partR(PART_TWIN) / 3);
-    expect(PART_SPECS).toHaveLength(12);
+    expect(PART_SPECS).toHaveLength(16);
   });
 });
 
