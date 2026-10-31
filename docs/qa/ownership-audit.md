@@ -153,3 +153,69 @@ node tests/qa/ownershipAudit.ts main feat/chorus-v2-fixes chorus --owns=src/audi
 ```
 
 Each prints one line per changed path (`ok` or `OUTSIDE`) and exits 1 if any path is outside. Without a fourth argument the v1 table of the section above is used. The flake report for the suite is `node tests/qa/repeatSuite.ts 10` (see `docs/qa/suite-runs.md`).
+
+---
+
+# v3 ownership audit (harden)
+
+Owner: Proctor. Written in the v3 harden run against main 7263f75. The v3 table is `OWNERS_V3` in `tests/qa/ownership.ts`, one entry per wave of docs/12 "Agents and ownership": A, B, C1, C2, D, E, H (harden), G0 and G1 (the tilt). The CLI takes `v3A`, `v3B`, `v3C1`, `v3C2`, `v3D`, `v3E`, `v3H`, `v3G0` or `v3G1` as the fourth argument. `tests/qa/ownership.test.ts` has 16 tests for the table (roles per wave, Forge's three bullet files, Foundry's sweep files, Chorus in B, C and D only, Scribe only in H, nobody but Fable on the plans and the lockfile, no path with two owners, every roster file and owned path exists).
+
+## Bad news first (v3 audit)
+
+1. One real question and one non question. feat/swarm-boss-readability (17bfa9e) changed `src/core/events.ts`, which no v3 wave table gives to Swarm (V3-14 in `docs/qa/bugs.md`). It adds the window and crack events, so the brief may have named it, but Proctor does not have the fixer briefs. feat/swarm-boss-ends-level (115882d) changed `tests/scoring/scoring.boss.test.ts`; that directory is Swarm's in the V3-A table, so it only looks outside when audited by `src/game/,tests/game/` alone.
+2. The fix waves (swarm-boss-fixes, glow-boss-fixes, ledger-boss-bar, chorus-tunes, thumbs-ring-clear, swarm-boss-ends-level and the readability wave) have no wave table, because their ownership was "only the files named in the brief". They were audited against the natural directories of the agent. A clean result there means "inside the agent's own area", not "inside the brief".
+3. Waves D, E, G0 and G1 are tables only: nothing has merged for them, so there is no result to report.
+
+## Results (v3, run at 7263f75)
+
+Every merge below was audited with `node tests/qa/ownershipAudit.ts M^1 M^2 <agent> <table>`. Result: paths changed, paths outside.
+
+| Wave | Merge | Branch | Agent | Table | Changed | Outside |
+|---|---|---|---|---|---|---|
+| A | 50a956c | feat/foundry-boss-schedule | Foundry | v3A | 14 | 0 |
+| A | 573912b | feat/forge-enemy-bullets | Forge | v3A | 3 | 0 |
+| A | 425f257 | feat/swarm-boss-core | Swarm | v3A | 32 | 0 |
+| A | f545224 | feat/glow-boss-fx | Glow | v3A | 22 | 0 |
+| A | 9b021a4 | feat/ledger-boss-hud | Ledger | v3A | 15 | 0 |
+| B | 9b27ab5 | feat/swarm-tier2 | Swarm | v3B | 21 | 0 |
+| B | 0528dda | feat/glow-tier2-fx | Glow | v3B | 8 | 0 |
+| B | fcf384b | feat/chorus-boss-music | Chorus | v3B | 16 | 0 |
+| C1 | 48469d3 | feat/swarm-tier3 | Swarm | v3C1 | 13 | 0 |
+| C1 | 2e2aa52 | feat/glow-tier3-fx | Glow | v3C1 | 8 | 0 |
+| C1 | 1000da8 | feat/chorus-tier3 | Chorus | v3C1 | 5 | 0 |
+| C2 | 5ad97c8 | feat/swarm-prism | Swarm | v3C2 | 6 | 0 |
+| C2 | 34cf4fe | feat/glow-prism | Glow | v3C2 | 8 | 0 |
+| C2 | 193db9f | feat/chorus-prism | Chorus | v3C2 | 6 | 0 |
+| fix | 0797208 | feat/swarm-boss-fixes | Swarm | `src/game/,tests/game/` | 25 | 0 |
+| fix | c4df26e | feat/glow-boss-fixes | Glow | `src/render/,tests/render/` | 10 | 0 |
+| fix | 328f22f | feat/ledger-boss-bar | Ledger | `src/ui/,src/main.ts,tests/ui/,tests/scoring/` | 8 | 0 |
+| fix | 0789f73 | feat/chorus-tunes | Chorus | `src/audio/,tests/audio/` | 20 | 0 |
+| fix | e71e9b1 | feat/thumbs-ring-clear | Thumbs | `src/input/,tests/input/` | 11 | 0 |
+| fix | 115882d | feat/swarm-boss-ends-level | Swarm | `src/game/,tests/game/` | 9 | 1 (`tests/scoring/scoring.boss.test.ts`, Swarm's in V3-A) |
+| readability | 17bfa9e | feat/swarm-boss-readability | Swarm | `src/game/,tests/game/` | 11 | 1 (`src/core/events.ts`, see bad news item 1) |
+| readability | 7207b91 | feat/glow-boss-identity | Glow | `src/render/,tests/render/` | 3 | 0 |
+| readability | e96762b | feat/chorus-window-cue | Chorus | `src/audio/,tests/audio/` | 8 | 0 |
+
+Not audited here: the glue commits on main (Fable's), and the merges whose branch names were not in the v3 wave tables (feat/chorus-tune-wiring 4b3117f, feat/glow-exposed-cue ebd0a3e, feat/swarm-level-end b0a6ba4 and similar small fixes), because their briefs are not in the repo.
+
+## Rule scan at 7263f75
+
+| Scan | Result |
+|---|---|
+| DoD v7 grep over `src/` and `tests/` | prints nothing |
+| `Math.random` outside `src/core/rng.ts` | one comment line, `src/levelgen/generator.ts:2`; no call |
+| `keydown`, `keyup`, `mousedown`, `mouseup`, `mousemove`, `getGamepads`, `gamepadconnected` in `src/` | nothing |
+| `: any`, `as any`, `ts-ignore`, `ts-expect-error` in `src/` and `tests/` | nothing (two prose lines contain the word "any") |
+| `mulberry32` in `src/game/bosses`, `src/game/enemyBullets.ts`, `src/render`, `src/audio` | nothing |
+| Em or en dashes in any `.ts`, `.md`, `.json`, `.html` or `.mjs` file outside `node_modules`, `dist`, `.git` and `.agents` | 0 files |
+| `click` listeners | still the four in `src/render/devpanel.ts` (QA-009) |
+| Binary assets | only the PWA icons (`tests/qa/noAssets.test.ts`, passing) |
+| Storage keys | the 13 keys of v2, no v3 key (`tests/qa/storageKeysV3.test.ts`) |
+
+## How to re-run (v3)
+
+```
+node tests/qa/ownershipAudit.ts 425f257^1 425f257^2 swarm v3A
+node tests/qa/ownershipAudit.ts 9b27ab5^1 9b27ab5^2 swarm v3B
+node tests/qa/ownershipAudit.ts main feat/proctor-v3-harden proctor v3H
+```
