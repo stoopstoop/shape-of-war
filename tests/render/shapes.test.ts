@@ -81,9 +81,9 @@ describe('shape registry', () => {
 
   it('visual slots: pickups by w.a, other kinds unchanged, slots past the registry', () => {
     // Three pickup variants, then the Slime outline variants (enemyShapes.test.ts), then the V3 boss
-    // slots (10 ids x 5 openness steps), the part slots (3 types x 4 tiers) and the exposed boss
+    // slots (10 ids x 5 openness steps), the part slots (4 types x 4 tiers) and the exposed boss
     // slots (10 ids x 5 steps, coreless and tint coloured), bossShapes.test.ts.
-    expect(MAX_SLOT).toBe(MAX_KIND + 3 + SLIME_VARIANTS + 10 * 5 + 3 * 4 + 10 * 5);
+    expect(MAX_SLOT).toBe(MAX_KIND + 3 + SLIME_VARIANTS + 10 * 5 + 4 * 4 + 10 * 5);
     expect(visualSlot(Kind.WeaponPickup, 1)).toBe(MAX_KIND + 1);
     expect(visualSlot(Kind.WeaponPickup, 3)).toBe(MAX_KIND + 3);
     expect(visualSlot(Kind.WeaponPickup, -1)).toBe(Kind.WeaponPickup);

@@ -557,14 +557,33 @@ export const PART_TURRET = 2;
  * part. It has no part spec of its own: it draws with the Twins boss body spec (partVisualSlot).
  */
 export const PART_TWIN = 3;
-/** Part types that have a part spec (pod, anchor, turret). The twin body draws as a boss body. */
-export const PART_TYPES = 3;
-/** Radius each part spec is drawn at; the renderer scales by w.radius over this. */
+/**
+ * Brood's Broodling (sim PartType.Broodling, 20 u): a small green pod body with a yellow pod and a
+ * nose along its heading (w.rot). Unlike the white parts it bakes both its colours (broodlingSpec).
+ */
+export const PART_BROODLING = 4;
+/** Part types that have a part spec (pod, anchor, turret, Broodling). The twin body draws as a boss body. */
+export const PART_TYPES = 4;
+/** The part type behind each spec index (a part spec is PART_SPECS[index x 4 + tier - 1]). */
+export const PART_SPEC_TYPES: readonly number[] = [PART_POD, PART_ANCHOR, PART_TURRET, PART_BROODLING];
+/** Radius each white part spec is drawn at (pod, anchor, turret); the renderer scales by w.radius over this. */
 export const PART_R: readonly number[] = [12, 14, 16];
+/** Radius the Broodling spec is drawn at: the sim radius (BROODLING.radius), so its scale is 1. */
+export const BROODLING_R = 20;
 
-/** Pure: a valid part type for any number (pod for anything unknown, and for the twin body). */
+/** Pure: a valid white part type for any number (pod for anything unknown, the twin body and the Broodling). */
 export function partType(a: number): number {
   return a === PART_ANCHOR || a === PART_TURRET ? a : PART_POD;
+}
+
+/** Pure: true for Brood's Broodling (w.a is PART_BROODLING). */
+export function isBroodlingPart(a: number): boolean {
+  return a === PART_BROODLING;
+}
+
+/** Pure: index of a part in PART_SPEC_TYPES (0 pod, 1 anchor, 2 turret, 3 Broodling; pod for anything else). */
+export function partSpecIndex(a: number): number {
+  return isBroodlingPart(a) ? 3 : partType(a);
 }
 
 /** Pure: true for the Twins second body (w.a is PART_TWIN). */
@@ -575,11 +594,44 @@ export function isTwinPart(a: number): boolean {
 /** Pure: the radius a part's spec is drawn at (the Twins body radius for the twin body). */
 export function partR(a: number): number {
   if (isTwinPart(a)) return bossBodyR(BOSS_TWINS);
+  if (isBroodlingPart(a)) return BROODLING_R;
   return PART_R[partType(a)] ?? 12;
+}
+
+/** Pure: Broodling pod body outline radius at theta for draw radius R (a small lumpy round body). */
+export function broodlingEdge(theta: number, R: number): number {
+  return broodEdge(theta, 0.84 * R);
+}
+
+/** Pure: the Broodling nose, a triangle on +x (the heading) that pokes just past the body (1.12 R). */
+export function broodlingNose(R: number): ShapePrim {
+  return { t: 'poly', pts: [r2(1.12 * R), 0, r2(0.6 * R), r2(0.3 * R), r2(0.6 * R), r2(-0.3 * R)] };
+}
+
+/**
+ * Pure: Broodling spec at a boss tier. Brood's two tone: a green body and nose (the boss hue) around a
+ * yellow pod (the Brood pods accent, bossIdentity.ts). Both colours are baked, so the view tint stays
+ * white, and the nose points along +x so the view rotation is the heading.
+ */
+export function broodlingSpec(tier: number): ShapeSpec {
+  const w = 1.6 * tierWeight(tier);
+  const hm = tierHaloMul(tier);
+  const R = BROODLING_R;
+  const c = bossColourOf(BOSS_BROOD);
+  return {
+    tint: null,
+    radius: R + 6,
+    layers: [
+      layer([radialPoly(32, (a) => broodlingEdge(a, R))], w, { colour: c, fill: 0.16, haloMul: hm }),
+      layer([broodlingNose(R)], w * 0.9, { colour: c, fill: 0.55, haloMul: hm }),
+      layer([{ t: 'circle', r: r2(0.36 * R) }], w * 0.6, { colour: 'yellow', fill: 0.85, glow: false }),
+    ],
+  };
 }
 
 /** Pure: the spec of a part type at a boss tier (the tier sets the line weight). */
 export function buildPartSpec(a: number, tier: number): ShapeSpec {
+  if (isBroodlingPart(a)) return broodlingSpec(tier);
   const type = partType(a);
   const w = 1.6 * tierWeight(tier);
   const hm = tierHaloMul(tier);
@@ -615,8 +667,10 @@ export function buildPartSpec(a: number, tier: number): ShapeSpec {
   };
 }
 
-/** Every part spec, indexed by type x 4 + (tier - 1). Built once. */
-export const PART_SPECS: readonly ShapeSpec[] = Array.from({ length: PART_TYPES * 4 }, (_, i) => buildPartSpec(Math.floor(i / 4), (i % 4) + 1));
+/** Every part spec, indexed by spec index x 4 + (tier - 1) (PART_SPEC_TYPES order). Built once. */
+export const PART_SPECS: readonly ShapeSpec[] = Array.from({ length: PART_TYPES * 4 }, (_, i) =>
+  buildPartSpec(PART_SPEC_TYPES[Math.floor(i / 4)] ?? PART_POD, (i % 4) + 1),
+);
 
 /**
  * Boss hazard registry glyph: a gapped ring. Hazards draw through the hazard sprite layer
