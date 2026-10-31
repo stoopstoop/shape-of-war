@@ -280,3 +280,159 @@ Re-checked against the code today. The "Recommended" column is a suggestion; Fab
 - Off invariant, generator side: proven by hash for 5000 seeds (`tests/qa/generatorFlagSweep.test.ts`). Simulation side: `tests/game/ship.space.test.ts` and `tests/game/weapons.test.ts` carry the v1 golden hashes, and `tests/qa/physicsReplay.test.ts` and `tests/qa/weaponDropReplay.test.ts` add cross module replays.
 - Settings keys: the four v2 keys (`sow.settings.spacePhysics`, `weaponPickups`, `effects`, `music`) keep the `sow.settings.` prefix, collide with nothing and are the only new keys (`tests/qa/storageKeys.test.ts`, `tests/qa/storageKeysV2.test.ts`).
 - Assets: the only binary files in the repo are the PWA icons (`tests/qa/noAssets.test.ts`).
+
+---
+
+# v3 triage (harden)
+
+Owner: Proctor. Written in the v3 harden run against main 7263f75 (V3-A, V3-B, V3-C1, V3-C2, the fix waves and the readability wave merged; the last device paste is G3C on 193db9f, and the G3C retest on e96762b is still to come). Sources: the gate log and the open bugs in `docs/STATUS.md` (G2.1, G3A, G3B, G3C and the two retests), the v2 triage above, and a re-check of every item against the code at this head. Severity: P0 blocks a gate, P1 breaks a SPEC requirement or hurts the core loop, P2 wrong but contained, info is worth knowing. Owner is the roster nickname; the owning directory is where the fix would go. Nothing here was run on a device by Proctor. Ryan's words are quoted from the STATUS gate rows as Fable recorded them.
+
+## Bad news first (v3)
+
+1. No P0 is open. Every boss that has been put in front of Ryan was rated 4 for fairness at G3C and "about right" at G3A, and the node side proves it holds: 10 bosses, 6 fuzzed 60 s sessions each, 60 sessions, zero violations of fairness rules 5 and 6 or of any cap (`tests/qa/bossFairnessSweep.test.ts`).
+2. The top open item is V3-01 (P1): the Prism damage window is "not readable with or without music" (G3C, fail). Bastion and Prism are in the boss floor (docs/12 G3C pass text), so Prism cannot be cut the way Twins and Tempest can (cut 8). Three fixes merged in the readability wave (17bfa9e Swarm, 7207b91 Glow, e96762b Chorus) and none is rated on a device yet.
+3. V3-09 (P1) is a carry over from v2: the Low effects tier is still slower than Standard. GD measured 50 against 59 and GE measured 55/52 against 59/59. Low is the escape hatch of cut 4; if it is slower than Standard it is not an escape hatch. No v3 merge touched it.
+4. The weapon combine and drone mode work (docs/13 "Combining", gate G3D) is not built at this head, and neither is wave V3-E. `weaponCombine` exists only as an event type and a palette stub. The checklist lists the G3D lines so Ryan can see what is coming, but they cannot pass today, and the spread ingredient replay is a skipped test until `COMBO_TABLE` exists (V3-12).
+5. Boss levels run at 56 to 58 fps in the pastes (G3A 58, G3B 56 and 57, G3C 58), under the 59 that Ryan accepted at D8. The pastes do not say which screen (V3-10).
+6. The G3B paste gave all items yes but no fairness numbers, and G3C gave "4 and about right" for four bosses without the per boss split. Not blocking; the V3-G4 block below asks for every number.
+
+## Summary (v3)
+
+| ID | Sev | Status | Owning directory | Owner |
+|---|---|---|---|---|
+| V3-01 | P1 | Fix merged (17bfa9e, 7207b91, e96762b), not rated on device | `src/render/` (`bossPrism.ts`, `prismFx.ts`), `src/audio/music/`, `src/game/bosses/prism.ts` | Glow, Chorus, Swarm |
+| V3-02 | P2 | Fix merged (7207b91), not rated | `src/render/` (`bossTier3.ts`) | Glow |
+| V3-03 | P2 | Fix merged (17bfa9e, Bastion phase 3), not rated | `src/game/bosses/bastion.ts` | Swarm |
+| V3-04 | P2 | Partly fixed (7207b91 silhouettes), not rated; three tier 3 bosses still share `bossRed` | `src/render/`, `src/game/bosses/table.ts` | Glow, Swarm |
+| V3-05 | P2 | Fix merged (17bfa9e hit events, 7207b91 hit feedback), not rated | `src/render/hitFx.ts`, `src/game/bosses/core.ts` | Glow, Swarm |
+| V3-06 | P2 | Built (17bfa9e `sim:bossCrack`, 7207b91 cracks, e96762b stingers), not rated | `src/render/`, `src/game/bosses/core.ts` | Glow, Swarm |
+| V3-07 | P2 | Open, intent to confirm | `src/game/bosses/twins.ts` | Swarm |
+| V3-08 | P2 | Open, to confirm on device (generator side proven) | `src/render/` (boss look), `src/ui/` (banner) | Glow, Ledger |
+| V3-09 | P1 | Open, carried from V2-03, measured twice | `src/render/` (Low path) | Glow |
+| V3-10 | P2 | Open, measure per screen | `src/render/` (boss and hazard fx, burst caps) | Glow |
+| V3-11 | P2 | Open, doc drift (hazard cap 6 against 8) | `docs/12-v3-plan.md`, `docs/13-v3-spec-addendum.md` | Fable (Scribe) |
+| V3-12 | info | Scope fact: G3D and V3-E not built | `src/game/weapons.ts`, `src/game/drones.ts` | Swarm |
+| V3-13 | info | Open, paste gaps | not code | Fable |
+| V3-14 | info | Open, needs the brief to confirm | `src/core/events.ts` | Fable, Forge |
+| V3-15 | info | Open, carried (`it.todo`, `scoringPort`, `click` listeners) | `tests/levelgen/`, `src/main.ts`, `src/render/devpanel.ts` | Foundry, Ledger, Glow |
+
+## Details (v3)
+
+### V3-01 (P1): the Prism damage window is not readable
+
+- Origin: G3C on 193db9f, "Prism window not readable with or without music (fail)". Fairness for Prism was rated 4 and about right, so the fight is fair once the window is understood; the failure is the tell.
+- Repro: `?seed=42&level=50` (the level 50 boss is Prism, `tests/qa/bossScheduleGolden.test.ts`), unfolded, Show FPS on. Fight until phase 1 and watch the run up to white. Do it twice: Music 50, then Music 0 (docs/12 asks for the window to read with the music at 0).
+- What the code now does, from the merge messages and the event table: Swarm reports `sim:bossWindow` every 100 ms during the run to the window (`windowLead` in `src/game/bosses/types.ts`), Glow flashes the window (7207b91), Chorus plays a window cue (e96762b). Whether that reads is a device question.
+- Retest: checklist V3-C2 lines (Prism window with music, without music, the countdown).
+- Fallback if it still fails after one fix run: Prism is in the floor (a failure is a Swarm fix run, docs/12 G3C pass text), so cutting it is not an option. The choices are a longer lead, a hold of the white frame, or a text cue. Fable decides.
+- Owner: Glow (look), Chorus (cue), Swarm (lead time). Open until Ryan answers.
+
+### V3-02 (P2): tier 3 does not read as the top tier
+
+- Origin: G3C, "tier 3 look does not read as top tier". Prism is the real top (tier 4), so tier 3 should read as the step before it.
+- Repro: `?seed=42&level=35`, then 40 and 45. Compare each to a tier 2 boss (level 20, 25, 30) side by side.
+- Fix in code: 7207b91 "tier 3 halo". Owner: Glow. Retest: V3-C1 look line.
+
+### V3-03 (P2): Bastion is unthreatening after its turrets are gone
+
+- Origin: G3C, "Bastion unthreatening after turrets". Phase 2 is the turret phase; once the turrets fall the boss has little left to do.
+- Repro: `?seed=42&level=35`, destroy the four turrets, keep fighting for the rest of the boss.
+- Fix in code: 17bfa9e "Bastion phase 3". Node check: `tests/qa/bossFairnessSweep.test.ts` shows Bastion live with hazards, adds and enemy bullets in the fuzzed sessions and no rule violation, so phase 3 stays inside the caps. Owner: Swarm. Retest: V3-C1 Bastion lines.
+
+### V3-04 (P2): the bosses share a colour, an attack and a shape
+
+- Origin: G3C, "bosses share colour, attack and shape".
+- What is in the code: `BOSS_TABLE` gives Bastion, Tempest and Twins the same colour key `bossRed` (`src/game/bosses/table.ts` lines 28 to 30), so tier 3 is one colour by design. Silhouettes were added in 7207b91. Attack variety is per boss def and is not a table value.
+- Repro: levels 35, 40 and 45 one after the other.
+- If Ryan still reads them as one boss, the cheapest fix is a table value (Swarm: three colour keys for tier 3, Glow: matching palette entries in `src/render/neon.ts`, which Glow owns). Owner: Glow first, then Swarm for the table. Retest: V3-C1 distinct line.
+
+### V3-05 (P2): Bastion and Tempest give no damage feedback
+
+- Origin: G3C. Repro: shoot either boss during a window and look for a response on each hit.
+- Fix in code: hit events in 17bfa9e, hit feedback in 7207b91 (`src/render/hitFx.ts`), a boss hit tick sound in e96762b. Owner: Glow. Retest: V3-C1 hit feedback line.
+
+### V3-06 (P2): cracks at 66 and 33 percent (Ryan's request)
+
+- Origin: G3C. Built as `sim:bossCrack` (stage 1 under 66, stage 2 under 33, per body for Twins), drawn in 7207b91, with stingers in e96762b. The event is in the docs/13 bus table.
+- Node check: the replay sessions record `sim:bossCrack` in the event log and replay it identically (`tests/qa/bossReplay.test.ts`). In a diagnostic run the bosses that the player model took under 66 percent (Warden, Brood, Spindle, Ember, Mirage and others) emitted crack events and the ones left above it (Bastion at 96 percent) did not, as the rule says.
+- Owner: Glow (look), Swarm (event). Retest: V3-C1 cracks line.
+
+### V3-07 (P2): the Twins survivor repositions and then resumes
+
+- Origin: G3C observation, no verdict. The retest list asks for "Twins enrage visible".
+- Question for Ryan: is the pause and reposition after one twin falls a good beat or a bug? The file header of `src/game/bosses/twins.ts` says that when the first body falls the tether breaks and the survivor enrages (faster, a ring every 4 s instead of every 3.5 s while both lived), so a change of behaviour at that moment is by design. What the code does not settle is whether the beat before it resumes is too long or too quiet. Not a defect unless Ryan says so.
+- Owner: Swarm. Retest: V3-C1 Twins lines.
+
+### V3-08 (P2): level 55 showed "a yellow darting triangle"
+
+- Origin: G3C, "level 55 loop boss seen as a yellow darting triangle (Ember expected, to confirm)".
+- Generator side is proven: level 55 carries Ember at tier 2, hit point multiplier 1.25, entrance at 20 s, on every run seed tested (`tests/qa/bossScheduleGolden.test.ts`, five seeds). Ember's colour key is `bossOrange` and Spindle's is `bossYellow`, but Spindle is not in the loop (the loop starts at Ember).
+- Inference, not seen: a yellow darting triangle is more likely a Dart add than the boss, seen before the entrance at 20 s or during the fight. Ember's own body should be orange.
+- Repro: `?seed=42&level=55`, wait past 22 s, read the boss name banner and note the colour of the boss body. Owner: Glow if the body is the wrong colour, Ledger if the banner names the wrong boss. Close when the banner says Ember.
+
+### V3-09 (P1): the Low effects tier is slower than Standard (V2-03 carried)
+
+- Evidence: GD `fps_low 50/59`, `fps_standard 59/59`; GE `fps low 55/52, standard 59/59, high 60/60` (STATUS gate log). Low is the cheapest tier and the cut 4 fallback, so it must never be below Standard.
+- By the rule written in V2-03 above ("P1 if Low is still below Standard after a warm repeat"), two measurements in a row below Standard make this a P1.
+- Repro: V-D1 in the v2 checklist, in the fixed order Standard, High, Low last, `?stress=400`, unfolded, 10 s average then a bomb dip per tier.
+- Not touched by any v3 merge. Owner: Glow, `src/render/` (the V2-03 suspects stand: the Low path draws the v1 grid Graphics redraw and `enemyFxGates` keeps `tells: true` on Low; none of it is measured). Retest: V3-G4 `fps_low`.
+
+### V3-10 (P2): fps on boss levels is 56 to 58
+
+- Evidence: G3A lowest 58, G3B 56 and 57, G3C 58. The accepted floor is 59 on the 60 Hz main screen (V2-08); the pastes do not say which screen these numbers are from.
+- Plan row: "fps under the bar with a boss: Glow fix run first (hazard and burst cost), then lower the burst caps" (docs/12 wave B and C risk tables).
+- Node side: a boss level never exceeds 8 hazards, 8 boss adds, 4 parts, 32 enemy bullets or the 512 entity cap (the sweep), so the sim load is bounded; the cost is render.
+- Repro: levels 20, 35 and 50, Show FPS, Effects Standard, cover and main separately, average and minimum each. Owner: Glow. Retest: V3-G4 `fps_boss_cover`, `fps_boss_main`.
+
+### V3-11 (P2): the live hazard cap is 8, two lines still say 6
+
+- docs/12 "Design: the boss rules" rule 5 and docs/13 SPEC 3.4 rule 5 (line 94) say "at most 6 live hazards (flag 2)". Fable's ruling on that flag is 8 ("Live hazard cap is 8 (lane bursts)", docs/13 line 13, DECISIONS 47:00), and the code is `MAX_HAZARDS = 8` (`src/game/bosses/table.ts`). Mirage's eight lane burst reaches it: the sweep saw 8 live hazards and never 9.
+- The sweep asserts 8. Fix the two doc lines, or the ruling and the code. Owner: Fable (Scribe).
+
+### V3-12 (info): the weapon combine and drone modes are not built
+
+- docs/13 "Combining", "Spread as an ingredient" and the drone modes belong to wave V3-D (gate G3D), and weapon tuning to V3-E. At this head `src/game/weapons.ts` has no `COMBO_TABLE`, `src/core/events.ts` has the `fx:weaponCombine` type and `src/render/neon.ts` a palette stub.
+- Effect: `tests/qa/weaponReplayV3.test.ts` runs the log driven replay on the v2 weapons and skips the spread ingredient proof until `COMBO_TABLE` is exported. The skip is visible in every suite run (1 skipped). The device checklist keeps the G3D lines, marked "not built at 7263f75".
+- Owner: Swarm (wave D).
+
+### V3-13 (info): gaps in the pastes
+
+- G3B: "all items yes", no fairness numbers, fps 56 and 57 without a screen. G3C: "all fairness 4 and about right" for four bosses with no per boss split, fps 58 without a screen. G3A: fps "lowest 58", physics Low (fine, recorded).
+- Action: the V3-G4 block in `docs/device-checklist.md` spells out one field per line, with a screen and a number on every fps and fairness field.
+
+### V3-14 (info): one fix branch touched `src/core/events.ts`
+
+- Audit (`docs/qa/ownership-audit.md`, v3 section): feat/swarm-boss-readability (17bfa9e) changed `src/core/events.ts`, which is outside Swarm's directories in every v3 wave table (the V3-W0 stubs were meant to make `src/core/` untouched). The change adds the `sim:bossWindow` and `sim:bossCrack` events the readability work needed, so it is probably in the fixer brief, but Proctor does not have the brief. If it was not named there, it is a small ownership break; if it was, nothing to do.
+- Also seen: feat/swarm-boss-ends-level (115882d) changed `tests/scoring/scoring.boss.test.ts`, which Swarm owns in V3-A (and Ledger owns in v1). Fine under the V3-A table.
+- Owner: Fable to confirm against the brief.
+
+### V3-15 (info): v1 and v2 items carried
+
+- `tests/levelgen/par.test.ts` line 96, the stale `it.todo` (V2-11): still the one todo in every run (2929 passed, 1 todo at this head). Foundry.
+- `scoringPort` still private to `src/main.ts` (QA-004), four `click` listeners in `src/render/devpanel.ts` (QA-009, unchanged). Ledger, Glow.
+- QA-001, QA-002, QA-006, QA-007, QA-011, QA-012: unchanged since the v2 triage; none has a code or doc change in v3.
+
+## Closed since the v2 triage (v3 era), with the evidence
+
+| ID | What | Evidence |
+|---|---|---|
+| B16 | A level did not end after the boss died | Fixed at 548c9d5 and ee8397f. Retest 2 (ee8397f): "levels 5, 10, 15 end on boss death". Node: `tests/game/bossLevelEnd.test.ts`, `bossLevelEndSeed42.test.ts` |
+| B17 | Boss bar unreadable on the cover screen | Fixed (ledger-boss-bar 328f22f). Retest 53:10: "cover bar yes" |
+| B18 | "The bomb damaged the boss" | By design: the bomb never damages a boss (verified), the 1.5 s stagger counts as an open window (docs/13 boss rule 7). No defect |
+| B19 | Thumb anchor ring overlapped the buttons | Fixed (thumbs-ring-clear e71e9b1). Retest 53:10: "ring overlap no" |
+| B20 | The tune did not change across levels | Fixed (chorus-tunes 0789f73, chorus-tune-wiring 4b3117f). Retest 2: "tunes change each level, music 3.7" |
+| G2.1 melody | "melody 3, wants multiple tunes" | Closed with B20 |
+| G2.1 reach | Ring overlap "yes (fail)" | Closed with B19 |
+| G3A Brood | "2, too short, reads as an obstacle, weak point unclear" | Brood reworked (swarm-boss-fixes). Retest: "Brood 4 about right". HIT word too explicit: replaced by a cue without text (ebd0a3e), Retest 2: "weak point reads without text" |
+| G3A Spindle | "4, too short" | Hit points 400 to 500. Retest: "Spindle about right" |
+| Warden gap | Phase 2 second ring gap not drawn | Fixed in glow-boss-fixes (c4df26e, "Warden second gap") |
+| HUD bonus | `src/ui/boss.ts` duplicated `scoring.bossBonus` | Fixed: `src/ui/boss.ts` line 5 says `src/game/scoring.ts` is the only copy (ledger-boss-bar 328f22f) |
+| V2-01, V2-02, V2-04, V2-05 | Music glitches, dull trails and map, kill voicing, tell readability | GE paste: glitch none, trails 4, map 4, kill notes yes, C1 to C3 ok. V-D5 (melody) closed by B20 |
+| V-A5 | Moving right drifts more and reacts slower | Forge move symmetry tests, G2.1 "symmetry same" |
+
+## What the v3 harden tests found (not defects)
+
+- Boss replay (`tests/qa/bossReplay.test.ts`): for each of the ten bosses, a recorded session on the real generated level replays from JSON copies of the level and input log with an identical per tick digest of boss, parts, hazards, adds, enemy bullets, score and lives, and an identical event log. Math.random throws inside the test.
+- Fairness sweep: rules 5 and 6 and every cap held in all 60 sessions. Two assertions failed during development and were test errors, not defects: the boss's hit points fall during the respawn delay because player bullets already in flight can still land (rule 6 forbids a heal, not a hit), and the boss keeps sliding in if the ship dies during the entrance (the slide is not an attack).
+- Drop schedule: the weapon of drop n depends only on the level and n. The tick of a drop does depend on the world: with a boss present the orbit blades kill its adds, adds score as scoring kills, and a due drop comes sooner. That follows docs/12 rule 9 ("Adds score normally") and is not a bug.
+- Storage: the key set is still the 13 keys of v2. v3 adds none yet; docs/13 allows only `sow.settings.tilt`, and only from wave V3-E.

@@ -322,3 +322,338 @@ Fill every `=` with `pass`, `fail` or `n/a`. Put the build id after `build=`. Co
 V2-G4: V-A1= V-A2= V-A3= V-A4= V-A5= V-A6= V-A7= V-A8= V-B1= V-B2= V-B3= V-B4= V-B5= V-B6= V-B7= V-C1= V-C2= V-C3= V-C4= V-C5= V-C6= V-C7= V-C8= V-C9= V-D1= V-D2= V-D3= V-D4= V-D5= V-D6= V-D7= V-D8= V-D9= V-D10= V-D11= V-D12= V-X1= V-X2= V-X3= V-X4= T-reg1= T-reg2= T-reg3= T-reg4= F-reg1= F-reg2= F-reg3= F-reg4= O-reg1= O-reg2= O-reg3= P-reg1= P-reg2= P-reg3= P-reg4= build=
 V2-G4 numbers: browser=<chrome or samsung> motion=<standard or adaptive> A2=<r/d/c> A3=<r/d/c> A4=<r/d/c> A5=<turn> fps_low=<avg>/<bomb dip> fps_standard=<avg>/<bomb dip> fps_high=<avg>/<bomb dip> fps_cover=<avg/min> fps_main=<avg/min> trails=<1-5> map=<1-5> grid=<1-5> particles=<1-5> drive=<1-5> glitch=<none/some/bad> C1=<tell>/<counter>/<fair> C2=<tell>/<counter>/<fair> C3=<tell>/<counter>/<fair> C4=<tell>/<counter>/<fair> C5=<tell>/<counter>/<fair> C6=<tell>/<counter>/<fair> C9=<fair> notes=<text, one line per fail>
 ```
+
+---
+
+# v3 device checklist (V3-G4)
+
+Owner: Proctor. Written in the v3 harden run against main 7263f75 (waves V3-A, V3-B, V3-C1 and V3-C2 merged, the fix waves and the readability wave merged; G3A, G3B and G3C pasted, the G3C retest on e96762b still to come). Sources: the gate scripts of `docs/12-v3-plan.md` (G3A, G3B, G3C, G3D), `docs/13-v3-spec-addendum.md` for every number, the gate log of `docs/STATUS.md`, and `docs/qa/bugs.md` section "v3 triage" (the IDs V3-01 to V3-15 below point there). Ryan runs it on the Z Fold 7 and pastes the block "V3-G4" at the end back to Fable.
+
+## Bad news first (v3)
+
+1. Every Result and Notes cell is blank. Nothing here was run on a device, and no earlier gate paste is copied into a Result cell. A line with no result is not a pass. The G3A to G3C pastes appear only inside "Pass when" as a baseline.
+2. A result without a build id is void. Write the id from the bottom right label after `build=`. If the label differs from the id Fable gave you: close the app from recents, reopen online, wait 5 seconds, close and reopen. Still different: stop.
+3. The weapon combine and drone lines (V3-D1 to V3-D18, gate G3D) cannot pass at 7263f75: that work is not built (V3-12). Write `n/a` and "not built" in Notes. Wave V3-E items (weapon tuning, the High default, the tilt) are not in this file at all. They get their own lines when they ship.
+4. This is the longest checklist yet: about 85 lines. The docs/12 scripts for G3A, G3B and G3C are 20, 35 and 30 minutes, so about 85 minutes for the three boss gates, and the regression lines add roughly 20 more (an estimate). If time is short, run these first, in this order: V3-X1 to V3-X4, then the G3C retest lines (V3-C4, V3-C7, V3-C8, V3-C12 to V3-C15, V3-C11), then V3-A6, V3-B10, then the rest. A skipped line is `n/a`, never `pass`.
+5. Where docs/12 gives a number, the pass line uses it: fairness 3 or better on every boss, and a told and countered answer of yes. Where there is no earlier number, the line says (proposed) and Fable may edit it before sending this file: V3-C9, V3-C10 and V3-C15 (ratings of 4 or better).
+6. The fps line is 59 or better on the main screen (the D8 acceptance, V2-08). The pastes so far were 56 to 58 on boss levels, so those lines may fail. Write the screen next to every fps number (V3-10).
+7. Boss fairness and fun are only judged by your answers. The node side proves the caps and the fairness rules hold and the replays are exact, but cannot say whether a fight is fun. The notes for every fail should say which boss, which phase and what you saw.
+8. The fights are long. Bombs and supers are allowed. Dying is allowed (lives are 3 on a generated level). The pass lines do not need a clean run.
+
+## Before you start (v3)
+
+1. Build id: the dim `build <sha> <date>` label bottom right. Write it down.
+2. Motion smoothness: Android Settings, Display, Motion smoothness. Write down Standard or Adaptive.
+3. Show FPS: Settings, `Show FPS: On`.
+4. Settings to start from: Space physics as you play it (write it down), Weapon pickups On, Effects Standard, Music 50. V3-X1 changes them on purpose and says when to put them back.
+5. Opening a level: add `?seed=42&level=<n>` to the URL in a browser tab. The level hash is the end of the top line, `L3  Par 5,000  #<hash>`. Endless with a boss at once: `?boss=brood`, then choose Endless in the menu.
+6. Folded is the cover screen, unfolded is the main screen. A fold or unfold pauses the game: tap Resume.
+7. Ratings: 1 to 5 as the line says. Result column: `pass`, `fail` or `n/a`.
+
+Seed 42 levels used below (hash from the generator at 7263f75, boss from `tests/qa/bossScheduleGolden.test.ts`):
+
+| Level | Hash | Boss | Tier |
+|---|---|---|---|
+| 1 | `#CD2B515B` | none | |
+| 3 | `#E811153A` | none | |
+| 5 | `#43F4A6DA` | Warden | 1 |
+| 6 | `#93A4C56E` | none | |
+| 10 | `#5909977A` | Brood | 1 |
+| 15 | `#B67B6090` | Spindle | 1 |
+| 20 | `#70BE1263` | Ember | 2 |
+| 25 | `#9FE44158` | Mirage | 2 |
+| 30 | `#DC10A55A` | Gravitas | 2 |
+| 35 | `#EA81493C` | Bastion | 3 |
+| 40 | `#1A0575DB` | Tempest | 3 |
+| 45 | `#000202E2` | Twins | 3 |
+| 50 | `#152C1A9D` | Prism | 4 |
+| 55 | `#B0F981A9` | Ember again, hit points times 1.25 | 2 |
+
+If the HUD shows another hash you are on the wrong seed or the wrong build: stop and tell Fable. Levels 1, 3 and 6 are the same hashes as v1.0.0 and v2 for those levels (they have no boss).
+
+## V3-A Tier 1 bosses (gate G3A)
+
+G3A paste for reference: Warden fairness 4 about right; Brood 2 too short and the weak point unclear (since reworked, retest 4 about right); Spindle 4 too short (since 400 to 500 hit points, retest about right); bomb cleared adds; death kept damage and paused attacks; level did not end by itself (B16, fixed, retest pass); boss bar unreadable on cover (B17, fixed, retest pass); level 6 no boss; lowest fps 58.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V3-A1 | G3A | `?seed=42&level=5`, confirm `#43F4A6DA`. Fight the Warden to the end, then retry the level once | Tell yes (you see what it will do next), hurt yes (you find the way to damage it), fairness 3 or better, length about right | | |
+| V3-A2 | G3A | `?seed=42&level=10`, confirm `#5909977A`. Fight the Brood | Same as V3-A1. The weak point reads without any text (G3A paste: Brood 4 at the retest) | | |
+| V3-A3 | G3A | `?seed=42&level=15`, confirm `#B67B6090`. Fight the Spindle | Same as V3-A1. It fires a slow pellet: see V3-B12 | | |
+| V3-A4 | G3A | In one fight press the bomb. Note what happened to the boss and its attacks | Adds and hazards and bullets are cleared, the boss stops attacking for about 1.5 s but stays hittable, and the bomb itself does no damage (B18: by design) | | |
+| V3-A5 | G3A | In one fight let it kill you once | The boss kept its damage, and it stopped attacking while you respawned (G3A paste: yes, yes) | | |
+| V3-A6 | G3A | After each boss dies, watch | The level ends by itself, with a win and lives left. On a timed level the timer had stopped (B16, retest: levels 5, 10 and 15 end on boss death) | | |
+| V3-A7 | G3A | `?seed=42&level=6`, confirm `#93A4C56E` | No boss appears | | |
+| V3-A8 | G3A | Folded, any boss fight | The boss bar and the name are readable on the cover screen (B17) | | |
+| V3-A9 | G3A | Unfolded, any boss fight | The boss bar and the name are readable on the main screen | | |
+| V3-A10 | G3A | Unfolded, Show FPS on. Lowest number in one boss fight (also write the cover number in V3-A11) | 59 or better (G3A paste: 58, V3-10) | | |
+| V3-A11 | G3A | Folded, the same, lowest number in one boss fight | 59 or better, or 60 with Motion smoothness recorded | | |
+
+## V3-B Tier 2 bosses, shooters, boss sound (gate G3B)
+
+G3B paste for reference: Ember, Mirage and Gravitas all told and countered (no numbers given); entry, phase and death sounds heard; enemy sounds duck; the Endless boss arrives and waves pause; slider 0 ok; pellet and fan seen and dodged; bomb clears bullets; boss shot sound; fps 56 and 57.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V3-B1 | G3B | `?seed=42&level=20`, confirm `#70BE1263`. Fight the Ember | Tell yes, hurt yes, fairness 3 or better | | |
+| V3-B2 | G3B | `?seed=42&level=25`, confirm `#9FE44158`. Fight the Mirage | Tell yes, hurt yes, fairness 3 or better | | |
+| V3-B3 | G3B | `?seed=42&level=30`, confirm `#DC10A55A`. Fight the Gravitas (the anchors first) | Tell yes, hurt yes, fairness 3 or better | | |
+| V3-B4 | G3B | Listen as each boss enters | An entry sound plays | | |
+| V3-B5 | G3B | Listen to the music in the level 20, 25 and 30 fights | The boss tune is different for each of the three | | |
+| V3-B6 | G3B | Listen when a boss changes phase | A phase change sound plays | | |
+| V3-B7 | G3B | Listen when a boss dies | A defeat sound plays | | |
+| V3-B8 | G3B | Play a normal wave level 20 s, then a boss level, then a normal level | The enemy sounds quiet down during the boss and come back after | | |
+| V3-B9 | G3B | Listen through three boss fights with Music 50 | Music glitches: none (a `some` or `bad` is a fail) | | |
+| V3-B10 | G3B | `?boss=brood`, choose Endless | The boss arrives about 10 s in, waves pause while it lives, the run goes on after it dies | | |
+| V3-B11 | G3B | During a fight drag the Music slider to 0 | The music stops and the effects stay | | |
+| V3-B12 | G3B | `?seed=42&level=15`, the Spindle fires a slow pellet. Play it on Space physics High at least once | You see the thin line before each shot, you can see it coming, you can dodge it without luck, fairness 3 or better | | |
+| V3-B13 | G3B | `?seed=42&level=20`. After a dash ends in open floor the Ember fires a fan of three bullets | You see it coming, you can dodge it without luck, fairness 3 or better | | |
+| V3-B14 | G3B | Press the bomb while a bullet is in the air (level 15 or 20) | The bullet vanishes | | |
+| V3-B15 | G3B | Listen when a boss fires | A soft shot sound plays | | |
+| V3-B16 | G3B | Unfolded, the lowest number in the level 30 fight | 59 or better (G3B paste: 56 and 57) | | |
+| V3-B17 | G3B | Unfolded, the lowest number in the level 20 fight | 59 or better | | |
+
+## V3-C Tier 3 and Prism, readability retest (gate G3C)
+
+G3C paste for reference: Bastion, Tempest, Twins and Prism all fairness 4 and about right; the Prism window not readable with or without music (fail); tier 3 look does not read as top tier; Bastion unthreatening after its turrets; the bosses share colour, attack and shape; Bastion and Tempest give no damage feedback; cracks at 66 and 33 percent asked for; Twins survivor repositions then resumes; level 55 showed a yellow darting triangle; fps 58. Lines V3-C4, V3-C7, V3-C8 and V3-C12 to V3-C15 are the fixes in the readability wave (V3-01 to V3-06).
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V3-C1 | G3C | `?seed=42&level=35`, confirm `#EA81493C`. Fight the Bastion | Tell yes, hurt yes, fairness 3 or better (G3C paste: 4) | | |
+| V3-C2 | G3C | `?seed=42&level=40`, confirm `#1A0575DB`. Fight the Tempest | Tell yes, hurt yes, fairness 3 or better (G3C paste: 4) | | |
+| V3-C3 | G3C | `?seed=42&level=45`, confirm `#000202E2`. Fight the Twins | Tell yes, hurt yes, fairness 3 or better (G3C paste: 4) | | |
+| V3-C4 | G3C | `?seed=42&level=50`, confirm `#152C1A9D`. Fight the Prism | Tell yes, hurt yes, fairness 3 or better (G3C paste: 4) | | |
+| V3-C5 | G3C | In the level 35 fight watch the slow bullets from the corner turrets, how many you see at once, and what happens when a turret is destroyed | You see each one coming before it fires, you can dodge them without luck, fairness 3 or better, and fewer bullets and a slower turn rate after a turret falls | | |
+| V3-C6 | G3C | In the level 45 fight kill one body first | The other body becomes faster and visibly enraged (G3C note: it repositions then resumes, V3-07; say whether the pause before it resumes is too long) | | |
+| V3-C7 | G3C | Level 50, Music 50. Watch the outline colours and the run to white | You can tell when the Prism is about to be vulnerable (G3C paste: fail, V3-01) | | |
+| V3-C8 | G3C | Level 50, drag Music to 0 and watch the same thing | You can still tell when it is about to be vulnerable (docs/12 G3C pass, V3-01) | | |
+| V3-C9 | G3C | Look at the level 35, 40 and 45 bosses. Rate "thick red lines look like the top tier but one", 1 not at all to 5 exactly | 4 or better (proposed; G3C paste: did not read as top tier, V3-02) | | |
+| V3-C10 | G3C | Look at the level 50 Prism. Rate "the shimmer looks like a top boss", 1 not at all to 5 exactly | 4 or better (proposed) | | |
+| V3-C11 | G3C | `?seed=42&level=55`, confirm `#B0F981A9`. Wait past 22 s and read the name banner | The boss is the Ember again with more hit points than at level 20, and its body is orange (V3-08: a yellow darting triangle was seen here) | | |
+| V3-C12 | G3C | Shoot the Bastion and the Tempest during a window | Every hit shows a response on the boss (V3-05) | | |
+| V3-C13 | G3C | Take a boss below two thirds and then below one third of its hit points | A crack shows at 66 percent and a second at 33 percent, with a sound each (V3-06) | | |
+| V3-C14 | G3C | Level 35, destroy the turrets and keep fighting | The Bastion is still a threat afterwards, with a third phase (V3-03) | | |
+| V3-C15 | G3C | Compare the level 35, 40 and 45 bosses. Rate how different they look, 1 the same to 5 clearly different | They read as three different bosses by colour, attack and shape: 4 or better (proposed, V3-04) | | |
+| V3-C16 | G3C | Unfolded, the lowest number in the level 50 fight | 59 or better (G3C paste: 58) | | |
+| V3-C17 | G3C | Listen through the level 35 to 50 fights with Music 50 | Music glitches: none (a `some` or `bad` is a fail) | | |
+
+## V3-D Weapon combine and drone modes (gate G3D), not built at 7263f75
+
+Leave every Result `n/a` and write "not built" in Notes until Fable says wave V3-D has merged. The lines are here so the numbers are agreed before the build. G3D pass in docs/12: every pair reads different and stronger (a single no is a tuning item, not a fail), both sounds heard and distinct, death reset ok; two or more unreadable pairs triggers cut 9.
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V3-D1 | G3D | `?seed=42&level=20`, collect a weapon pickup, then collect the next while the first still runs | The weapon name on screen is the pair name and an upgrade sound plays | | |
+| V3-D2 | G3D | `?weapon=spread+rapid` (Hail), fire at a crowd 10 s | Reads clearly different from spread and from rapid, and feels stronger than either | | |
+| V3-D3 | G3D | `?weapon=spread+pierce` (Trident) | Same | | |
+| V3-D4 | G3D | `?weapon=spread+orbit` (Halo) | Same | | |
+| V3-D5 | G3D | `?weapon=rapid+pierce` (Needle) | Same | | |
+| V3-D6 | G3D | `?weapon=rapid+orbit` (Whirl) | Same | | |
+| V3-D7 | G3D | `?weapon=pierce+orbit` (Eclipse) | Same | | |
+| V3-D8 | G3D | Let a pair run out | An expiry sound plays, and it is not the death sound | | |
+| V3-D9 | G3D | Collect a third weapon while a pair is active | The newer ingredient stays and the older one goes | | |
+| V3-D10 | G3D | Die with a weapon active | Back to spread, no timer | | |
+| V3-D11 | G3D | Play until a teal drone pickup appears by itself | It shows a symbol that matches the mode it gives | | |
+| V3-D12 | G3D | `?drone=homing`, 20 s on `?seed=42&level=20` | The drone's shots curve toward enemies and the indicator shows the mode | | |
+| V3-D13 | G3D | `?drone=detach`, a level with several enemies | The drone leaves the ship, enemies go toward it, and it comes back by itself when 20 s run out | | |
+| V3-D14 | G3D | `?drone=rapid` | It fires clearly faster than normal | | |
+| V3-D15 | G3D | `?drone=double` | A second drone appears and both fire | | |
+| V3-D16 | G3D | Listen to the drone arm and expiry sounds | Both heard, and the expiry is quieter than a weapon expiry | | |
+| V3-D17 | G3D | Collect a second drone pickup while the first mode runs | The second mode replaces the first | | |
+| V3-D18 | G3D | With a boss on screen (`?seed=42&level=20`) use any combined weapon. Unfolded, lowest number | 59 or better | | |
+
+## V3-X Never cut items
+
+| ID | Gate | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| V3-X1 | all | The Off invariant. Settings: Space physics Off, Weapon pickups Off, Effects Low, Music 0. Play 60 s on `?seed=42&level=3`. Then put them back (your usual, On, Standard, 50) | It looks and plays like v1.1.0: the static grid with its ripple, no trails, no music, the ship stops the instant you let go, no pickups, and no boss (level 3 has none) | | |
+| V3-X2 | all | Generator. Open `?seed=42&level=1`, `?seed=42&level=3`, `?seed=42&level=6`, then `?seed=42&level=5` | Levels 1, 3 and 6 show `#CD2B515B`, `#E811153A` and `#93A4C56E` (unchanged from v2 and v1.0.0), and level 5 shows `#43F4A6DA` (a boss level, new in v3) | | |
+| V3-X3 | all | The neon slider. Settings, drag Neon 0 to 100 slowly, on Effects Standard and again with Glow set to Fallback, during a boss fight | Glow, colour and the grid brightness change while you drag, including the boss, its hazards and the bullets, on both paths | | |
+| V3-X4 | all | Look at the build label, close the app from recents, open it from the home screen icon | The label is the id Fable gave you and there is no address bar | | |
+
+## v1 and v2 regression lines (touch, fold, offline, fps)
+
+Short forms of the v1 lines (T, F, U, O, P) and the v2 lines. If one fails, say which earlier line it matches.
+
+| ID | v1 | Do | Pass when | Result | Notes |
+|---|---|---|---|---|---|
+| R3-T1 | T1, T2 | Folded. Left thumb drags to move, right thumb drags to aim and fire | The stick appears under the thumb, the ship follows, the right stick fires continuously | | |
+| R3-T2 | T3, T5 | Hold both thumbs 10 s, lift one. Then tap within 24 CSS px of each screen edge | The released stick vanishes and the other keeps working, nothing sticks, an edge tap spawns no stick | | |
+| R3-T3 | T6, F3 | Tap bomb, super (after geoms) and pause once each. Swipe in from the left edge | Each responds once per tap, the edge swipe pauses without exiting, and the thumb ring does not overlap the buttons (B19) | | |
+| R3-T4 | T4 | Unfold and repeat R3-T1 to R3-T3 | Same behaviour on the main screen | | |
+| R3-F1 | F1 | Launch from the home screen icon | No status or navigation bar | | |
+| R3-F2 | F2 | In a browser tab load the page and tap once | The page enters fullscreen on that first tap and stays landscape | | |
+| R3-F3 | U2, U3 | Mid level (a boss level is fine), fold, Resume, unfold, Resume | No reload, the ship and the boss are visible, sticks work again, the HUD and the boss bar are not clipped | | |
+| R3-F4 | U4 | Note score and lives. Fold and unfold 5 times in 20 s, Resume | No crash, score and lives preserved, fullscreen kept, fps recovers within 2 s | | |
+| R3-O1 | O2 | Airplane mode on, close from recents, open from the icon | The menu loads within 3 s | | |
+| R3-O2 | O3 | Still offline, play a level to the results screen, and one boss level for 30 s | It plays to the results, the boss fight works offline, music still plays (synthesised, no files) | | |
+| R3-O3 | O4 | Airplane mode off | No error and the app keeps running | | |
+| R3-P1 | P1 | Folded, stress scene (`?stress=400`), 10 s, Standard effects | 60 or better with Motion smoothness recorded | | |
+| R3-P2 | P2 | Unfolded, stress scene, 10 s, Standard effects | Average 59 or better, minimum not below 55 | | |
+| R3-P3 | P3 | Unfolded, play a normal level 60 s on Standard | 59 or better with no visible hitch on explosions | | |
+| R3-P4 | P5 | Unfolded, Effects Standard, Music 50, 10 minutes of Endless (a boss arrives at 3:00 and 6:00) | Still 59 or better at the end, no stutter in the music, no drift, the phone is not hot | | |
+| R3-P5 | V-D1 | Unfolded, `?stress=400`. In this order: Effects Standard, then High, then Low last. Each: 10 s for the average, then one bomb and the lowest value. Write average/bomb dip for each. Put Effects back to Standard | Standard 59 or better average with a bomb dip not below 50. Low average not below Standard's (V3-09: GD 50 and GE 55 were below) | | |
+
+## Paste-back for V3-G4
+
+Fill every `=` with `pass`, `fail` or `n/a` on the result lines, and with the number or word asked for on the others. One line per field. Put the build id after `build=`. Copy the whole block, from the line `V3-G4` to the line `notes=`, into the Desktop chat. The numbers matter even when a result says pass.
+
+```text
+V3-G4
+build=
+browser=<chrome or samsung>
+motion=<standard or adaptive>
+space_physics=<off, low, medium or high>
+effects=<low, standard or high>
+V3-A1=
+V3-A1 tell=<yes or no>
+V3-A1 hurt=<yes or no>
+V3-A1 fairness=<1-5>
+V3-A1 length=<too short, about right or too long>
+V3-A2=
+V3-A2 tell=<yes or no>
+V3-A2 hurt=<yes or no>
+V3-A2 fairness=<1-5>
+V3-A2 length=<too short, about right or too long>
+V3-A3=
+V3-A3 tell=<yes or no>
+V3-A3 hurt=<yes or no>
+V3-A3 fairness=<1-5>
+V3-A3 length=<too short, about right or too long>
+V3-A4=
+V3-A4 what happened=<words>
+V3-A5=
+V3-A5 boss kept its damage=<yes or no>
+V3-A5 attacks paused while I respawned=<yes or no>
+V3-A6=
+V3-A6 level ended by itself=<yes or no>
+V3-A7=
+V3-A8=
+V3-A9=
+V3-A10=
+V3-A10 fps main lowest=<number>
+V3-A11=
+V3-A11 fps cover lowest=<number>
+V3-B1=
+V3-B1 tell=<yes or no>
+V3-B1 hurt=<yes or no>
+V3-B1 fairness=<1-5>
+V3-B2=
+V3-B2 tell=<yes or no>
+V3-B2 hurt=<yes or no>
+V3-B2 fairness=<1-5>
+V3-B3=
+V3-B3 tell=<yes or no>
+V3-B3 hurt=<yes or no>
+V3-B3 fairness=<1-5>
+V3-B4=
+V3-B5=
+V3-B6=
+V3-B7=
+V3-B8=
+V3-B9=
+V3-B9 music glitches=<none, some or bad>
+V3-B10=
+V3-B11=
+V3-B12=
+V3-B12 seen coming=<yes or no>
+V3-B12 dodged without luck=<yes or no>
+V3-B12 fairness=<1-5>
+V3-B13=
+V3-B13 seen coming=<yes or no>
+V3-B13 dodged without luck=<yes or no>
+V3-B13 fairness=<1-5>
+V3-B14=
+V3-B15=
+V3-B16=
+V3-B16 fps main lowest, level 30=<number>
+V3-B17=
+V3-B17 fps main lowest, level 20=<number>
+V3-C1=
+V3-C1 tell=<yes or no>
+V3-C1 hurt=<yes or no>
+V3-C1 fairness=<1-5>
+V3-C2=
+V3-C2 tell=<yes or no>
+V3-C2 hurt=<yes or no>
+V3-C2 fairness=<1-5>
+V3-C3=
+V3-C3 tell=<yes or no>
+V3-C3 hurt=<yes or no>
+V3-C3 fairness=<1-5>
+V3-C4=
+V3-C4 tell=<yes or no>
+V3-C4 hurt=<yes or no>
+V3-C4 fairness=<1-5>
+V3-C5=
+V3-C5 seen coming=<yes or no>
+V3-C5 dodged without luck=<yes or no>
+V3-C5 fairness=<1-5>
+V3-C6=
+V3-C6 other body became faster=<yes or no>
+V3-C6 pause before it resumes=<too short, about right or too long>
+V3-C7=
+V3-C7 window readable with music on=<yes or no>
+V3-C8=
+V3-C8 window readable with music at 0=<yes or no>
+V3-C9=
+V3-C9 top tier but one=<1-5>
+V3-C10=
+V3-C10 shimmer looks like a top boss=<1-5>
+V3-C11=
+V3-C11 boss name at level 55=<words>
+V3-C11 boss body colour=<words>
+V3-C12=
+V3-C13=
+V3-C14=
+V3-C15=
+V3-C15 distinct=<1-5>
+V3-C16=
+V3-C16 fps main lowest, level 50=<number>
+V3-C17=
+V3-C17 music glitches=<none, some or bad>
+V3-D1=
+V3-D2=
+V3-D3=
+V3-D4=
+V3-D5=
+V3-D6=
+V3-D7=
+V3-D8=
+V3-D9=
+V3-D10=
+V3-D11=
+V3-D12=
+V3-D13=
+V3-D14=
+V3-D15=
+V3-D16=
+V3-D17=
+V3-D18=
+V3-X1=
+V3-X2=
+V3-X3=
+V3-X4=
+R3-T1=
+R3-T2=
+R3-T3=
+R3-T4=
+R3-F1=
+R3-F2=
+R3-F3=
+R3-F4=
+R3-O1=
+R3-O2=
+R3-O3=
+R3-P1=
+R3-P2=
+R3-P3=
+R3-P4=
+R3-P5=
+R3-P1 fps cover=<average/minimum>
+R3-P2 fps main=<average/minimum>
+R3-P5 fps standard=<average>/<bomb dip>
+R3-P5 fps high=<average>/<bomb dip>
+R3-P5 fps low=<average>/<bomb dip>
+notes=<text, one line per fail, with the boss, the phase and what you saw>
+```
