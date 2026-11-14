@@ -155,7 +155,8 @@ describe('fury fixes: the gate aware fight bot and Mirage', () => {
       if (id === 'mirage') continue;
       expect(Math.round(fightSeconds(id) * 120)).toBe(MAIN_BOT_STEPS[id]);
     }
-  });
+    // Runs the fight bot for every guardian: about 3.5 s locally, past the 5 s default on a slow CI runner.
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------------------------
