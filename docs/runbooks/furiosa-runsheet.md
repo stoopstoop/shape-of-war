@@ -23,6 +23,8 @@ Furiosa is the Codex Cloud lane described in AGENTS.md. This runsheet is the ord
 - Publishing an environment can stall. Wait and look again later; never click publish repeatedly.
 - The Codex app is at chatgpt.com/codex/cloud; chatgpt.com/codex is a marketing page (seen 2026-11-13). The prompt box opens on the environment used last, so read the environment chip before every send.
 - The model control can show another default in a new chat: on 2026-11-14 it read "GPT-6.1 Sol Light" after one task had gone out on "GPT-6 Astra High", and it no longer settled. The Lead reads the label before every Send and stops if it is not the label Ryan gave; Ryan sets the control.
+- A commit title that carries (#n) does not close the issue (seen 2026-11-14 on issues 92 and 93). The Lead closes every issue at R7.
+- On the GitHub new issue form the Create button moves as the body grows. The Lead takes its position from a fresh screenshot before the click, and confirms through gh that no issue exists before a second click.
 - A long paste becomes a card above the prompt box. Click "Show in text field" on the card so the issue body sits in the prompt itself.
 - GitHub drops text in angle brackets outside code spans, so a rendered issue body loses a placeholder written that way. Template 1 keeps the verdict lines in code spans for that reason.
 - A task thread is used once. Any follow up or rerun starts in a new chat. Any thread started outside this runsheet is abandoned, never continued.
